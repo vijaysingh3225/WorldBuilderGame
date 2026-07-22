@@ -16,7 +16,7 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Traversal V1";
+        public const string CheckpointMarkerName = "Prototype Systems - Movement Correction V1";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
@@ -153,7 +153,7 @@ namespace WorldBuilder.Editor
             Material secondaryMaterial,
             Material skinMaterial)
         {
-            Transform visualRoot = CreatePivot("Humanoid Visual - Traversal V1", player.transform, Vector3.zero);
+            Transform visualRoot = CreatePivot("Humanoid Visual - Movement Correction V1", player.transform, Vector3.zero);
             Transform pelvis = CreatePivot("Pelvis", visualRoot, Vector3.zero);
             CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, pelvis, Vector3.zero, new Vector3(0.42f, 0.20f, 0.29f), secondaryMaterial);
 
@@ -165,13 +165,15 @@ namespace WorldBuilder.Editor
             CreateVisualPart("Left Upper Leg", PrimitiveType.Capsule, leftThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.16f, 0.27f, 0.16f), secondaryMaterial);
             Transform leftKnee = CreatePivot("Left Knee", leftThigh, new Vector3(0f, -0.48f, 0f));
             CreateVisualPart("Left Lower Leg", PrimitiveType.Capsule, leftKnee, new Vector3(0f, -0.23f, 0f), new Vector3(0.13f, 0.25f, 0.13f), bodyMaterial);
-            CreateVisualPart("Left Foot", PrimitiveType.Cube, leftKnee, new Vector3(0f, -0.48f, 0.07f), new Vector3(0.18f, 0.11f, 0.33f), secondaryMaterial);
+            Transform leftFoot = CreatePivot("Left Foot Pivot", leftKnee, new Vector3(0f, -0.46f, 0f));
+            CreateVisualPart("Left Foot", PrimitiveType.Cube, leftFoot, new Vector3(0f, 0.055f, 0.08f), new Vector3(0.18f, 0.11f, 0.33f), secondaryMaterial);
 
             Transform rightThigh = CreatePivot("Right Thigh", pelvis, new Vector3(0.16f, -0.1f, 0f));
             CreateVisualPart("Right Upper Leg", PrimitiveType.Capsule, rightThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.16f, 0.27f, 0.16f), secondaryMaterial);
             Transform rightKnee = CreatePivot("Right Knee", rightThigh, new Vector3(0f, -0.48f, 0f));
             CreateVisualPart("Right Lower Leg", PrimitiveType.Capsule, rightKnee, new Vector3(0f, -0.23f, 0f), new Vector3(0.13f, 0.25f, 0.13f), bodyMaterial);
-            CreateVisualPart("Right Foot", PrimitiveType.Cube, rightKnee, new Vector3(0f, -0.48f, 0.07f), new Vector3(0.18f, 0.11f, 0.33f), secondaryMaterial);
+            Transform rightFoot = CreatePivot("Right Foot Pivot", rightKnee, new Vector3(0f, -0.46f, 0f));
+            CreateVisualPart("Right Foot", PrimitiveType.Cube, rightFoot, new Vector3(0f, 0.055f, 0.08f), new Vector3(0.18f, 0.11f, 0.33f), secondaryMaterial);
 
             Transform leftShoulder = CreatePivot("Left Shoulder", chest, new Vector3(-0.36f, 0.48f, 0f));
             CreateVisualPart("Left Upper Arm", PrimitiveType.Capsule, leftShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.12f, 0.22f, 0.12f), bodyMaterial);
@@ -186,7 +188,18 @@ namespace WorldBuilder.Editor
             CreateVisualPart("Right Hand", PrimitiveType.Sphere, rightElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), skinMaterial);
 
             ProceduralHumanoidPresenter presenter = player.AddComponent<ProceduralHumanoidPresenter>();
-            presenter.Configure(motor, pelvis, chest, leftThigh, rightThigh, leftKnee, rightKnee, leftShoulder, rightShoulder);
+            presenter.Configure(
+                motor,
+                pelvis,
+                chest,
+                leftThigh,
+                rightThigh,
+                leftKnee,
+                rightKnee,
+                leftFoot,
+                rightFoot,
+                leftShoulder,
+                rightShoulder);
         }
 
         private static GameObject CreateEnemy(Vector3 position, Material bodyMaterial, out Health health)
@@ -359,7 +372,7 @@ namespace WorldBuilder.Editor
     [InitializeOnLoad]
     internal static class CombatLabFirstImport
     {
-        private const string SessionKey = "WorldBuilder.TraversalCheckpointV1Attempted";
+        private const string SessionKey = "WorldBuilder.MovementCorrectionV1bAttempted";
 
         static CombatLabFirstImport()
         {

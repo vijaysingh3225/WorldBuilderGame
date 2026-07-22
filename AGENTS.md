@@ -21,7 +21,7 @@ Work on the Combat Lab only unless the user explicitly changes scope:
 - One small greybox obstacle room.
 - Fast restart and visible health and damage-number feedback.
 
-The current testing checkpoint contains Cinemachine follow plus a slimmer procedural articulated humanoid with grounded locomotion, variable-height jumping, forgiving jump timing, crouch collision/clearance, and traversal poses. Do not add upper-body aiming, aim-relative strafing, imported character assets, or real melee until the user has tested this checkpoint and provided traversal feedback.
+The current testing checkpoint corrects traversal feedback with takeoff-preserved air speed, limited air steering, world-space foot planting, a procedural two-bone leg solver, a one-knee crouch rest, crouch-walking, and lower camera framing under ceilings. Do not add upper-body aiming, aim-relative strafing, imported character assets, or real melee until the user has tested this correction checkpoint.
 
 Use the loop: make one observable change, compile and test, play it, judge it, then preserve or revise it. Prefer concrete feel discoveries over speculative system breadth.
 

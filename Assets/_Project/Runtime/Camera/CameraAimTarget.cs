@@ -11,8 +11,10 @@ namespace WorldBuilder.Gameplay.CameraSystem
         [SerializeField] private PlayerInputSource input;
         [SerializeField] private ThirdPersonMotor motor;
         [SerializeField] private Vector3 followOffset = new Vector3(0f, 1.45f, 0f);
-        [SerializeField, Min(0f)] private float crouchCameraDrop = 0.32f;
-        [SerializeField, Min(0f)] private float heightSmoothTime = 0.1f;
+        [SerializeField, Min(0f)] private float crouchCameraDrop = 0.85f;
+        [SerializeField, Min(0f)] private float heightSmoothTime = 0.075f;
+        [SerializeField, Min(0f)] private float ceilingPadding = 0.1f;
+        [SerializeField] private LayerMask cameraClearanceMask = ~(1 << 2);
         [SerializeField] private float initialPitch = 12f;
         [SerializeField] private Vector2 pitchLimits = new Vector2(-30f, 65f);
         [SerializeField, Min(0f)] private float rotationSmoothTime = 0.035f;
@@ -80,11 +82,30 @@ namespace WorldBuilder.Gameplay.CameraSystem
             }
 
             float targetFollowHeight = followOffset.y - (motor != null ? motor.CrouchAmount * crouchCameraDrop : 0f);
+            targetFollowHeight = ResolveHeightUnderCeiling(targetFollowHeight);
             currentFollowHeight = heightSmoothTime <= 0f
                 ? targetFollowHeight
                 : Mathf.SmoothDamp(currentFollowHeight, targetFollowHeight, ref followHeightVelocity, heightSmoothTime);
 
             SnapToTarget();
+        }
+
+        private float ResolveHeightUnderCeiling(float desiredHeight)
+        {
+            Vector3 origin = followTarget.position + Vector3.up * 0.05f;
+            float rayDistance = Mathf.Max(0f, desiredHeight - 0.05f);
+            if (Physics.Raycast(
+                    origin,
+                    Vector3.up,
+                    out RaycastHit hit,
+                    rayDistance,
+                    cameraClearanceMask,
+                    QueryTriggerInteraction.Ignore))
+            {
+                return Mathf.Max(0.25f, hit.distance + 0.05f - ceilingPadding);
+            }
+
+            return desiredHeight;
         }
 
         private void SnapToTarget()

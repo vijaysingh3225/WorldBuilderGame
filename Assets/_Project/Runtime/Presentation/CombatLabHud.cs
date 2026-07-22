@@ -63,7 +63,7 @@ namespace WorldBuilder.Gameplay.Presentation
         private void OnGUI()
         {
             EnsureStyles();
-            GUI.Label(new Rect(24f, 20f, 520f, 30f), "MOVEMENT LAB  /  TRAVERSAL CHECKPOINT", titleStyle);
+            GUI.Label(new Rect(24f, 20f, 580f, 30f), "MOVEMENT LAB  /  CORRECTION CHECKPOINT", titleStyle);
             GUI.Label(new Rect(24f, 54f, 780f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   LMB test damage   R restart", textStyle);
 
             DrawHealthBar(new Rect(24f, 88f, 260f, 18f), playerHealth, new Color(0.25f, 0.68f, 0.45f), "PLAYER");

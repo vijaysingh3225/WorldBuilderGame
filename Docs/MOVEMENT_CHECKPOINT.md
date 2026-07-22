@@ -1,26 +1,28 @@
-# Traversal movement checkpoint
+# Movement correction checkpoint
 
-This checkpoint adds the complete basic traversal vocabulary to the grounded movement baseline. The disposable articulated mannequin now presents idle, walk, sprint, jump, fall, land, and crouch states while gameplay collision remains owned by the character motor.
+This checkpoint corrects the first traversal playtest. Airborne movement now inherits a speed ceiling from takeoff instead of accepting a late sprint bonus. The disposable mannequin uses planted world-space foot targets and a small two-bone leg solver, while crouching presents a one-knee resting pose that blends into a crouch-walk.
 
 ## Test pass
 
 Play Assets/_Project/Scenes/CombatLab.unity for several minutes and check:
 
-1. Tap Space, then hold Space on a second jump. The held jump should be noticeably higher without feeling floaty.
-2. Run off an edge and press Space just after leaving it. The short coyote-time window should accept the jump.
-3. Press Space just before landing. The buffered input should produce a jump on contact.
-4. Hold Ctrl or C while idle and moving. The collider, camera, speed, and mannequin should transition together.
-5. Enter the marked low-clearance bay while crouched, release crouch under its roof, and confirm the character cannot stand into it.
-6. Leave the bay while still holding no crouch input. Standing should resume automatically as soon as there is clearance.
-7. Orbit the camera through walking, sprinting, jumping, landing, and crouching to check for jitter or abrupt height changes.
-8. Verify the target dummy remains passive and diagnostic hits still display damage numbers.
+1. Reach sprint speed before jumping and note the travel distance. Repeat while starting from a walk and pressing Shift only after takeoff; the late Shift must not add airborne speed.
+2. Change direction while airborne. Limited steering should remain available without creating extra speed.
+3. Hold Ctrl or C while stationary. The mannequin should settle onto one knee with both feet oriented sensibly instead of extending its legs backward.
+4. Move while holding crouch. The resting pose should become a compact crouch-walk.
+5. Walk and sprint in a straight line while watching one foot at a time. A stance foot should remain fixed against the world until it lifts for its next step.
+6. Stop, reverse, and turn sharply. Note any visible foot snap, overextension, knee inversion, or residual skating.
+7. Enter the marked low-clearance bay while crouched and orbit/look downward. The camera pivot should remain below the roof instead of showing its top or entering the ceiling.
+8. Release crouch under the roof, then exit. Standing must remain blocked until clearance exists and resume automatically afterward.
+9. Verify variable jump height, coyote time, buffered jumping, the passive dummy, and diagnostic damage numbers still work.
 
-Record concrete observations such as jump height, early-release responsiveness, landing weight, crouch speed, camera-height lag, limb intersections, or a failed clearance check.
+Record concrete observations such as unexpected midair acceleration, foot drift, knee popping, stride length, crouch silhouette, camera-height lag, or a failed clearance check.
 
 ## Deliberately deferred
 
 - Imported production humanoid and authored animation clips.
 - Independent torso aim and directional strafing.
 - Production-quality animation state machine, imported humanoid, and authored clips.
+- Uneven-terrain foot tilting beyond the current prototype raycast solver.
 - Root-motion movement.
 - Real sword model, grip, attack animation, and hit timing.

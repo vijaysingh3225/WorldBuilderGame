@@ -12,6 +12,8 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0f)] private float sprintSpeed = 6.1f;
         [SerializeField, Min(0f)] private float crouchSpeed = 2.35f;
         [SerializeField, Min(0f)] private float acceleration = 24f;
+        [SerializeField, Min(0f)] private float airAcceleration = 5.5f;
+        [SerializeField, Min(0f)] private float standingJumpAirSpeedLimit = 2.2f;
         [SerializeField, Min(0f)] private float turnSpeed = 720f;
         [SerializeField, Min(0f)] private float gravity = 28f;
         [SerializeField, Min(0.1f)] private float jumpHeight = 1.35f;
@@ -33,6 +35,7 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3 crouchingCenter;
         private float lastGroundedTime = float.NegativeInfinity;
         private float lastJumpRequestedTime = float.NegativeInfinity;
+        private float airborneSpeedLimit;
         private bool isGrounded;
         private bool isCrouched;
 
@@ -43,7 +46,7 @@ namespace WorldBuilder.Gameplay.Characters
         public float VerticalVelocity => verticalVelocity;
         public float CrouchAmount => controller == null || Mathf.Approximately(standingHeight, crouchingHeight)
             ? 0f
-            : Mathf.InverseLerp(standingHeight, crouchingHeight, controller.height);
+            : Mathf.Clamp01((standingHeight - controller.height) / (standingHeight - crouchingHeight));
         public bool IsGrounded => isGrounded;
         public bool IsCrouched => isCrouched;
 
@@ -56,6 +59,7 @@ namespace WorldBuilder.Gameplay.Characters
             standingCenter = controller.center;
             crouchingHeight = Mathf.Clamp(crouchingHeight, controller.radius * 2f, standingHeight);
             crouchingCenter = standingCenter + Vector3.down * ((standingHeight - crouchingHeight) * 0.5f);
+            airborneSpeedLimit = standingJumpAirSpeedLimit;
             isGrounded = controller.isGrounded;
         }
 
@@ -75,9 +79,25 @@ namespace WorldBuilder.Gameplay.Characters
             PlayerIntent intent = input.CurrentIntent;
             UpdateCrouch(intent.CrouchHeld);
             Vector3 desiredDirection = ToWorldDirection(intent.Move);
-            float targetSpeed = isCrouched ? crouchSpeed : intent.SprintHeld ? sprintSpeed : walkSpeed;
-            Vector3 desiredVelocity = desiredDirection * targetSpeed;
-            horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, desiredVelocity, acceleration * Time.deltaTime);
+            bool hasGroundControl = controller.isGrounded;
+            if (hasGroundControl)
+            {
+                float targetSpeed = isCrouched ? crouchSpeed : intent.SprintHeld ? sprintSpeed : walkSpeed;
+                Vector3 desiredVelocity = desiredDirection * targetSpeed;
+                horizontalVelocity = Vector3.MoveTowards(
+                    horizontalVelocity,
+                    desiredVelocity,
+                    acceleration * Time.deltaTime);
+                airborneSpeedLimit = Mathf.Max(standingJumpAirSpeedLimit, horizontalVelocity.magnitude);
+            }
+            else if (desiredDirection.sqrMagnitude > 0.001f)
+            {
+                Vector3 desiredAirVelocity = desiredDirection * airborneSpeedLimit;
+                horizontalVelocity = Vector3.MoveTowards(
+                    horizontalVelocity,
+                    desiredAirVelocity,
+                    airAcceleration * Time.deltaTime);
+            }
 
             if (desiredDirection.sqrMagnitude > 0.001f)
             {
