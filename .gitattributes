@@ -1,0 +1,24 @@
+* text=auto eol=lf
+*.cs text diff=csharp
+*.shader text
+*.compute text
+*.unity text merge=unityyamlmerge diff
+*.prefab text merge=unityyamlmerge diff
+*.asset text merge=unityyamlmerge diff
+*.meta text merge=unityyamlmerge diff
+*.mat text merge=unityyamlmerge diff
+*.anim text merge=unityyamlmerge diff
+*.controller text merge=unityyamlmerge diff
+*.overrideController text merge=unityyamlmerge diff
+*.physicMaterial text merge=unityyamlmerge diff
+*.physicsMaterial2D text merge=unityyamlmerge diff
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.psd binary
+*.tga binary
+*.fbx binary
+*.wav binary
+*.mp3 binary
+*.ogg binary

@@ -1,0 +1,10 @@
+{
+  "files.exclude": {
+    "**/.git": true,
+    "**/Library": true,
+    "**/Temp": true,
+    "**/Logs": true,
+    "**/obj": true
+  },
+  "dotnet.defaultSolution": "WorldBuilderGame.sln"
+}
