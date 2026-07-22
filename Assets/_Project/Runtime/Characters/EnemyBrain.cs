@@ -19,6 +19,7 @@ namespace WorldBuilder.Gameplay.Characters
         }
 
         [SerializeField] private Transform target;
+        [SerializeField] private bool trainingDummy = true;
         [SerializeField, Min(0f)] private float detectionRange = 13f;
         [SerializeField, Min(0f)] private float movementSpeed = 2.6f;
         [SerializeField, Min(0f)] private float turnSpeed = 420f;
@@ -41,6 +42,13 @@ namespace WorldBuilder.Gameplay.Characters
         public void Configure(Transform pursuitTarget)
         {
             target = pursuitTarget;
+            trainingDummy = false;
+        }
+
+        public void ConfigureAsTrainingDummy()
+        {
+            target = null;
+            trainingDummy = true;
         }
 
         private void Awake()
@@ -64,6 +72,17 @@ namespace WorldBuilder.Gameplay.Characters
         {
             if (state == EnemyState.Dead)
             {
+                return;
+            }
+
+            if (trainingDummy)
+            {
+                if (state != EnemyState.Idle)
+                {
+                    ChangeState(EnemyState.Idle);
+                }
+
+                ApplyMotion(Vector3.zero);
                 return;
             }
 

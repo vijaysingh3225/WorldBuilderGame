@@ -1,6 +1,6 @@
 # WorldBuilder Game
 
-This is the Unity implementation workspace for the WorldBuilder design vault. The first milestone is a deliberately small Combat Lab: a third-person player, an over-the-shoulder camera, one melee action, one readable enemy, and a greybox arena.
+This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small movement-focused Combat Lab: a procedural humanoid with idle/walk/run motion, a Cinemachine over-the-shoulder camera, a passive damage dummy, and a greybox arena.
 
 ## Open the project
 
@@ -21,7 +21,7 @@ Controls:
 
 ## First acceptance test
 
-The slice is successful when movement and camera control are stable, the enemy telegraphs before dealing damage, the player can avoid or commit to attacks intentionally, and the fight is useful enough to expose the next movement or combat problem.
+The slice is successful when movement and camera control are stable, directional locomotion reads naturally on a humanoid body, jumping and crouching are dependable, and navigating the greybox exposes useful movement problems. The passive dummy and placeholder attack exist only to verify damage feedback while movement is developed.
 
 The Weapon Grid, procedural raid assembly, extraction loop, and multiplayer runtime are intentionally not in this first slice. Their architectural seams are preserved without paying their implementation cost prematurely.
 

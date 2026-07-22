@@ -2,7 +2,8 @@
   "name": "WorldBuilder.Editor",
   "rootNamespace": "WorldBuilder.Editor",
   "references": [
-    "WorldBuilder.Gameplay"
+    "WorldBuilder.Gameplay",
+    "Unity.Cinemachine"
   ],
   "includePlatforms": [
     "Editor"

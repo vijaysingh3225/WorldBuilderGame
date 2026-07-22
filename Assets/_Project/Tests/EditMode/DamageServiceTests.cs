@@ -35,6 +35,18 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void ValidDamageRequestPublishesTheResolvedDamage()
+        {
+            float reportedDamage = 0f;
+            health.Damaged += request => reportedDamage = request.Amount;
+            DamageRequest request = new DamageRequest(null, 17f, Vector3.one, Vector3.forward, "test");
+
+            DamageService.TryApply(target, request);
+
+            Assert.That(reportedDamage, Is.EqualTo(17f));
+        }
+
+        [Test]
         public void LethalDamageRaisesDeathOnlyOnce()
         {
             int deathCount = 0;

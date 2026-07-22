@@ -3,19 +3,22 @@
 The Combat Lab uses intentionally narrow seams:
 
 1. PlayerInputSource samples devices and emits PlayerIntent.
-2. ThirdPersonMotor consumes intent and owns player locomotion.
-3. MeleeWeapon validates attack timing and submits DamageRequest values.
-4. DamageService resolves an IDamageable owner; Health is the only component that mutates health.
-5. EnemyBrain owns enemy state transitions; EnemyTelegraphPresenter only visualizes those states.
-6. GameplayEventLog records meaningful combat state changes without making game systems depend on presentation.
-7. CombatLabSceneBuilder creates the disposable greybox scene reproducibly.
+2. ThirdPersonMotor consumes intent and owns player locomotion while exposing read-only velocity for presentation.
+3. ProceduralHumanoidPresenter reads velocity and animates the disposable mannequin without mutating gameplay movement.
+4. CameraAimTarget converts look intent into a smoothed world-space aim transform; Cinemachine owns follow, shoulder framing, and collision presentation.
+5. MeleeWeapon validates attack timing and submits DamageRequest values.
+6. DamageService resolves an IDamageable owner; Health is the only component that mutates health.
+7. EnemyBrain retains replaceable enemy state logic but currently runs in passive training-dummy mode; EnemyTelegraphPresenter only visualizes state.
+8. GameplayEventLog records meaningful combat state changes without making game systems depend on presentation.
+9. CombatLabSceneBuilder creates the disposable greybox scene reproducibly.
 
 This is multiplayer-aware rather than multiplayer-built. Input, requests, authoritative owners, stable IDs, and event records create future evaluation seams. No current code promises that multiplayer conversion will be automatic.
 
 ## Next proof sequence
 
-1. Tune movement, camera, attack range, enemy windup, and recovery in the Combat Lab.
-2. Add one valuable pickup, a clear extraction zone, death, and a small consequence.
-3. Test a reduced Weapon Grid with only a few artifacts and one meaningful tradeoff.
-4. Assemble a raid from authored chunks with stable connectors and a deterministic seed.
-5. Add pseudo-player NPC behavior only after combat spaces and extraction pressure exist.
+1. Smooth the camera and establish a humanoid locomotion base with directional animation, jumping, and crouching.
+2. Replace the diagnostic weapon motion with the first deliberate melee interaction.
+3. Add one valuable pickup, a clear extraction zone, death, and a small consequence.
+4. Test a reduced Weapon Grid with only a few artifacts and one meaningful tradeoff.
+5. Assemble a raid from authored chunks with stable connectors and a deterministic seed.
+6. Add pseudo-player NPC behavior only after combat spaces and extraction pressure exist.

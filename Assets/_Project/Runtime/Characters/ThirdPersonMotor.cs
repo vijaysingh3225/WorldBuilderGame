@@ -21,6 +21,12 @@ namespace WorldBuilder.Gameplay.Characters
         private float verticalVelocity;
         private Transform cameraTransform;
 
+        public Vector3 HorizontalVelocity => horizontalVelocity;
+        public Vector3 LocalHorizontalVelocity => transform.InverseTransformDirection(horizontalVelocity);
+        public float HorizontalSpeed => horizontalVelocity.magnitude;
+        public float MaximumSpeed => sprintSpeed;
+        public bool IsGrounded => controller != null && controller.isGrounded;
+
         private void Awake()
         {
             controller = GetComponent<CharacterController>();

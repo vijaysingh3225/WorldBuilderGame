@@ -11,6 +11,7 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField] private float current = 100f;
 
         public event Action<float, float> Changed;
+        public event Action<DamageRequest> Damaged;
         public event Action<DamageRequest> Died;
 
         public float Current => current;
@@ -34,6 +35,7 @@ namespace WorldBuilder.Gameplay.Combat
 
             current = Mathf.Max(0f, current - request.Amount);
             Changed?.Invoke(current, maximum);
+            Damaged?.Invoke(request);
 
             if (current <= 0f)
             {

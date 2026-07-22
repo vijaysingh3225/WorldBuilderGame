@@ -15,7 +15,7 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Color recoveryColor = new Color(0.35f, 0.32f, 0.29f);
         [SerializeField] private Color deadColor = new Color(0.08f, 0.08f, 0.08f);
 
-        private readonly MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+        private MaterialPropertyBlock propertyBlock;
         private EnemyBrain brain;
         private Health health;
 
@@ -56,6 +56,11 @@ namespace WorldBuilder.Gameplay.Presentation
             if (targetRenderer == null || brain == null || health == null)
             {
                 return;
+            }
+
+            if (propertyBlock == null)
+            {
+                propertyBlock = new MaterialPropertyBlock();
             }
 
             Color color;
