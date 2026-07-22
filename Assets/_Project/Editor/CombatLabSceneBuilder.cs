@@ -16,7 +16,7 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Reliable Gait V1";
+        public const string CheckpointMarkerName = "Prototype Systems - Gait Tuning V1";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
@@ -131,9 +131,10 @@ namespace WorldBuilder.Editor
 
             CharacterController controller = player.AddComponent<CharacterController>();
             controller.height = 2f;
-            controller.radius = 0.45f;
+            controller.radius = 0.36f;
             controller.center = Vector3.zero;
-            controller.skinWidth = 0.05f;
+            controller.skinWidth = 0.04f;
+            controller.stepOffset = 0.22f;
 
             StableId stableId = player.AddComponent<StableId>();
             stableId.EnsureAssigned();
@@ -153,11 +154,12 @@ namespace WorldBuilder.Editor
             Material secondaryMaterial,
             Material skinMaterial)
         {
-            Transform visualRoot = CreatePivot("Humanoid Visual - Reliable Gait V1", player.transform, Vector3.zero);
+            Transform visualRoot = CreatePivot("Humanoid Visual - Gait Tuning V1", player.transform, Vector3.zero);
             Transform pelvis = CreatePivot("Pelvis", visualRoot, Vector3.zero);
-            CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, pelvis, Vector3.zero, new Vector3(0.42f, 0.20f, 0.29f), secondaryMaterial);
+            Transform body = CreatePivot("Body Weight", pelvis, Vector3.zero);
+            CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, body, Vector3.zero, new Vector3(0.42f, 0.20f, 0.29f), secondaryMaterial);
 
-            Transform chest = CreatePivot("Chest", pelvis, new Vector3(0f, 0.1f, 0f));
+            Transform chest = CreatePivot("Chest", body, new Vector3(0f, 0.1f, 0f));
             CreateVisualPart("Torso", PrimitiveType.Cube, chest, new Vector3(0f, 0.29f, 0f), new Vector3(0.56f, 0.58f, 0.31f), bodyMaterial);
             CreateVisualPart("Head", PrimitiveType.Sphere, chest, new Vector3(0f, 0.73f, 0f), new Vector3(0.35f, 0.42f, 0.35f), skinMaterial);
 
@@ -191,6 +193,7 @@ namespace WorldBuilder.Editor
             presenter.Configure(
                 motor,
                 pelvis,
+                body,
                 chest,
                 leftThigh,
                 rightThigh,
@@ -374,7 +377,7 @@ namespace WorldBuilder.Editor
     [InitializeOnLoad]
     internal static class CombatLabFirstImport
     {
-        private const string SessionKey = "WorldBuilder.ReliableGaitV1Attempted";
+        private const string SessionKey = "WorldBuilder.GaitTuningV1Attempted";
 
         static CombatLabFirstImport()
         {

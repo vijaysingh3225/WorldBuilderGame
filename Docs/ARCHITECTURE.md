@@ -3,7 +3,7 @@
 The Combat Lab uses intentionally narrow seams:
 
 1. PlayerInputSource samples devices and emits PlayerIntent.
-2. ThirdPersonMotor consumes intent and owns player locomotion, a takeoff-captured airborne speed ceiling, limited air steering, jump forgiveness, variable jump height, crouch collision, and overhead-clearance validation while exposing read-only state for presentation.
+2. ThirdPersonMotor consumes intent and owns player locomotion, a takeoff-captured airborne speed ceiling, responsive speed-capped air steering, center-supported edge grounding, jump forgiveness, variable jump height, crouch collision, and overhead-clearance validation while exposing read-only state for presentation.
 3. ProceduralHumanoidPresenter reads motor state and advances a bounded local gait from distance traveled. Its stance/swing targets remain relative to the character, so presentation cannot attach to walls, ceilings, or arbitrary scene geometry and never mutates gameplay movement.
 4. CameraAimTarget converts look intent into a smoothed world-space aim transform, lowers with crouch, and clamps below detected ceilings; Cinemachine owns follow, shoulder framing, and collision presentation.
 5. MeleeWeapon validates attack timing and submits DamageRequest values.

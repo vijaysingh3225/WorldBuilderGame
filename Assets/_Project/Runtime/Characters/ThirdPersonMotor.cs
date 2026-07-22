@@ -8,11 +8,11 @@ namespace WorldBuilder.Gameplay.Characters
     [RequireComponent(typeof(PlayerInputSource))]
     public sealed class ThirdPersonMotor : MonoBehaviour
     {
-        [SerializeField, Min(0f)] private float walkSpeed = 4.2f;
+        [SerializeField, Min(0f)] private float walkSpeed = 3.4f;
         [SerializeField, Min(0f)] private float sprintSpeed = 6.1f;
-        [SerializeField, Min(0f)] private float crouchSpeed = 2.35f;
+        [SerializeField, Min(0f)] private float crouchSpeed = 1.8f;
         [SerializeField, Min(0f)] private float acceleration = 24f;
-        [SerializeField, Min(0f)] private float airAcceleration = 5.5f;
+        [SerializeField, Min(0f)] private float airAcceleration = 14f;
         [SerializeField, Min(0f)] private float standingJumpAirSpeedLimit = 2.2f;
         [SerializeField, Min(0f)] private float turnSpeed = 720f;
         [SerializeField, Min(0f)] private float gravity = 28f;
@@ -23,6 +23,9 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.9f)] private float crouchingHeight = 1.2f;
         [SerializeField, Min(0.1f)] private float crouchTransitionSpeed = 5.5f;
         [SerializeField] private LayerMask overheadObstructionMask = ~(1 << 2);
+        [SerializeField] private LayerMask groundSupportMask = ~(1 << 2);
+        [SerializeField, Min(0.05f)] private float groundProbeRadius = 0.18f;
+        [SerializeField, Min(0.01f)] private float groundProbeDistance = 0.15f;
 
         private CharacterController controller;
         private PlayerInputSource input;
@@ -60,7 +63,7 @@ namespace WorldBuilder.Gameplay.Characters
             crouchingHeight = Mathf.Clamp(crouchingHeight, controller.radius * 2f, standingHeight);
             crouchingCenter = standingCenter + Vector3.down * ((standingHeight - crouchingHeight) * 0.5f);
             airborneSpeedLimit = standingJumpAirSpeedLimit;
-            isGrounded = controller.isGrounded;
+            isGrounded = HasSupportedGroundContact();
         }
 
         private void Update()
@@ -79,7 +82,7 @@ namespace WorldBuilder.Gameplay.Characters
             PlayerIntent intent = input.CurrentIntent;
             UpdateCrouch(intent.CrouchHeld);
             Vector3 desiredDirection = ToWorldDirection(intent.Move);
-            bool hasGroundControl = controller.isGrounded;
+            bool hasGroundControl = HasSupportedGroundContact();
             if (hasGroundControl)
             {
                 float targetSpeed = isCrouched ? crouchSpeed : intent.SprintHeld ? sprintSpeed : walkSpeed;
@@ -108,7 +111,7 @@ namespace WorldBuilder.Gameplay.Characters
             UpdateVerticalMotion(intent);
             Vector3 motion = horizontalVelocity + Vector3.up * verticalVelocity;
             controller.Move(motion * Time.deltaTime);
-            isGrounded = controller.isGrounded;
+            isGrounded = HasSupportedGroundContact();
         }
 
         private Vector3 ToWorldDirection(Vector2 move)
@@ -128,12 +131,12 @@ namespace WorldBuilder.Gameplay.Characters
             horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, Vector3.zero, acceleration * Time.deltaTime);
             UpdatePassiveGravity();
             controller.Move((horizontalVelocity + Vector3.up * verticalVelocity) * Time.deltaTime);
-            isGrounded = controller.isGrounded;
+            isGrounded = HasSupportedGroundContact();
         }
 
         private void UpdateVerticalMotion(PlayerIntent intent)
         {
-            bool groundedBeforeMove = controller.isGrounded;
+            bool groundedBeforeMove = HasSupportedGroundContact();
             if (groundedBeforeMove)
             {
                 lastGroundedTime = Time.time;
@@ -169,7 +172,7 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdatePassiveGravity()
         {
-            if (controller.isGrounded && verticalVelocity < 0f)
+            if (HasSupportedGroundContact() && verticalVelocity < 0f)
             {
                 verticalVelocity = -2f;
             }
@@ -204,6 +207,31 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 bottom = worldCenter - Vector3.up * halfSegment + Vector3.up * 0.03f;
             Vector3 top = worldCenter + Vector3.up * halfSegment;
             return !Physics.CheckCapsule(bottom, top, radius, overheadObstructionMask, QueryTriggerInteraction.Ignore);
+        }
+
+        private bool HasSupportedGroundContact()
+        {
+            if (!controller.isGrounded)
+            {
+                return false;
+            }
+
+            Vector3 worldCenter = transform.TransformPoint(controller.center);
+            Vector3 controllerBottom = worldCenter - Vector3.up * (controller.height * 0.5f);
+            Vector3 probeOrigin = controllerBottom + Vector3.up * (groundProbeRadius + 0.05f);
+            if (!Physics.SphereCast(
+                    probeOrigin,
+                    groundProbeRadius,
+                    Vector3.down,
+                    out RaycastHit hit,
+                    groundProbeDistance,
+                    groundSupportMask,
+                    QueryTriggerInteraction.Ignore))
+            {
+                return false;
+            }
+
+            return hit.normal.y >= 0.55f;
         }
     }
 }

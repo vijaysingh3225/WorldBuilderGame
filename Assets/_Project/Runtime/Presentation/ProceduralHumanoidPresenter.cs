@@ -7,6 +7,7 @@ namespace WorldBuilder.Gameplay.Presentation
     {
         [SerializeField] private ThirdPersonMotor motor;
         [SerializeField] private Transform pelvis;
+        [SerializeField] private Transform body;
         [SerializeField] private Transform chest;
         [SerializeField] private Transform leftThigh;
         [SerializeField] private Transform rightThigh;
@@ -24,6 +25,8 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private Vector3 pelvisRestPosition;
         private Quaternion pelvisRestRotation;
+        private Vector3 bodyRestPosition;
+        private Quaternion bodyRestRotation;
         private Quaternion chestRestRotation;
         private Quaternion leftThighRestRotation;
         private Quaternion rightThighRestRotation;
@@ -52,13 +55,14 @@ namespace WorldBuilder.Gameplay.Presentation
         private bool wasGrounded;
         private bool poseCached;
 
-        private bool HasCompleteRig => pelvis != null && chest != null && leftThigh != null && rightThigh != null &&
+        private bool HasCompleteRig => pelvis != null && body != null && chest != null && leftThigh != null && rightThigh != null &&
             leftKnee != null && rightKnee != null && leftFoot != null && rightFoot != null &&
             leftShoulder != null && rightShoulder != null && leftElbow != null && rightElbow != null;
 
         public void Configure(
             ThirdPersonMotor movementMotor,
             Transform pelvisTransform,
+            Transform bodyTransform,
             Transform chestTransform,
             Transform leftThighTransform,
             Transform rightThighTransform,
@@ -73,6 +77,7 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             motor = movementMotor;
             pelvis = pelvisTransform;
+            body = bodyTransform;
             chest = chestTransform;
             leftThigh = leftThighTransform;
             rightThigh = rightThighTransform;
@@ -122,12 +127,14 @@ namespace WorldBuilder.Gameplay.Presentation
             wasGrounded = motor.IsGrounded;
 
             float runBlend = Mathf.InverseLerp(0.58f, 1f, normalizedSpeed);
-            float cycleDistance = Mathf.Lerp(1.45f, 2.25f, runBlend);
-            cycleDistance = Mathf.Lerp(cycleDistance, 1.18f, crouchWeight);
+            float cadenceDistance = Mathf.Lerp(2.60f, 2.65f, runBlend);
+            cadenceDistance = Mathf.Lerp(cadenceDistance, 1.35f, crouchWeight);
+            float gaitTravelDistance = Mathf.Lerp(1.45f, 2.05f, runBlend);
+            gaitTravelDistance = Mathf.Lerp(gaitTravelDistance, 0.82f, crouchWeight);
             if (motor.IsGrounded && motor.HorizontalSpeed > 0.02f)
             {
                 strideCycle = Mathf.Repeat(
-                    strideCycle + motor.HorizontalSpeed * Time.deltaTime / Mathf.Max(0.01f, cycleDistance),
+                    strideCycle + motor.HorizontalSpeed * Time.deltaTime / Mathf.Max(0.01f, cadenceDistance),
                     1f);
             }
 
@@ -140,7 +147,7 @@ namespace WorldBuilder.Gameplay.Presentation
                 localGaitBlendSpeed * Time.deltaTime);
             if (motor.IsGrounded && localGaitWeight > 0.001f)
             {
-                ApplyLocalGait(runBlend, cycleDistance, localGaitWeight);
+                ApplyLocalGait(runBlend, gaitTravelDistance, localGaitWeight);
             }
         }
 
@@ -172,28 +179,32 @@ namespace WorldBuilder.Gameplay.Presentation
             float landingDrop = 0.075f * landingResponse;
 
             pelvis.localPosition = pelvisRestPosition +
-                Vector3.up * (bob + idleBreath - crouchPelvisDrop - gaitPelvisDrop - landingDrop) +
-                Vector3.back * (0.04f * stationaryCrouch);
+                Vector3.up * (bob + idleBreath - crouchPelvisDrop - gaitPelvisDrop - landingDrop);
             pelvis.localRotation = pelvisRestRotation * Quaternion.Euler(
-                -3f * stationaryCrouch + 3f * movingCrouch,
+                3f * movingCrouch,
                 0f,
                 stride * 2.2f * groundedLocomotion);
+            body.localPosition = bodyRestPosition + Vector3.back * (0.13f * stationaryCrouch);
+            body.localRotation = bodyRestRotation * Quaternion.Euler(
+                -5f * stationaryCrouch + 3f * movingCrouch,
+                0f,
+                0f);
             chest.localRotation = chestRestRotation * Quaternion.Euler(
-                -idleBreath * 35f + 3f * stationaryCrouch + 9f * movingCrouch + 6f * runBlend * groundedLocomotion -
+                -idleBreath * 35f + 5f * stationaryCrouch + 8f * movingCrouch + 6f * runBlend * groundedLocomotion -
                     7f * rising + 5f * falling,
                 stride * Mathf.Lerp(1.5f, 4f, runBlend) * groundedLocomotion,
                 -stride * 1.8f * groundedLocomotion);
 
             float leftStandingThigh = stride * strideAngle + 12f * rising - 12f * falling;
             float rightStandingThigh = -stride * strideAngle - 8f * rising - 12f * falling;
-            float leftCrouchThigh = Mathf.Lerp(-39f, -25f, groundedLocomotion);
+            float leftCrouchThigh = Mathf.Lerp(-12f, -25f, groundedLocomotion);
             float rightCrouchThigh = Mathf.Lerp(-58f, -25f, groundedLocomotion);
             float leftThighAngle = Mathf.Lerp(leftStandingThigh, leftCrouchThigh, crouchWeight);
             float rightThighAngle = Mathf.Lerp(rightStandingThigh, rightCrouchThigh, crouchWeight);
 
             float leftStandingKnee = leftWalkingKnee + 24f * rising + 30f * falling + 18f * landingResponse;
             float rightStandingKnee = rightWalkingKnee + 34f * rising + 30f * falling + 18f * landingResponse;
-            float leftCrouchKnee = Mathf.Lerp(113f, 72f, groundedLocomotion);
+            float leftCrouchKnee = Mathf.Lerp(92f, 72f, groundedLocomotion);
             float rightCrouchKnee = Mathf.Lerp(117f, 72f, groundedLocomotion);
             float leftKneeAngle = Mathf.Lerp(leftStandingKnee, leftCrouchKnee, crouchWeight);
             float rightKneeAngle = Mathf.Lerp(rightStandingKnee, rightCrouchKnee, crouchWeight);
@@ -349,6 +360,8 @@ namespace WorldBuilder.Gameplay.Presentation
 
             pelvisRestPosition = pelvis.localPosition;
             pelvisRestRotation = pelvis.localRotation;
+            bodyRestPosition = body.localPosition;
+            bodyRestRotation = body.localRotation;
             chestRestRotation = chest.localRotation;
             leftThighRestRotation = leftThigh.localRotation;
             rightThighRestRotation = rightThigh.localRotation;
@@ -375,6 +388,8 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             pelvis.localPosition = pelvisRestPosition;
             pelvis.localRotation = pelvisRestRotation;
+            body.localPosition = bodyRestPosition;
+            body.localRotation = bodyRestRotation;
             chest.localRotation = chestRestRotation;
             leftThigh.localRotation = leftThighRestRotation;
             rightThigh.localRotation = rightThighRestRotation;

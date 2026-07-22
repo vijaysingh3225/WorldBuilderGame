@@ -21,7 +21,7 @@ Work on the Combat Lab only unless the user explicitly changes scope:
 - One small greybox obstacle room.
 - Fast restart and visible health and damage-number feedback.
 
-The current testing checkpoint replaces unreliable world-space foot magnets with bounded local walk, jog, and crouch-walk arcs synchronized to distance traveled. It also adds jogging elbows/hands, rebalances the one-knee rest, preserves takeoff air speed, and keeps lower camera framing under ceilings. Do not add upper-body aiming, aim-relative strafing, imported character assets, or real melee until the user has tested this reliable-gait checkpoint.
+The current testing checkpoint tunes the reliable local gait with a slower walk cadence, longer perceived strides, stronger speed-capped air steering, a slower crouch-walk, a separate tactical body-weight pivot for the one-knee rest, and center-supported grounding at platform edges. Do not add upper-body aiming, aim-relative strafing, imported character assets, or real melee until the user has tested this gait-tuning checkpoint.
 
 Use the loop: make one observable change, compile and test, play it, judge it, then preserve or revise it. Prefer concrete feel discoveries over speculative system breadth.
 
