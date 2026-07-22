@@ -4,17 +4,30 @@ namespace WorldBuilder.Gameplay.Input
 {
     public readonly struct PlayerIntent
     {
-        public PlayerIntent(Vector2 move, Vector2 look, bool sprintHeld, bool attackPressed)
+        public PlayerIntent(
+            Vector2 move,
+            Vector2 look,
+            bool sprintHeld,
+            bool jumpPressed,
+            bool jumpHeld,
+            bool crouchHeld,
+            bool attackPressed)
         {
             Move = Vector2.ClampMagnitude(move, 1f);
             Look = look;
             SprintHeld = sprintHeld;
+            JumpPressed = jumpPressed;
+            JumpHeld = jumpHeld;
+            CrouchHeld = crouchHeld;
             AttackPressed = attackPressed;
         }
 
         public Vector2 Move { get; }
         public Vector2 Look { get; }
         public bool SprintHeld { get; }
+        public bool JumpPressed { get; }
+        public bool JumpHeld { get; }
+        public bool CrouchHeld { get; }
         public bool AttackPressed { get; }
     }
 

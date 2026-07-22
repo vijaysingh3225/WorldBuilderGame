@@ -16,6 +16,7 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
+        public const string CheckpointMarkerName = "Prototype Systems - Traversal V1";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
@@ -48,7 +49,7 @@ namespace WorldBuilder.Editor
             GameObject enemy = CreateEnemy(new Vector3(0f, 1f, 5f), enemyMaterial, out Health enemyHealth);
             CreateCamera(player.transform, playerInput);
 
-            GameObject systems = new GameObject("Prototype Systems");
+            GameObject systems = new GameObject(CheckpointMarkerName);
             CombatLabHud hud = systems.AddComponent<CombatLabHud>();
             hud.Configure(playerHealth, enemyHealth);
 
@@ -103,6 +104,11 @@ namespace WorldBuilder.Editor
             CreateBlock("North Pillar", new Vector3(-5.7f, 1.3f, 5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, parent);
             CreateBlock("South Pillar", new Vector3(5.7f, 1.3f, -5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, parent);
 
+            CreateBlock("Crouch Test Roof", new Vector3(7.6f, 1.95f, 5.8f), new Vector3(4f, 0.5f, 3f), stone, parent);
+            CreateBlock("Crouch Test Left Support", new Vector3(5.85f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, parent);
+            CreateBlock("Crouch Test Right Support", new Vector3(9.35f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, parent);
+            CreateMarker("Crouch Test Marker", new Vector3(7.6f, 0.03f, 5.8f), new Vector3(3f, 0.05f, 2.2f), accent, parent);
+
             CreateMarker("Player Start Marker", new Vector3(0f, 0.03f, -5.5f), new Vector3(2.4f, 0.05f, 2.4f), accent, parent);
             CreateMarker("Enemy Start Marker", new Vector3(0f, 0.03f, 5f), new Vector3(2.4f, 0.05f, 2.4f), accent, parent);
         }
@@ -147,37 +153,37 @@ namespace WorldBuilder.Editor
             Material secondaryMaterial,
             Material skinMaterial)
         {
-            Transform visualRoot = CreatePivot("Humanoid Visual", player.transform, Vector3.zero);
+            Transform visualRoot = CreatePivot("Humanoid Visual - Traversal V1", player.transform, Vector3.zero);
             Transform pelvis = CreatePivot("Pelvis", visualRoot, Vector3.zero);
-            CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, pelvis, Vector3.zero, new Vector3(0.52f, 0.22f, 0.34f), secondaryMaterial);
+            CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, pelvis, Vector3.zero, new Vector3(0.42f, 0.20f, 0.29f), secondaryMaterial);
 
             Transform chest = CreatePivot("Chest", pelvis, new Vector3(0f, 0.1f, 0f));
-            CreateVisualPart("Torso", PrimitiveType.Cube, chest, new Vector3(0f, 0.28f, 0f), new Vector3(0.72f, 0.56f, 0.36f), bodyMaterial);
-            CreateVisualPart("Head", PrimitiveType.Sphere, chest, new Vector3(0f, 0.75f, 0f), new Vector3(0.43f, 0.48f, 0.43f), skinMaterial);
+            CreateVisualPart("Torso", PrimitiveType.Cube, chest, new Vector3(0f, 0.29f, 0f), new Vector3(0.56f, 0.58f, 0.31f), bodyMaterial);
+            CreateVisualPart("Head", PrimitiveType.Sphere, chest, new Vector3(0f, 0.73f, 0f), new Vector3(0.35f, 0.42f, 0.35f), skinMaterial);
 
-            Transform leftThigh = CreatePivot("Left Thigh", pelvis, new Vector3(-0.2f, -0.1f, 0f));
-            CreateVisualPart("Left Upper Leg", PrimitiveType.Capsule, leftThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.21f, 0.26f, 0.21f), secondaryMaterial);
+            Transform leftThigh = CreatePivot("Left Thigh", pelvis, new Vector3(-0.16f, -0.1f, 0f));
+            CreateVisualPart("Left Upper Leg", PrimitiveType.Capsule, leftThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.16f, 0.27f, 0.16f), secondaryMaterial);
             Transform leftKnee = CreatePivot("Left Knee", leftThigh, new Vector3(0f, -0.48f, 0f));
-            CreateVisualPart("Left Lower Leg", PrimitiveType.Capsule, leftKnee, new Vector3(0f, -0.23f, 0f), new Vector3(0.18f, 0.24f, 0.18f), bodyMaterial);
-            CreateVisualPart("Left Foot", PrimitiveType.Cube, leftKnee, new Vector3(0f, -0.49f, 0.09f), new Vector3(0.22f, 0.12f, 0.4f), secondaryMaterial);
+            CreateVisualPart("Left Lower Leg", PrimitiveType.Capsule, leftKnee, new Vector3(0f, -0.23f, 0f), new Vector3(0.13f, 0.25f, 0.13f), bodyMaterial);
+            CreateVisualPart("Left Foot", PrimitiveType.Cube, leftKnee, new Vector3(0f, -0.48f, 0.07f), new Vector3(0.18f, 0.11f, 0.33f), secondaryMaterial);
 
-            Transform rightThigh = CreatePivot("Right Thigh", pelvis, new Vector3(0.2f, -0.1f, 0f));
-            CreateVisualPart("Right Upper Leg", PrimitiveType.Capsule, rightThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.21f, 0.26f, 0.21f), secondaryMaterial);
+            Transform rightThigh = CreatePivot("Right Thigh", pelvis, new Vector3(0.16f, -0.1f, 0f));
+            CreateVisualPart("Right Upper Leg", PrimitiveType.Capsule, rightThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.16f, 0.27f, 0.16f), secondaryMaterial);
             Transform rightKnee = CreatePivot("Right Knee", rightThigh, new Vector3(0f, -0.48f, 0f));
-            CreateVisualPart("Right Lower Leg", PrimitiveType.Capsule, rightKnee, new Vector3(0f, -0.23f, 0f), new Vector3(0.18f, 0.24f, 0.18f), bodyMaterial);
-            CreateVisualPart("Right Foot", PrimitiveType.Cube, rightKnee, new Vector3(0f, -0.49f, 0.09f), new Vector3(0.22f, 0.12f, 0.4f), secondaryMaterial);
+            CreateVisualPart("Right Lower Leg", PrimitiveType.Capsule, rightKnee, new Vector3(0f, -0.23f, 0f), new Vector3(0.13f, 0.25f, 0.13f), bodyMaterial);
+            CreateVisualPart("Right Foot", PrimitiveType.Cube, rightKnee, new Vector3(0f, -0.48f, 0.07f), new Vector3(0.18f, 0.11f, 0.33f), secondaryMaterial);
 
-            Transform leftShoulder = CreatePivot("Left Shoulder", chest, new Vector3(-0.47f, 0.48f, 0f));
-            CreateVisualPart("Left Upper Arm", PrimitiveType.Capsule, leftShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.16f, 0.21f, 0.16f), bodyMaterial);
+            Transform leftShoulder = CreatePivot("Left Shoulder", chest, new Vector3(-0.36f, 0.48f, 0f));
+            CreateVisualPart("Left Upper Arm", PrimitiveType.Capsule, leftShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.12f, 0.22f, 0.12f), bodyMaterial);
             Transform leftElbow = CreatePivot("Left Elbow", leftShoulder, new Vector3(0f, -0.38f, 0f));
-            CreateVisualPart("Left Forearm", PrimitiveType.Capsule, leftElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.14f, 0.2f, 0.14f), skinMaterial);
-            CreateVisualPart("Left Hand", PrimitiveType.Sphere, leftElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.18f, 0.2f, 0.18f), skinMaterial);
+            CreateVisualPart("Left Forearm", PrimitiveType.Capsule, leftElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.10f, 0.20f, 0.10f), skinMaterial);
+            CreateVisualPart("Left Hand", PrimitiveType.Sphere, leftElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), skinMaterial);
 
-            Transform rightShoulder = CreatePivot("Right Shoulder", chest, new Vector3(0.47f, 0.48f, 0f));
-            CreateVisualPart("Right Upper Arm", PrimitiveType.Capsule, rightShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.16f, 0.21f, 0.16f), bodyMaterial);
+            Transform rightShoulder = CreatePivot("Right Shoulder", chest, new Vector3(0.36f, 0.48f, 0f));
+            CreateVisualPart("Right Upper Arm", PrimitiveType.Capsule, rightShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.12f, 0.22f, 0.12f), bodyMaterial);
             Transform rightElbow = CreatePivot("Right Elbow", rightShoulder, new Vector3(0f, -0.38f, 0f));
-            CreateVisualPart("Right Forearm", PrimitiveType.Capsule, rightElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.14f, 0.2f, 0.14f), skinMaterial);
-            CreateVisualPart("Right Hand", PrimitiveType.Sphere, rightElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.18f, 0.2f, 0.18f), skinMaterial);
+            CreateVisualPart("Right Forearm", PrimitiveType.Capsule, rightElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.10f, 0.20f, 0.10f), skinMaterial);
+            CreateVisualPart("Right Hand", PrimitiveType.Sphere, rightElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), skinMaterial);
 
             ProceduralHumanoidPresenter presenter = player.AddComponent<ProceduralHumanoidPresenter>();
             presenter.Configure(motor, pelvis, chest, leftThigh, rightThigh, leftKnee, rightKnee, leftShoulder, rightShoulder);
@@ -353,8 +359,7 @@ namespace WorldBuilder.Editor
     [InitializeOnLoad]
     internal static class CombatLabFirstImport
     {
-        private const string SessionKey = "WorldBuilder.MovementCheckpointV2Attempted";
-        private const string HumanoidPresenterGuid = "b0000000000000000000000000000012";
+        private const string SessionKey = "WorldBuilder.TraversalCheckpointV1Attempted";
 
         static CombatLabFirstImport()
         {
@@ -376,7 +381,7 @@ namespace WorldBuilder.Editor
             }
 
             string sceneContents = File.ReadAllText(CombatLabSceneBuilder.ScenePath);
-            if (!sceneContents.Contains(HumanoidPresenterGuid))
+            if (!sceneContents.Contains(CombatLabSceneBuilder.CheckpointMarkerName))
             {
                 CombatLabSceneBuilder.Build();
             }

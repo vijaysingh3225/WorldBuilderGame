@@ -46,8 +46,12 @@ namespace WorldBuilder.Gameplay.Input
             Vector2 look = cursorLocked && mouse != null ? mouse.delta.ReadValue() * lookScale : Vector2.zero;
             bool attackPressed = cursorLocked && mouse != null && mouse.leftButton.wasPressedThisFrame;
             bool sprintHeld = keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
+            bool jumpPressed = keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
+            bool jumpHeld = keyboard != null && keyboard.spaceKey.isPressed;
+            bool crouchHeld = keyboard != null &&
+                (keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed || keyboard.cKey.isPressed);
 
-            CurrentIntent = new PlayerIntent(move, look, sprintHeld, attackPressed);
+            CurrentIntent = new PlayerIntent(move, look, sprintHeld, jumpPressed, jumpHeld, crouchHeld, attackPressed);
         }
 
         private static float ReadAxis(bool negative, bool positive)

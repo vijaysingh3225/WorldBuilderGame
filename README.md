@@ -1,6 +1,6 @@
 # WorldBuilder Game
 
-This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small movement-focused Combat Lab: a procedural humanoid with idle/walk/run motion, a Cinemachine over-the-shoulder camera, a passive damage dummy, and a greybox arena.
+This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small traversal-focused Combat Lab: a procedural humanoid with grounded locomotion, variable-height jumping, crouching, a Cinemachine over-the-shoulder camera, a passive damage dummy, and a greybox arena with a low-clearance test bay.
 
 ## Open the project
 
@@ -15,6 +15,8 @@ Controls:
 - WASD: move
 - Mouse: look
 - Left Shift: sprint
+- Space: jump (tap or hold)
+- Left/Right Ctrl or C: crouch
 - Left mouse: sword attack
 - Escape: release cursor
 - R: restart the test

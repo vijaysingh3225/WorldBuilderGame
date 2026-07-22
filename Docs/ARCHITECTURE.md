@@ -3,9 +3,9 @@
 The Combat Lab uses intentionally narrow seams:
 
 1. PlayerInputSource samples devices and emits PlayerIntent.
-2. ThirdPersonMotor consumes intent and owns player locomotion while exposing read-only velocity for presentation.
-3. ProceduralHumanoidPresenter reads velocity and animates the disposable mannequin without mutating gameplay movement.
-4. CameraAimTarget converts look intent into a smoothed world-space aim transform; Cinemachine owns follow, shoulder framing, and collision presentation.
+2. ThirdPersonMotor consumes intent and owns player locomotion, jump forgiveness, variable jump height, crouch collision, and overhead-clearance validation while exposing read-only state for presentation.
+3. ProceduralHumanoidPresenter reads motor state and animates the disposable mannequin without mutating gameplay movement.
+4. CameraAimTarget converts look intent into a smoothed world-space aim transform and responds to crouch height; Cinemachine owns follow, shoulder framing, and collision presentation.
 5. MeleeWeapon validates attack timing and submits DamageRequest values.
 6. DamageService resolves an IDamageable owner; Health is the only component that mutates health.
 7. EnemyBrain retains replaceable enemy state logic but currently runs in passive training-dummy mode; EnemyTelegraphPresenter only visualizes state.
@@ -16,7 +16,7 @@ This is multiplayer-aware rather than multiplayer-built. Input, requests, author
 
 ## Next proof sequence
 
-1. Smooth the camera and establish a humanoid locomotion base with directional animation, jumping, and crouching.
+1. Add aim-relative locomotion with independent upper-body facing and readable strafe/backpedal presentation.
 2. Replace the diagnostic weapon motion with the first deliberate melee interaction.
 3. Add one valuable pickup, a clear extraction zone, death, and a small consequence.
 4. Test a reduced Weapon Grid with only a few artifacts and one meaningful tradeoff.
