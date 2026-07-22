@@ -16,7 +16,7 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Movement Correction V1";
+        public const string CheckpointMarkerName = "Prototype Systems - Reliable Gait V1";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
@@ -153,7 +153,7 @@ namespace WorldBuilder.Editor
             Material secondaryMaterial,
             Material skinMaterial)
         {
-            Transform visualRoot = CreatePivot("Humanoid Visual - Movement Correction V1", player.transform, Vector3.zero);
+            Transform visualRoot = CreatePivot("Humanoid Visual - Reliable Gait V1", player.transform, Vector3.zero);
             Transform pelvis = CreatePivot("Pelvis", visualRoot, Vector3.zero);
             CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, pelvis, Vector3.zero, new Vector3(0.42f, 0.20f, 0.29f), secondaryMaterial);
 
@@ -199,7 +199,9 @@ namespace WorldBuilder.Editor
                 leftFoot,
                 rightFoot,
                 leftShoulder,
-                rightShoulder);
+                rightShoulder,
+                leftElbow,
+                rightElbow);
         }
 
         private static GameObject CreateEnemy(Vector3 position, Material bodyMaterial, out Health health)
@@ -372,7 +374,7 @@ namespace WorldBuilder.Editor
     [InitializeOnLoad]
     internal static class CombatLabFirstImport
     {
-        private const string SessionKey = "WorldBuilder.MovementCorrectionV1bAttempted";
+        private const string SessionKey = "WorldBuilder.ReliableGaitV1Attempted";
 
         static CombatLabFirstImport()
         {

@@ -5,16 +5,6 @@ namespace WorldBuilder.Gameplay.Presentation
 {
     public sealed class ProceduralHumanoidPresenter : MonoBehaviour
     {
-        private sealed class FootPlantState
-        {
-            public bool WasStance;
-            public Vector3 PlantedPosition;
-            public Vector3 SwingStart;
-            public Vector3 SwingTarget;
-            public Vector3 CurrentTarget;
-            public Vector3 GroundNormal = Vector3.up;
-        }
-
         [SerializeField] private ThirdPersonMotor motor;
         [SerializeField] private Transform pelvis;
         [SerializeField] private Transform chest;
@@ -26,15 +16,12 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Transform rightFoot;
         [SerializeField] private Transform leftShoulder;
         [SerializeField] private Transform rightShoulder;
+        [SerializeField] private Transform leftElbow;
+        [SerializeField] private Transform rightElbow;
         [SerializeField, Min(0f)] private float locomotionBlendSpeed = 8f;
         [SerializeField, Min(0f)] private float traversalBlendSpeed = 9f;
-        [SerializeField, Min(0f)] private float footPlantBlendSpeed = 12f;
-        [SerializeField, Min(0f)] private float footLift = 0.16f;
-        [SerializeField, Min(0f)] private float footGroundOffset = 0.015f;
-        [SerializeField] private LayerMask footGroundMask = ~(1 << 2);
+        [SerializeField, Min(0f)] private float localGaitBlendSpeed = 12f;
 
-        private readonly FootPlantState leftFootPlant = new FootPlantState();
-        private readonly FootPlantState rightFootPlant = new FootPlantState();
         private Vector3 pelvisRestPosition;
         private Quaternion pelvisRestRotation;
         private Quaternion chestRestRotation;
@@ -46,8 +33,12 @@ namespace WorldBuilder.Gameplay.Presentation
         private Quaternion rightFootRestRotation;
         private Quaternion leftShoulderRestRotation;
         private Quaternion rightShoulderRestRotation;
+        private Quaternion leftElbowRestRotation;
+        private Quaternion rightElbowRestRotation;
         private float leftFootLateralOffset;
         private float rightFootLateralOffset;
+        private float leftFootRestHeight;
+        private float rightFootRestHeight;
         private float leftUpperLegLength;
         private float rightUpperLegLength;
         private float leftLowerLegLength;
@@ -56,15 +47,14 @@ namespace WorldBuilder.Gameplay.Presentation
         private float crouchWeight;
         private float airborneWeight;
         private float landingResponse;
-        private float footPlantWeight;
+        private float localGaitWeight;
         private float strideCycle;
-        private bool footPlantsInitialized;
         private bool wasGrounded;
         private bool poseCached;
 
         private bool HasCompleteRig => pelvis != null && chest != null && leftThigh != null && rightThigh != null &&
             leftKnee != null && rightKnee != null && leftFoot != null && rightFoot != null &&
-            leftShoulder != null && rightShoulder != null;
+            leftShoulder != null && rightShoulder != null && leftElbow != null && rightElbow != null;
 
         public void Configure(
             ThirdPersonMotor movementMotor,
@@ -77,7 +67,9 @@ namespace WorldBuilder.Gameplay.Presentation
             Transform leftFootTransform,
             Transform rightFootTransform,
             Transform leftShoulderTransform,
-            Transform rightShoulderTransform)
+            Transform rightShoulderTransform,
+            Transform leftElbowTransform,
+            Transform rightElbowTransform)
         {
             motor = movementMotor;
             pelvis = pelvisTransform;
@@ -90,6 +82,8 @@ namespace WorldBuilder.Gameplay.Presentation
             rightFoot = rightFootTransform;
             leftShoulder = leftShoulderTransform;
             rightShoulder = rightShoulderTransform;
+            leftElbow = leftElbowTransform;
+            rightElbow = rightElbowTransform;
             CacheRestPose();
             wasGrounded = motor != null && motor.IsGrounded;
         }
@@ -108,8 +102,11 @@ namespace WorldBuilder.Gameplay.Presentation
 
             float maximumSpeed = Mathf.Max(0.01f, motor.MaximumSpeed);
             float normalizedSpeed = Mathf.Clamp01(motor.HorizontalSpeed / maximumSpeed);
-            float targetWeight = Mathf.InverseLerp(0.02f, 0.18f, normalizedSpeed);
-            locomotionWeight = Mathf.MoveTowards(locomotionWeight, targetWeight, locomotionBlendSpeed * Time.deltaTime);
+            float targetLocomotionWeight = Mathf.InverseLerp(0.02f, 0.18f, normalizedSpeed);
+            locomotionWeight = Mathf.MoveTowards(
+                locomotionWeight,
+                targetLocomotionWeight,
+                locomotionBlendSpeed * Time.deltaTime);
             crouchWeight = Mathf.MoveTowards(crouchWeight, motor.CrouchAmount, traversalBlendSpeed * Time.deltaTime);
             airborneWeight = Mathf.MoveTowards(
                 airborneWeight,
@@ -119,18 +116,14 @@ namespace WorldBuilder.Gameplay.Presentation
             if (!wasGrounded && motor.IsGrounded)
             {
                 landingResponse = 1f;
-                footPlantsInitialized = false;
-            }
-            else if (!motor.IsGrounded)
-            {
-                footPlantsInitialized = false;
             }
 
             landingResponse = Mathf.MoveTowards(landingResponse, 0f, 6f * Time.deltaTime);
             wasGrounded = motor.IsGrounded;
 
             float runBlend = Mathf.InverseLerp(0.58f, 1f, normalizedSpeed);
-            float cycleDistance = Mathf.Lerp(1.45f, 2.35f, runBlend);
+            float cycleDistance = Mathf.Lerp(1.45f, 2.25f, runBlend);
+            cycleDistance = Mathf.Lerp(cycleDistance, 1.18f, crouchWeight);
             if (motor.IsGrounded && motor.HorizontalSpeed > 0.02f)
             {
                 strideCycle = Mathf.Repeat(
@@ -140,44 +133,19 @@ namespace WorldBuilder.Gameplay.Presentation
 
             ApplyBasePose(runBlend);
 
-            float desiredFootPlantWeight = motor.IsGrounded ? locomotionWeight : 0f;
-            footPlantWeight = Mathf.MoveTowards(
-                footPlantWeight,
-                desiredFootPlantWeight,
-                footPlantBlendSpeed * Time.deltaTime);
-
-            if (motor.IsGrounded && footPlantWeight > 0.001f)
+            float desiredGaitWeight = motor.IsGrounded ? locomotionWeight : 0f;
+            localGaitWeight = Mathf.MoveTowards(
+                localGaitWeight,
+                desiredGaitWeight,
+                localGaitBlendSpeed * Time.deltaTime);
+            if (motor.IsGrounded && localGaitWeight > 0.001f)
             {
-                float stanceFraction = Mathf.Lerp(0.60f, 0.38f, runBlend);
-                EnsureFootPlantsInitialized(stanceFraction);
-                UpdateFootPlant(leftFootPlant, strideCycle, stanceFraction, cycleDistance, leftFootLateralOffset);
-                UpdateFootPlant(rightFootPlant, Mathf.Repeat(strideCycle + 0.5f, 1f), stanceFraction, cycleDistance, rightFootLateralOffset);
-                ApplyLegIk(
-                    leftThigh,
-                    leftKnee,
-                    leftFoot,
-                    leftThighRestRotation,
-                    leftKneeRestRotation,
-                    leftFootPlant,
-                    leftUpperLegLength,
-                    leftLowerLegLength,
-                    footPlantWeight);
-                ApplyLegIk(
-                    rightThigh,
-                    rightKnee,
-                    rightFoot,
-                    rightThighRestRotation,
-                    rightKneeRestRotation,
-                    rightFootPlant,
-                    rightUpperLegLength,
-                    rightLowerLegLength,
-                    footPlantWeight);
+                ApplyLocalGait(runBlend, cycleDistance, localGaitWeight);
             }
         }
 
         private void OnDisable()
         {
-            footPlantsInitialized = false;
             if (poseCached && HasCompleteRig)
             {
                 ResetPose();
@@ -189,41 +157,44 @@ namespace WorldBuilder.Gameplay.Presentation
             float strideRadians = strideCycle * Mathf.PI * 2f;
             float stride = Mathf.Sin(strideRadians);
             float groundedLocomotion = locomotionWeight * (1f - airborneWeight);
-            float strideAngle = Mathf.Lerp(21f, 38f, runBlend) * groundedLocomotion;
-            float armAngle = Mathf.Lerp(16f, 30f, runBlend) * groundedLocomotion;
-            float leftWalkingKnee = Mathf.Max(0f, -stride) * Mathf.Lerp(20f, 48f, runBlend) * groundedLocomotion;
-            float rightWalkingKnee = Mathf.Max(0f, stride) * Mathf.Lerp(20f, 48f, runBlend) * groundedLocomotion;
-            float bob = Mathf.Abs(Mathf.Sin(strideRadians * 2f)) * Mathf.Lerp(0.012f, 0.025f, runBlend) * groundedLocomotion;
+            float stationaryCrouch = crouchWeight * (1f - groundedLocomotion);
+            float movingCrouch = crouchWeight * groundedLocomotion;
+            float strideAngle = Mathf.Lerp(22f, 37f, runBlend) * groundedLocomotion;
+            float armAngle = Mathf.Lerp(17f, 25f, runBlend) * groundedLocomotion;
+            float leftWalkingKnee = Mathf.Max(0f, -stride) * Mathf.Lerp(24f, 52f, runBlend) * groundedLocomotion;
+            float rightWalkingKnee = Mathf.Max(0f, stride) * Mathf.Lerp(24f, 52f, runBlend) * groundedLocomotion;
+            float bob = Mathf.Abs(Mathf.Sin(strideRadians * 2f)) * Mathf.Lerp(0.012f, 0.035f, runBlend) * groundedLocomotion;
             float idleBreath = Mathf.Sin(Time.time * 1.7f) * 0.012f * (1f - locomotionWeight);
             float rising = Mathf.Clamp01(motor.VerticalVelocity / 5f) * airborneWeight;
             float falling = Mathf.Clamp01(-motor.VerticalVelocity / 7f) * airborneWeight;
-            float movingCrouch = crouchWeight * groundedLocomotion;
-            float crouchPelvisDrop = 0.34f * crouchWeight;
+            float crouchPelvisDrop = Mathf.Lerp(0.45f, 0.28f, groundedLocomotion) * crouchWeight;
             float gaitPelvisDrop = Mathf.Lerp(0.12f, 0.14f, runBlend) * groundedLocomotion * (1f - crouchWeight);
             float landingDrop = 0.075f * landingResponse;
 
-            pelvis.localPosition = pelvisRestPosition + Vector3.up * (
-                bob + idleBreath - crouchPelvisDrop - gaitPelvisDrop - landingDrop);
+            pelvis.localPosition = pelvisRestPosition +
+                Vector3.up * (bob + idleBreath - crouchPelvisDrop - gaitPelvisDrop - landingDrop) +
+                Vector3.back * (0.04f * stationaryCrouch);
             pelvis.localRotation = pelvisRestRotation * Quaternion.Euler(
-                3f * crouchWeight,
+                -3f * stationaryCrouch + 3f * movingCrouch,
                 0f,
-                stride * 2.4f * groundedLocomotion);
+                stride * 2.2f * groundedLocomotion);
             chest.localRotation = chestRestRotation * Quaternion.Euler(
-                -idleBreath * 35f + 10f * crouchWeight - 7f * rising + 5f * falling,
-                stride * Mathf.Lerp(1.5f, 3.5f, runBlend) * groundedLocomotion,
+                -idleBreath * 35f + 3f * stationaryCrouch + 9f * movingCrouch + 6f * runBlend * groundedLocomotion -
+                    7f * rising + 5f * falling,
+                stride * Mathf.Lerp(1.5f, 4f, runBlend) * groundedLocomotion,
                 -stride * 1.8f * groundedLocomotion);
 
             float leftStandingThigh = stride * strideAngle + 12f * rising - 12f * falling;
             float rightStandingThigh = -stride * strideAngle - 8f * rising - 12f * falling;
-            float leftCrouchThigh = Mathf.Lerp(-10f, -28f, movingCrouch);
-            float rightCrouchThigh = Mathf.Lerp(-55f, -28f, movingCrouch);
+            float leftCrouchThigh = Mathf.Lerp(-39f, -25f, groundedLocomotion);
+            float rightCrouchThigh = Mathf.Lerp(-58f, -25f, groundedLocomotion);
             float leftThighAngle = Mathf.Lerp(leftStandingThigh, leftCrouchThigh, crouchWeight);
             float rightThighAngle = Mathf.Lerp(rightStandingThigh, rightCrouchThigh, crouchWeight);
 
             float leftStandingKnee = leftWalkingKnee + 24f * rising + 30f * falling + 18f * landingResponse;
             float rightStandingKnee = rightWalkingKnee + 34f * rising + 30f * falling + 18f * landingResponse;
-            float leftCrouchKnee = Mathf.Lerp(90f, 72f, movingCrouch);
-            float rightCrouchKnee = Mathf.Lerp(105f, 72f, movingCrouch);
+            float leftCrouchKnee = Mathf.Lerp(113f, 72f, groundedLocomotion);
+            float rightCrouchKnee = Mathf.Lerp(117f, 72f, groundedLocomotion);
             float leftKneeAngle = Mathf.Lerp(leftStandingKnee, leftCrouchKnee, crouchWeight);
             float rightKneeAngle = Mathf.Lerp(rightStandingKnee, rightCrouchKnee, crouchWeight);
 
@@ -234,125 +205,101 @@ namespace WorldBuilder.Gameplay.Presentation
             leftFoot.localRotation = leftFootRestRotation * Quaternion.Euler(-(leftThighAngle + leftKneeAngle), 0f, 0f);
             rightFoot.localRotation = rightFootRestRotation * Quaternion.Euler(-(rightThighAngle + rightKneeAngle), 0f, 0f);
 
-            leftShoulder.localRotation = leftShoulderRestRotation * Quaternion.Euler(
-                -stride * armAngle - Mathf.Lerp(20f, 9f, movingCrouch) * crouchWeight - 16f * rising + 12f * falling,
-                0f,
-                0f);
-            rightShoulder.localRotation = rightShoulderRestRotation * Quaternion.Euler(
-                stride * armAngle - Mathf.Lerp(35f, 9f, movingCrouch) * crouchWeight - 16f * rising + 12f * falling,
-                0f,
-                0f);
+            float leftShoulderAngle = -stride * armAngle - 20f * stationaryCrouch - 10f * movingCrouch -
+                16f * rising + 12f * falling;
+            float rightShoulderAngle = stride * armAngle - 36f * stationaryCrouch - 10f * movingCrouch -
+                16f * rising + 12f * falling;
+            float joggingElbowBend = Mathf.Lerp(6f, 68f, runBlend) * groundedLocomotion;
+            float crouchElbowBend = 30f * stationaryCrouch + 45f * movingCrouch;
+            float elbowBend = Mathf.Max(joggingElbowBend, crouchElbowBend);
+
+            leftShoulder.localRotation = leftShoulderRestRotation * Quaternion.Euler(leftShoulderAngle, 0f, 0f);
+            rightShoulder.localRotation = rightShoulderRestRotation * Quaternion.Euler(rightShoulderAngle, 0f, 0f);
+            leftElbow.localRotation = leftElbowRestRotation * Quaternion.Euler(-elbowBend, 0f, 0f);
+            rightElbow.localRotation = rightElbowRestRotation * Quaternion.Euler(-elbowBend, 0f, 0f);
         }
 
-        private void EnsureFootPlantsInitialized(float stanceFraction)
+        private void ApplyLocalGait(float runBlend, float cycleDistance, float weight)
         {
-            if (footPlantsInitialized)
-            {
-                return;
-            }
+            float stanceFraction = Mathf.Lerp(0.62f, 0.45f, runBlend);
+            stanceFraction = Mathf.Lerp(stanceFraction, 0.64f, crouchWeight);
+            float footLift = Mathf.Lerp(0.12f, 0.20f, runBlend);
+            footLift = Mathf.Lerp(footLift, 0.09f, crouchWeight);
 
-            InitializeFootPlant(leftFootPlant, leftFoot.position, strideCycle < stanceFraction);
-            InitializeFootPlant(
-                rightFootPlant,
-                rightFoot.position,
-                Mathf.Repeat(strideCycle + 0.5f, 1f) < stanceFraction);
-            footPlantsInitialized = true;
+            Vector3 leftTarget = CalculateLocalFootTarget(
+                strideCycle,
+                leftFootLateralOffset,
+                leftFootRestHeight,
+                cycleDistance,
+                stanceFraction,
+                footLift);
+            Vector3 rightTarget = CalculateLocalFootTarget(
+                Mathf.Repeat(strideCycle + 0.5f, 1f),
+                rightFootLateralOffset,
+                rightFootRestHeight,
+                cycleDistance,
+                stanceFraction,
+                footLift);
+
+            ApplyLocalLegIk(
+                leftThigh,
+                leftKnee,
+                leftFoot,
+                leftThighRestRotation,
+                leftKneeRestRotation,
+                leftTarget,
+                leftUpperLegLength,
+                leftLowerLegLength,
+                weight);
+            ApplyLocalLegIk(
+                rightThigh,
+                rightKnee,
+                rightFoot,
+                rightThighRestRotation,
+                rightKneeRestRotation,
+                rightTarget,
+                rightUpperLegLength,
+                rightLowerLegLength,
+                weight);
         }
 
-        private void InitializeFootPlant(FootPlantState state, Vector3 currentPosition, bool isStance)
-        {
-            state.PlantedPosition = ProjectToGround(currentPosition, out Vector3 groundNormal);
-            state.SwingStart = state.PlantedPosition;
-            state.SwingTarget = state.PlantedPosition;
-            state.CurrentTarget = state.PlantedPosition;
-            state.GroundNormal = groundNormal;
-            state.WasStance = isStance;
-        }
-
-        private void UpdateFootPlant(
-            FootPlantState state,
+        private static Vector3 CalculateLocalFootTarget(
             float phase,
-            float stanceFraction,
+            float lateralOffset,
+            float footHeight,
             float cycleDistance,
-            float lateralOffset)
-        {
-            bool isStance = phase < stanceFraction;
-            if (isStance)
-            {
-                if (!state.WasStance)
-                {
-                    state.PlantedPosition = ProjectToGround(state.SwingTarget, out Vector3 landingNormal);
-                    state.GroundNormal = landingNormal;
-                }
-
-                state.CurrentTarget = state.PlantedPosition;
-            }
-            else
-            {
-                if (state.WasStance)
-                {
-                    state.SwingStart = state.PlantedPosition;
-                    state.SwingTarget = CalculateLandingTarget(phase, stanceFraction, cycleDistance, lateralOffset);
-                }
-
-                float swingProgress = Mathf.InverseLerp(stanceFraction, 1f, phase);
-                float smoothProgress = Mathf.SmoothStep(0f, 1f, swingProgress);
-                state.CurrentTarget = Vector3.Lerp(state.SwingStart, state.SwingTarget, smoothProgress) +
-                    Vector3.up * (Mathf.Sin(swingProgress * Mathf.PI) * footLift);
-                state.GroundNormal = Vector3.up;
-            }
-
-            state.WasStance = isStance;
-        }
-
-        private Vector3 CalculateLandingTarget(
-            float phase,
             float stanceFraction,
-            float cycleDistance,
-            float lateralOffset)
+            float footLift)
         {
-            Vector3 travelDirection = motor.HorizontalSpeed > 0.01f
-                ? motor.HorizontalVelocity.normalized
-                : transform.forward;
-            float remainingTravel = cycleDistance * (1f - phase);
-            float leadDistance = cycleDistance * stanceFraction * 0.5f;
-            Vector3 candidate = transform.position + travelDirection * (remainingTravel + leadDistance) +
-                transform.right * lateralOffset;
-            return ProjectToGround(candidate, out _);
-        }
-
-        private Vector3 ProjectToGround(Vector3 candidate, out Vector3 groundNormal)
-        {
-            Vector3 origin = candidate + Vector3.up * 1.25f;
-            if (Physics.Raycast(
-                    origin,
-                    Vector3.down,
-                    out RaycastHit hit,
-                    3f,
-                    footGroundMask,
-                    QueryTriggerInteraction.Ignore))
+            float halfStanceTravel = cycleDistance * stanceFraction * 0.5f;
+            if (phase < stanceFraction)
             {
-                groundNormal = hit.normal;
-                return hit.point + hit.normal * footGroundOffset;
+                float stanceProgress = phase / Mathf.Max(0.001f, stanceFraction);
+                float forwardPosition = Mathf.Lerp(halfStanceTravel, -halfStanceTravel, stanceProgress);
+                return new Vector3(lateralOffset, footHeight, forwardPosition);
             }
 
-            groundNormal = Vector3.up;
-            return candidate;
+            float swingProgress = Mathf.InverseLerp(stanceFraction, 1f, phase);
+            float smoothProgress = Mathf.SmoothStep(0f, 1f, swingProgress);
+            float swingPosition = Mathf.Lerp(-halfStanceTravel, halfStanceTravel, smoothProgress);
+            float lift = Mathf.Sin(swingProgress * Mathf.PI) * footLift;
+            return new Vector3(lateralOffset, footHeight + lift, swingPosition);
         }
 
-        private void ApplyLegIk(
+        private void ApplyLocalLegIk(
             Transform thigh,
             Transform knee,
             Transform foot,
             Quaternion thighRestLocalRotation,
             Quaternion kneeRestLocalRotation,
-            FootPlantState state,
+            Vector3 localFootTarget,
             float upperLength,
             float lowerLength,
             float weight)
         {
             Vector3 hipPosition = thigh.position;
-            Vector3 toTarget = state.CurrentTarget - hipPosition;
+            Vector3 requestedTarget = transform.TransformPoint(localFootTarget);
+            Vector3 toTarget = requestedTarget - hipPosition;
             float rawDistance = Mathf.Max(0.001f, toTarget.magnitude);
             Vector3 targetDirection = toTarget / rawDistance;
             float minimumReach = Mathf.Abs(upperLength - lowerLength) + 0.001f;
@@ -385,14 +332,8 @@ namespace WorldBuilder.Gameplay.Presentation
             Quaternion desiredKneeWorld = Quaternion.FromToRotation(
                 kneeRestWorld * Vector3.down,
                 lowerDirection) * kneeRestWorld;
+            Quaternion desiredFootWorld = Quaternion.LookRotation(transform.forward, transform.up);
 
-            Vector3 footForward = Vector3.ProjectOnPlane(transform.forward, state.GroundNormal).normalized;
-            if (footForward.sqrMagnitude < 0.001f)
-            {
-                footForward = transform.forward;
-            }
-
-            Quaternion desiredFootWorld = Quaternion.LookRotation(footForward, state.GroundNormal);
             thigh.rotation = Quaternion.Slerp(baseThighWorld, desiredThighWorld, weight);
             knee.rotation = Quaternion.Slerp(baseKneeWorld, desiredKneeWorld, weight);
             foot.rotation = Quaternion.Slerp(baseFootWorld, desiredFootWorld, weight);
@@ -417,8 +358,12 @@ namespace WorldBuilder.Gameplay.Presentation
             rightFootRestRotation = rightFoot.localRotation;
             leftShoulderRestRotation = leftShoulder.localRotation;
             rightShoulderRestRotation = rightShoulder.localRotation;
+            leftElbowRestRotation = leftElbow.localRotation;
+            rightElbowRestRotation = rightElbow.localRotation;
             leftFootLateralOffset = leftThigh.localPosition.x;
             rightFootLateralOffset = rightThigh.localPosition.x;
+            leftFootRestHeight = transform.InverseTransformPoint(leftFoot.position).y;
+            rightFootRestHeight = transform.InverseTransformPoint(rightFoot.position).y;
             leftUpperLegLength = leftKnee.localPosition.magnitude;
             rightUpperLegLength = rightKnee.localPosition.magnitude;
             leftLowerLegLength = leftFoot.localPosition.magnitude;
@@ -439,6 +384,8 @@ namespace WorldBuilder.Gameplay.Presentation
             rightFoot.localRotation = rightFootRestRotation;
             leftShoulder.localRotation = leftShoulderRestRotation;
             rightShoulder.localRotation = rightShoulderRestRotation;
+            leftElbow.localRotation = leftElbowRestRotation;
+            rightElbow.localRotation = rightElbowRestRotation;
         }
     }
 }

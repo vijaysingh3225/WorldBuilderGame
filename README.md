@@ -1,6 +1,6 @@
 # WorldBuilder Game
 
-This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small movement-correction Combat Lab: a procedural humanoid with planted feet, takeoff-preserved air momentum, variable-height jumping, kneeling/crouch-walking, a Cinemachine over-the-shoulder camera, a passive damage dummy, and a greybox arena with a low-clearance test bay.
+This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small reliable-gait Combat Lab: a procedural humanoid with distance-synchronized local walk/jog arcs, takeoff-preserved air momentum, variable-height jumping, rebalanced kneeling/crouch-walking, a Cinemachine over-the-shoulder camera, a passive damage dummy, and a greybox arena with a low-clearance test bay.
 
 ## Open the project
 
