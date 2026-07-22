@@ -1,6 +1,6 @@
 # WorldBuilder Game
 
-This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small gait-tuning Combat Lab: a procedural humanoid with slower distance-synchronized walking, jogging, tactical kneeling/crouch-walking, speed-capped air steering, supported-edge grounding, a Cinemachine over-the-shoulder camera, a passive damage dummy, and a greybox arena with a low-clearance test bay.
+This is the Unity implementation workspace for the WorldBuilder design vault. The current checkpoint is a deliberately small authored-animation Combat Lab: a rigged Humanoid with blended idle, walking, jogging, sprinting, jumping, landing, grounded tactical crouching, and crouch-walking presentation; speed-capped air steering; supported-edge grounding; a Cinemachine over-the-shoulder camera; a passive damage dummy; and a greybox arena with a low-clearance test bay.
 
 ## Open the project
 
@@ -23,7 +23,11 @@ Controls:
 
 ## First acceptance test
 
-The slice is successful when movement and camera control are stable, directional locomotion reads naturally on a humanoid body, jumping and crouching are dependable, and navigating the greybox exposes useful movement problems. The passive dummy and placeholder attack exist only to verify damage feedback while movement is developed.
+The slice is successful when movement and camera control remain stable, authored upper- and lower-body motion reads naturally, jumping and landing transition cleanly, the stationary crouch visibly carries weight through a grounded kneeling pose, crouch-walking remains usable, and navigating the greybox exposes useful movement problems. The passive dummy and placeholder attack exist only to verify damage feedback while movement is developed.
+
+## Prototype animation asset
+
+The temporary Humanoid and animation clips come from the free Standard edition of the Quaternius Universal Animation Library under CC0 1.0. Source and license details live beside the FBX in `Assets/_Project/Art/Prototype/Humanoid`.
 
 The Weapon Grid, procedural raid assembly, extraction loop, and multiplayer runtime are intentionally not in this first slice. Their architectural seams are preserved without paying their implementation cost prematurely.
 

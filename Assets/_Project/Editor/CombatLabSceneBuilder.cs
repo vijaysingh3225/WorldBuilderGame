@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using Unity.Cinemachine;
@@ -16,7 +17,7 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Gait Tuning V1";
+        public const string CheckpointMarkerName = "Prototype Systems - Authored Humanoid V1";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
@@ -32,7 +33,6 @@ namespace WorldBuilder.Editor
             Material accentMaterial = GetOrCreateMaterial("MossAccent", new Color(0.30f, 0.40f, 0.27f));
             Material playerMaterial = GetOrCreateMaterial("Player", new Color(0.18f, 0.34f, 0.46f));
             Material playerSecondaryMaterial = GetOrCreateMaterial("PlayerSecondary", new Color(0.09f, 0.13f, 0.16f));
-            Material skinMaterial = GetOrCreateMaterial("PrototypeSkin", new Color(0.58f, 0.43f, 0.31f));
             Material enemyMaterial = GetOrCreateMaterial("Enemy", new Color(0.50f, 0.20f, 0.12f));
 
             CreateLighting();
@@ -43,7 +43,6 @@ namespace WorldBuilder.Editor
                 new Vector3(0f, 1f, -5.5f),
                 playerMaterial,
                 playerSecondaryMaterial,
-                skinMaterial,
                 out Health playerHealth,
                 out PlayerInputSource playerInput);
             GameObject enemy = CreateEnemy(new Vector3(0f, 1f, 5f), enemyMaterial, out Health enemyHealth);
@@ -117,7 +116,6 @@ namespace WorldBuilder.Editor
             Vector3 position,
             Material bodyMaterial,
             Material secondaryMaterial,
-            Material skinMaterial,
             out Health health,
             out PlayerInputSource input)
         {
@@ -143,7 +141,7 @@ namespace WorldBuilder.Editor
             input = player.AddComponent<PlayerInputSource>();
             ThirdPersonMotor motor = player.AddComponent<ThirdPersonMotor>();
             player.AddComponent<MeleeWeapon>();
-            CreateHumanoidVisual(player, motor, bodyMaterial, secondaryMaterial, skinMaterial);
+            CreateHumanoidVisual(player, motor, bodyMaterial, secondaryMaterial);
             return player;
         }
 
@@ -151,17 +149,76 @@ namespace WorldBuilder.Editor
             GameObject player,
             ThirdPersonMotor motor,
             Material bodyMaterial,
-            Material secondaryMaterial,
-            Material skinMaterial)
+            Material secondaryMaterial)
         {
-            Transform visualRoot = CreatePivot("Humanoid Visual - Gait Tuning V1", player.transform, Vector3.zero);
+            if (HumanoidAnimationSetup.EnsureGeneratedAssets())
+            {
+                GameObject modelPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(HumanoidAnimationSetup.ModelPath);
+                RuntimeAnimatorController controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(
+                    HumanoidAnimationSetup.ControllerPath);
+                if (modelPrefab != null && controller != null)
+                {
+                    GameObject visual = PrefabUtility.InstantiatePrefab(modelPrefab, player.transform) as GameObject;
+                    visual.name = "Humanoid Visual - Authored Locomotion V1";
+                    visual.transform.localPosition = Vector3.down;
+                    visual.transform.localRotation = Quaternion.identity;
+                    visual.transform.localScale = Vector3.one * 1.1f;
+                    SetLayerRecursively(visual.transform, 2);
+
+                    Transform previewFloor = FindDescendant(visual.transform, "Cube");
+                    if (previewFloor != null)
+                    {
+                        Object.DestroyImmediate(previewFloor.gameObject);
+                    }
+
+                    SkinnedMeshRenderer mannequin = visual.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                        .FirstOrDefault(renderer => renderer.name == "Mannequin");
+                    if (mannequin != null)
+                    {
+                        Material[] materials = mannequin.sharedMaterials;
+                        for (int index = 0; index < materials.Length; index++)
+                        {
+                            materials[index] = index == 0 ? bodyMaterial : secondaryMaterial;
+                        }
+
+                        mannequin.sharedMaterials = materials;
+                    }
+
+                    Animator animator = visual.GetComponentInChildren<Animator>(true);
+                    if (animator == null)
+                    {
+                        animator = visual.AddComponent<Animator>();
+                    }
+
+                    animator.runtimeAnimatorController = controller;
+                    animator.applyRootMotion = false;
+                    animator.updateMode = AnimatorUpdateMode.Normal;
+                    animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+
+                    HumanoidAnimatorPresenter presenter = player.AddComponent<HumanoidAnimatorPresenter>();
+                    presenter.Configure(motor, animator);
+                    return;
+                }
+            }
+
+            Debug.LogWarning("Falling back to the procedural humanoid because authored animation assets are unavailable.");
+            CreateProceduralHumanoidVisual(player, motor, bodyMaterial, secondaryMaterial);
+        }
+
+        private static void CreateProceduralHumanoidVisual(
+            GameObject player,
+            ThirdPersonMotor motor,
+            Material bodyMaterial,
+            Material secondaryMaterial)
+        {
+            Transform visualRoot = CreatePivot("Humanoid Visual - Procedural Fallback", player.transform, Vector3.zero);
             Transform pelvis = CreatePivot("Pelvis", visualRoot, Vector3.zero);
             Transform body = CreatePivot("Body Weight", pelvis, Vector3.zero);
             CreateVisualPart("Pelvis Shape", PrimitiveType.Cube, body, Vector3.zero, new Vector3(0.42f, 0.20f, 0.29f), secondaryMaterial);
 
             Transform chest = CreatePivot("Chest", body, new Vector3(0f, 0.1f, 0f));
             CreateVisualPart("Torso", PrimitiveType.Cube, chest, new Vector3(0f, 0.29f, 0f), new Vector3(0.56f, 0.58f, 0.31f), bodyMaterial);
-            CreateVisualPart("Head", PrimitiveType.Sphere, chest, new Vector3(0f, 0.73f, 0f), new Vector3(0.35f, 0.42f, 0.35f), skinMaterial);
+            CreateVisualPart("Head", PrimitiveType.Sphere, chest, new Vector3(0f, 0.73f, 0f), new Vector3(0.35f, 0.42f, 0.35f), bodyMaterial);
 
             Transform leftThigh = CreatePivot("Left Thigh", pelvis, new Vector3(-0.16f, -0.1f, 0f));
             CreateVisualPart("Left Upper Leg", PrimitiveType.Capsule, leftThigh, new Vector3(0f, -0.25f, 0f), new Vector3(0.16f, 0.27f, 0.16f), secondaryMaterial);
@@ -180,14 +237,14 @@ namespace WorldBuilder.Editor
             Transform leftShoulder = CreatePivot("Left Shoulder", chest, new Vector3(-0.36f, 0.48f, 0f));
             CreateVisualPart("Left Upper Arm", PrimitiveType.Capsule, leftShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.12f, 0.22f, 0.12f), bodyMaterial);
             Transform leftElbow = CreatePivot("Left Elbow", leftShoulder, new Vector3(0f, -0.38f, 0f));
-            CreateVisualPart("Left Forearm", PrimitiveType.Capsule, leftElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.10f, 0.20f, 0.10f), skinMaterial);
-            CreateVisualPart("Left Hand", PrimitiveType.Sphere, leftElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), skinMaterial);
+            CreateVisualPart("Left Forearm", PrimitiveType.Capsule, leftElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.10f, 0.20f, 0.10f), bodyMaterial);
+            CreateVisualPart("Left Hand", PrimitiveType.Sphere, leftElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), bodyMaterial);
 
             Transform rightShoulder = CreatePivot("Right Shoulder", chest, new Vector3(0.36f, 0.48f, 0f));
             CreateVisualPart("Right Upper Arm", PrimitiveType.Capsule, rightShoulder, new Vector3(0f, -0.19f, 0f), new Vector3(0.12f, 0.22f, 0.12f), bodyMaterial);
             Transform rightElbow = CreatePivot("Right Elbow", rightShoulder, new Vector3(0f, -0.38f, 0f));
-            CreateVisualPart("Right Forearm", PrimitiveType.Capsule, rightElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.10f, 0.20f, 0.10f), skinMaterial);
-            CreateVisualPart("Right Hand", PrimitiveType.Sphere, rightElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), skinMaterial);
+            CreateVisualPart("Right Forearm", PrimitiveType.Capsule, rightElbow, new Vector3(0f, -0.18f, 0f), new Vector3(0.10f, 0.20f, 0.10f), bodyMaterial);
+            CreateVisualPart("Right Hand", PrimitiveType.Sphere, rightElbow, new Vector3(0f, -0.39f, 0f), new Vector3(0.14f, 0.17f, 0.13f), bodyMaterial);
 
             ProceduralHumanoidPresenter presenter = player.AddComponent<ProceduralHumanoidPresenter>();
             presenter.Configure(
@@ -205,6 +262,21 @@ namespace WorldBuilder.Editor
                 rightShoulder,
                 leftElbow,
                 rightElbow);
+        }
+
+        private static Transform FindDescendant(Transform root, string name)
+        {
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            return descendants.FirstOrDefault(descendant => descendant.name == name);
+        }
+
+        private static void SetLayerRecursively(Transform root, int layer)
+        {
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int index = 0; index < descendants.Length; index++)
+            {
+                descendants[index].gameObject.layer = layer;
+            }
         }
 
         private static GameObject CreateEnemy(Vector3 position, Material bodyMaterial, out Health health)

@@ -21,7 +21,7 @@ Work on the Combat Lab only unless the user explicitly changes scope:
 - One small greybox obstacle room.
 - Fast restart and visible health and damage-number feedback.
 
-The current testing checkpoint tunes the reliable local gait with a slower walk cadence, longer perceived strides, stronger speed-capped air steering, a slower crouch-walk, a separate tactical body-weight pivot for the one-knee rest, and center-supported grounding at platform edges. Do not add upper-body aiming, aim-relative strafing, imported character assets, or real melee until the user has tested this gait-tuning checkpoint.
+The current testing checkpoint replaces the procedural mannequin with a CC0 rigged Humanoid and authored in-place locomotion. The existing motor remains authoritative while an Animator-driven presentation layer covers idle, walk, jog, sprint, jump/fall/land, grounded tactical crouch, and crouch movement. Do not add upper-body aiming, aim-relative strafing, or real melee until the user has tested this authored-animation checkpoint.
 
 Use the loop: make one observable change, compile and test, play it, judge it, then preserve or revise it. Prefer concrete feel discoveries over speculative system breadth.
 
