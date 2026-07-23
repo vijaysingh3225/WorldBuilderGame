@@ -8,7 +8,25 @@ namespace WorldBuilder.Gameplay.Input
     {
         [SerializeField, Min(0.001f)] private float lookScale = 0.08f;
 
+        private bool diagnosticOverrideActive;
+        private PlayerIntent diagnosticIntent;
+
         public PlayerIntent CurrentIntent { get; private set; }
+        public bool DiagnosticOverrideActive => diagnosticOverrideActive;
+
+        public void SetDiagnosticOverride(in PlayerIntent intent)
+        {
+            diagnosticIntent = intent;
+            diagnosticOverrideActive = true;
+            CurrentIntent = intent;
+        }
+
+        public void ClearDiagnosticOverride()
+        {
+            diagnosticOverrideActive = false;
+            diagnosticIntent = default;
+            CurrentIntent = default;
+        }
 
         private void OnEnable()
         {
@@ -17,11 +35,19 @@ namespace WorldBuilder.Gameplay.Input
 
         private void OnDisable()
         {
+            diagnosticOverrideActive = false;
+            diagnosticIntent = default;
             CurrentIntent = default;
         }
 
         private void Update()
         {
+            if (diagnosticOverrideActive)
+            {
+                CurrentIntent = diagnosticIntent;
+                return;
+            }
+
             Keyboard keyboard = Keyboard.current;
             Mouse mouse = Mouse.current;
 

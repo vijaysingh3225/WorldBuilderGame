@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using WorldBuilder.Gameplay.Core;
 
@@ -5,6 +6,8 @@ namespace WorldBuilder.Gameplay.Combat
 {
     public static class DamageService
     {
+        public static event Action<GameObject, DamageRequest> Resolved;
+
         public static bool TryApply(GameObject target, in DamageRequest request)
         {
             if (target == null || request.Amount <= 0f)
@@ -20,6 +23,7 @@ namespace WorldBuilder.Gameplay.Combat
 
             damageable.ReceiveDamage(request);
             GameplayEventLog.Publish("damage", request.Instigator, $"{request.SourceId}:{request.Amount:0.##}->{target.name}");
+            Resolved?.Invoke(target, request);
             return true;
         }
 

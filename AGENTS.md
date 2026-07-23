@@ -25,6 +25,12 @@ The current testing checkpoint replaces the procedural mannequin with a CC0 rigg
 
 Use the loop: make one observable change, compile and test, play it, judge it, then preserve or revise it. Prefer concrete feel discoveries over speculative system breadth.
 
+## Diagnostic iteration protocol
+
+Before changing movement, animation, camera, or combat, read `Docs/DIAGNOSTIC_HARNESS.md`, the latest creator review, and any accepted baseline. Use the isolated 60-sample Animator capture for clip-only changes and the deterministic full-scene suite for controller, transition, physics, camera, or combat changes. Free-play F9/F10 captures cover behaviors that only reproduce under natural input.
+
+Treat diagnostic artifacts as evidence rather than taste canon. A candidate is not accepted because automated checks pass. Only promote `Assets/_Project/Diagnostics/AcceptedCombatLabBaseline.json` after explicit creator acceptance, and preserve the creator's own language with the run.
+
 ## Engineering boundaries
 
 - Separate player input intent from simulation and state mutation.
@@ -48,3 +54,5 @@ Before making a design-affecting change, read the relevant note in the sibling v
 ## Definition of done
 
 A change is done when scripts compile, relevant tests pass, the affected scene has been played or otherwise exercised, and the result is documented briefly enough for another contributor to continue. If Unity cannot run locally, say exactly what remains unverified.
+
+For movement, animation, camera, or combat changes, "otherwise exercised" means the appropriate diagnostic capture completed and its AI report and baseline comparison were reviewed. This is in addition to creator playtesting for subjective feel.

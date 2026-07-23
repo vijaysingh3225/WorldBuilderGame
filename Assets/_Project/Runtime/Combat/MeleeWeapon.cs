@@ -6,6 +6,29 @@ using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Combat
 {
+    public readonly struct MeleeAttackReport
+    {
+        public MeleeAttackReport(
+            float time,
+            Vector3 center,
+            int overlappingColliders,
+            int uniqueDamageables,
+            int damagedTargets)
+        {
+            Time = time;
+            Center = center;
+            OverlappingColliders = overlappingColliders;
+            UniqueDamageables = uniqueDamageables;
+            DamagedTargets = damagedTargets;
+        }
+
+        public float Time { get; }
+        public Vector3 Center { get; }
+        public int OverlappingColliders { get; }
+        public int UniqueDamageables { get; }
+        public int DamagedTargets { get; }
+    }
+
     [RequireComponent(typeof(PlayerInputSource))]
     public sealed class MeleeWeapon : MonoBehaviour
     {
@@ -25,8 +48,15 @@ namespace WorldBuilder.Gameplay.Combat
         private float nextAttackTime;
 
         public event Action AttackStarted;
+        public event Action<string> AttackRejected;
+        public event Action<MeleeAttackReport> AttackResolved;
 
         public float CooldownRemaining => Mathf.Max(0f, nextAttackTime - Time.time);
+        public float Damage => damage;
+        public float Cooldown => cooldown;
+        public float Reach => reach;
+        public float Radius => radius;
+        public Vector3 AttackCenter => transform.position + attackOffset + transform.forward * reach;
 
         private void Awake()
         {
@@ -44,8 +74,15 @@ namespace WorldBuilder.Gameplay.Combat
 
         public bool TryAttack()
         {
-            if (Time.time < nextAttackTime || ownerHealth != null && !ownerHealth.IsAlive)
+            if (Time.time < nextAttackTime)
             {
+                AttackRejected?.Invoke("cooldown");
+                return false;
+            }
+
+            if (ownerHealth != null && !ownerHealth.IsAlive)
+            {
+                AttackRejected?.Invoke("owner-dead");
                 return false;
             }
 
@@ -53,9 +90,11 @@ namespace WorldBuilder.Gameplay.Combat
             AttackStarted?.Invoke();
             GameplayEventLog.Publish("attack", gameObject, weaponId);
 
-            Vector3 center = transform.position + attackOffset + transform.forward * reach;
+            Vector3 center = AttackCenter;
             int hitCount = Physics.OverlapSphereNonAlloc(center, radius, hits, hitMask, QueryTriggerInteraction.Ignore);
             damagedThisSwing.Clear();
+            int uniqueDamageables = 0;
+            int damagedTargets = 0;
 
             for (int index = 0; index < hitCount; index++)
             {
@@ -71,10 +110,21 @@ namespace WorldBuilder.Gameplay.Combat
                     continue;
                 }
 
+                uniqueDamageables++;
                 Vector3 hitPoint = hit.ClosestPoint(center);
                 DamageRequest request = new DamageRequest(gameObject, damage, hitPoint, transform.forward, weaponId);
-                DamageService.TryApply(hit, request);
+                if (DamageService.TryApply(hit, request))
+                {
+                    damagedTargets++;
+                }
             }
+
+            AttackResolved?.Invoke(new MeleeAttackReport(
+                Time.time,
+                center,
+                hitCount,
+                uniqueDamageables,
+                damagedTargets));
 
             return true;
         }

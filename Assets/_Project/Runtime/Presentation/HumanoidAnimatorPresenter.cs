@@ -33,6 +33,16 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 animator.applyRootMotion = false;
             }
+
+#if UNITY_EDITOR
+            LocomotionDebugOverlay diagnostics = GetComponent<LocomotionDebugOverlay>();
+            if (diagnostics == null)
+            {
+                diagnostics = gameObject.AddComponent<LocomotionDebugOverlay>();
+            }
+
+            diagnostics.Configure(motor, animator);
+#endif
         }
 
         private void Awake()

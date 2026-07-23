@@ -8,6 +8,8 @@
 /[Uu]ser[Ss]ettings/
 /[Mm]emoryCaptures/
 /[Rr]ecordings/
+/Artifacts/LocomotionDiagnostics/latest/
+/Artifacts/CombatLabDiagnostics/
 
 # IDE and generated project files
 .vs/

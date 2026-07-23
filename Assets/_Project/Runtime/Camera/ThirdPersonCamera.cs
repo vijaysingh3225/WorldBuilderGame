@@ -20,6 +20,10 @@ namespace WorldBuilder.Gameplay.CameraSystem
         private float pitch;
         private Vector3 positionVelocity;
 
+        public float DesiredDistance => distance;
+        public float ShoulderOffset => shoulderOffset;
+        public float PositionSmoothTime => positionSmoothTime;
+
         public void Configure(Transform followTarget, PlayerInputSource intentSource)
         {
             target = followTarget;

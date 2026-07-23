@@ -8,13 +8,21 @@ namespace WorldBuilder.Gameplay.Characters
     [RequireComponent(typeof(PlayerInputSource))]
     public sealed class ThirdPersonMotor : MonoBehaviour
     {
-        [SerializeField, Min(0f)] private float walkSpeed = 3.4f;
-        [SerializeField, Min(0f)] private float sprintSpeed = 6.1f;
-        [SerializeField, Min(0f)] private float crouchSpeed = 1.8f;
+        public const float DefaultWalkSpeed = 1.85f;
+        public const float DefaultJogSpeed = 3.1f;
+        public const float DefaultSprintSpeed = 4.6f;
+        public const float DefaultCrouchSpeed = 1.0f;
+
+        [SerializeField, Min(0f)] private float walkSpeed = DefaultWalkSpeed;
+        [SerializeField, Min(0f)] private float sprintSpeed = DefaultSprintSpeed;
+        [SerializeField, Min(0f)] private float crouchSpeed = DefaultCrouchSpeed;
         [SerializeField, Min(0f)] private float acceleration = 24f;
         [SerializeField, Min(0f)] private float airAcceleration = 14f;
         [SerializeField, Min(0f)] private float standingJumpAirSpeedLimit = 2.2f;
-        [SerializeField, Min(0f)] private float turnSpeed = 720f;
+        [SerializeField, Min(0f)] private float turnSpeed = 360f;
+        [SerializeField, Range(-1f, 0f)] private float reversalBrakeDot = -0.35f;
+        [SerializeField, Range(0f, 90f)] private float reversalRestartAngle = 38f;
+        [SerializeField, Min(0f)] private float reversalStopSpeed = 0.08f;
         [SerializeField, Min(0f)] private float gravity = 28f;
         [SerializeField, Min(0.1f)] private float jumpHeight = 1.35f;
         [SerializeField, Min(0f)] private float coyoteTime = 0.12f;
@@ -41,6 +49,10 @@ namespace WorldBuilder.Gameplay.Characters
         private float airborneSpeedLimit;
         private bool isGrounded;
         private bool isCrouched;
+        private bool isBrakingForReversal;
+        private bool hasGroundControl;
+        private Vector3 desiredWorldDirection;
+        private float targetHorizontalSpeed;
 
         public Vector3 HorizontalVelocity => horizontalVelocity;
         public Vector3 LocalHorizontalVelocity => transform.InverseTransformDirection(horizontalVelocity);
@@ -52,6 +64,45 @@ namespace WorldBuilder.Gameplay.Characters
             : Mathf.Clamp01((standingHeight - controller.height) / (standingHeight - crouchingHeight));
         public bool IsGrounded => isGrounded;
         public bool IsCrouched => isCrouched;
+        public bool HasGroundControl => hasGroundControl;
+        public bool IsBrakingForReversal => isBrakingForReversal;
+        public Vector3 DesiredWorldDirection => desiredWorldDirection;
+        public float TargetHorizontalSpeed => targetHorizontalSpeed;
+        public float CharacterHeight => controller != null ? controller.height : 0f;
+        public float AccelerationRate => acceleration;
+        public float AirAccelerationRate => airAcceleration;
+        public float TurnSpeed => turnSpeed;
+        public float WalkSpeed => walkSpeed;
+        public float SprintSpeed => sprintSpeed;
+        public float CrouchSpeed => crouchSpeed;
+        public float JumpHeight => jumpHeight;
+        public float Gravity => gravity;
+        public float ReversalBrakeDot => reversalBrakeDot;
+        public float ReversalRestartAngle => reversalRestartAngle;
+        public float CrouchTransitionSpeed => crouchTransitionSpeed;
+
+        public void ResetForDiagnostics(Vector3 worldPosition, Quaternion worldRotation)
+        {
+            if (controller == null)
+            {
+                controller = GetComponent<CharacterController>();
+            }
+
+            bool wasEnabled = controller.enabled;
+            controller.enabled = false;
+            transform.SetPositionAndRotation(worldPosition, worldRotation);
+            controller.enabled = wasEnabled;
+            horizontalVelocity = Vector3.zero;
+            verticalVelocity = -2f;
+            desiredWorldDirection = Vector3.zero;
+            targetHorizontalSpeed = 0f;
+            airborneSpeedLimit = standingJumpAirSpeedLimit;
+            isBrakingForReversal = false;
+            lastGroundedTime = Time.time;
+            lastJumpRequestedTime = float.NegativeInfinity;
+            isGrounded = HasSupportedGroundContact();
+            hasGroundControl = isGrounded;
+        }
 
         private void Awake()
         {
@@ -70,6 +121,9 @@ namespace WorldBuilder.Gameplay.Characters
         {
             if (health != null && !health.IsAlive)
             {
+                desiredWorldDirection = Vector3.zero;
+                targetHorizontalSpeed = 0f;
+                hasGroundControl = false;
                 ApplyGravityOnly();
                 return;
             }
@@ -82,11 +136,13 @@ namespace WorldBuilder.Gameplay.Characters
             PlayerIntent intent = input.CurrentIntent;
             UpdateCrouch(intent.CrouchHeld);
             Vector3 desiredDirection = ToWorldDirection(intent.Move);
-            bool hasGroundControl = HasSupportedGroundContact();
+            desiredWorldDirection = desiredDirection;
+            hasGroundControl = HasSupportedGroundContact();
             if (hasGroundControl)
             {
                 float targetSpeed = isCrouched ? crouchSpeed : intent.SprintHeld ? sprintSpeed : walkSpeed;
-                Vector3 desiredVelocity = desiredDirection * targetSpeed;
+                targetHorizontalSpeed = desiredDirection.sqrMagnitude > 0.001f ? targetSpeed : 0f;
+                Vector3 desiredVelocity = GetGroundTargetVelocity(desiredDirection, targetSpeed);
                 horizontalVelocity = Vector3.MoveTowards(
                     horizontalVelocity,
                     desiredVelocity,
@@ -95,18 +151,19 @@ namespace WorldBuilder.Gameplay.Characters
             }
             else if (desiredDirection.sqrMagnitude > 0.001f)
             {
+                targetHorizontalSpeed = airborneSpeedLimit;
                 Vector3 desiredAirVelocity = desiredDirection * airborneSpeedLimit;
                 horizontalVelocity = Vector3.MoveTowards(
                     horizontalVelocity,
                     desiredAirVelocity,
                     airAcceleration * Time.deltaTime);
             }
-
-            if (desiredDirection.sqrMagnitude > 0.001f)
+            else
             {
-                Quaternion targetRotation = Quaternion.LookRotation(desiredDirection, Vector3.up);
-                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, turnSpeed * Time.deltaTime);
+                targetHorizontalSpeed = 0f;
             }
+
+            UpdateFacing(desiredDirection);
 
             UpdateVerticalMotion(intent);
             Vector3 motion = horizontalVelocity + Vector3.up * verticalVelocity;
@@ -124,6 +181,58 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 forward = Vector3.ProjectOnPlane(cameraTransform.forward, Vector3.up).normalized;
             Vector3 right = Vector3.ProjectOnPlane(cameraTransform.right, Vector3.up).normalized;
             return Vector3.ClampMagnitude(forward * move.y + right * move.x, 1f);
+        }
+
+        private Vector3 GetGroundTargetVelocity(Vector3 desiredDirection, float targetSpeed)
+        {
+            if (desiredDirection.sqrMagnitude <= 0.001f)
+            {
+                isBrakingForReversal = false;
+                return Vector3.zero;
+            }
+
+            float currentSpeed = horizontalVelocity.magnitude;
+            if (!isBrakingForReversal && currentSpeed > reversalStopSpeed)
+            {
+                float directionAlignment = Vector3.Dot(horizontalVelocity / currentSpeed, desiredDirection);
+                isBrakingForReversal = directionAlignment < reversalBrakeDot;
+            }
+
+            if (!isBrakingForReversal)
+            {
+                return desiredDirection * targetSpeed;
+            }
+
+            float facingAngle = Vector3.Angle(transform.forward, desiredDirection);
+            if (currentSpeed <= reversalStopSpeed && facingAngle <= reversalRestartAngle)
+            {
+                isBrakingForReversal = false;
+                return desiredDirection * targetSpeed;
+            }
+
+            return Vector3.zero;
+        }
+
+        private void UpdateFacing(Vector3 desiredDirection)
+        {
+            Vector3 facingDirection = horizontalVelocity;
+            if (facingDirection.sqrMagnitude <= reversalStopSpeed * reversalStopSpeed)
+            {
+                facingDirection = desiredDirection;
+            }
+
+            facingDirection.y = 0f;
+
+            if (facingDirection.sqrMagnitude <= 0.001f)
+            {
+                return;
+            }
+
+            Quaternion targetRotation = Quaternion.LookRotation(facingDirection.normalized, Vector3.up);
+            transform.rotation = Quaternion.RotateTowards(
+                transform.rotation,
+                targetRotation,
+                turnSpeed * Time.deltaTime);
         }
 
         private void ApplyGravityOnly()

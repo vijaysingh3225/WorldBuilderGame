@@ -9,6 +9,7 @@ using WorldBuilder.Gameplay.CameraSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
+using WorldBuilder.Gameplay.Diagnostics;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Presentation;
 
@@ -17,8 +18,11 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Authored Humanoid V1";
+        public const string CheckpointMarkerName = "Prototype Systems - Unified Diagnostics V1";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
+        private const string WeaponFolder = "Assets/_Project/Art/Prototype/Weapons";
+        private const string ShortSwordBladePath =
+            "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
         public static void Build()
@@ -34,6 +38,20 @@ namespace WorldBuilder.Editor
             Material playerMaterial = GetOrCreateMaterial("Player", new Color(0.18f, 0.34f, 0.46f));
             Material playerSecondaryMaterial = GetOrCreateMaterial("PlayerSecondary", new Color(0.09f, 0.13f, 0.16f));
             Material enemyMaterial = GetOrCreateMaterial("Enemy", new Color(0.50f, 0.20f, 0.12f));
+            Material bladeMaterial = GetOrCreateMaterial(
+                "ShortSwordBlade",
+                new Color(0.56f, 0.62f, 0.67f),
+                0.72f,
+                0.82f);
+            Material guardMaterial = GetOrCreateMaterial(
+                "ShortSwordGuard",
+                new Color(0.15f, 0.17f, 0.18f),
+                0.4f,
+                0.75f);
+            Material gripMaterial = GetOrCreateMaterial(
+                "ShortSwordGrip",
+                new Color(0.21f, 0.105f, 0.045f),
+                0.22f);
 
             CreateLighting();
             GameObject environment = new GameObject("Environment");
@@ -43,6 +61,9 @@ namespace WorldBuilder.Editor
                 new Vector3(0f, 1f, -5.5f),
                 playerMaterial,
                 playerSecondaryMaterial,
+                bladeMaterial,
+                guardMaterial,
+                gripMaterial,
                 out Health playerHealth,
                 out PlayerInputSource playerInput);
             GameObject enemy = CreateEnemy(new Vector3(0f, 1f, 5f), enemyMaterial, out Health enemyHealth);
@@ -51,6 +72,7 @@ namespace WorldBuilder.Editor
             GameObject systems = new GameObject(CheckpointMarkerName);
             CombatLabHud hud = systems.AddComponent<CombatLabHud>();
             hud.Configure(playerHealth, enemyHealth);
+            systems.AddComponent<GameplayDiagnosticRecorder>();
 
             Selection.activeGameObject = player;
             EditorSceneManager.MarkSceneDirty(scene);
@@ -116,6 +138,9 @@ namespace WorldBuilder.Editor
             Vector3 position,
             Material bodyMaterial,
             Material secondaryMaterial,
+            Material bladeMaterial,
+            Material guardMaterial,
+            Material gripMaterial,
             out Health health,
             out PlayerInputSource input)
         {
@@ -141,7 +166,14 @@ namespace WorldBuilder.Editor
             input = player.AddComponent<PlayerInputSource>();
             ThirdPersonMotor motor = player.AddComponent<ThirdPersonMotor>();
             player.AddComponent<MeleeWeapon>();
-            CreateHumanoidVisual(player, motor, bodyMaterial, secondaryMaterial);
+            CreateHumanoidVisual(
+                player,
+                motor,
+                bodyMaterial,
+                secondaryMaterial,
+                bladeMaterial,
+                guardMaterial,
+                gripMaterial);
             return player;
         }
 
@@ -149,7 +181,10 @@ namespace WorldBuilder.Editor
             GameObject player,
             ThirdPersonMotor motor,
             Material bodyMaterial,
-            Material secondaryMaterial)
+            Material secondaryMaterial,
+            Material bladeMaterial,
+            Material guardMaterial,
+            Material gripMaterial)
         {
             if (HumanoidAnimationSetup.EnsureGeneratedAssets())
             {
@@ -197,12 +232,171 @@ namespace WorldBuilder.Editor
 
                     HumanoidAnimatorPresenter presenter = player.AddComponent<HumanoidAnimatorPresenter>();
                     presenter.Configure(motor, animator);
+                    Transform swordRoot = CreateShortSword(
+                        animator,
+                        player.transform,
+                        bladeMaterial,
+                        guardMaterial,
+                        gripMaterial);
+                    ShortSwordAttackPresenter attackPresenter =
+                        animator.gameObject.AddComponent<ShortSwordAttackPresenter>();
+                    attackPresenter.Configure(
+                        animator,
+                        player.transform,
+                        motor,
+                        player.GetComponent<MeleeWeapon>(),
+                        swordRoot);
+                    LocomotionDebugOverlay diagnostics = player.GetComponent<LocomotionDebugOverlay>();
+                    if (diagnostics == null)
+                    {
+                        diagnostics = player.AddComponent<LocomotionDebugOverlay>();
+                    }
+
+                    diagnostics.Configure(motor, animator);
                     return;
                 }
             }
 
             Debug.LogWarning("Falling back to the procedural humanoid because authored animation assets are unavailable.");
             CreateProceduralHumanoidVisual(player, motor, bodyMaterial, secondaryMaterial);
+        }
+
+        private static Transform CreateShortSword(
+            Animator animator,
+            Transform player,
+            Material bladeMaterial,
+            Material guardMaterial,
+            Material gripMaterial)
+        {
+            Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+            Transform lowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+            Transform indexKnuckle =
+                animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
+            Transform middleKnuckle =
+                animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
+            Transform littleKnuckle =
+                animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
+            if (hand == null || lowerArm == null)
+            {
+                Debug.LogWarning("The prototype short sword could not find the humanoid right-hand socket.");
+                return null;
+            }
+
+            Vector3 forearmDirection = (hand.position - lowerArm.position).normalized;
+            if (forearmDirection.sqrMagnitude < 0.9f)
+            {
+                forearmDirection = -player.up;
+            }
+
+            Vector3 swordDirection =
+                indexKnuckle != null && littleKnuckle != null
+                    ? (indexKnuckle.position - littleKnuckle.position).normalized
+                    : player.forward;
+            Vector3 swordRight =
+                Vector3.ProjectOnPlane(forearmDirection, swordDirection).normalized;
+            if (swordRight.sqrMagnitude < 0.9f)
+            {
+                swordRight =
+                    Vector3.ProjectOnPlane(player.right, swordDirection).normalized;
+            }
+
+            Vector3 swordForward = Vector3.Cross(swordRight, swordDirection).normalized;
+            Vector3 knuckleCenter = middleKnuckle != null
+                ? middleKnuckle.position
+                : indexKnuckle != null && littleKnuckle != null
+                    ? (indexKnuckle.position + littleKnuckle.position) * 0.5f
+                    : hand.position + swordDirection * 0.13f;
+            Vector3 palmCenter = Vector3.Lerp(hand.position, knuckleCenter, 0.68f);
+            GameObject swordRoot = new GameObject("Equipped Short Sword");
+            swordRoot.layer = 2;
+            swordRoot.transform.position = palmCenter - swordDirection * 0.09f;
+            swordRoot.transform.rotation = Quaternion.LookRotation(swordForward, swordDirection);
+            swordRoot.transform.SetParent(hand, true);
+
+            GameObject grip = CreateVisualPart(
+                "Leather Grip",
+                PrimitiveType.Cylinder,
+                swordRoot.transform,
+                new Vector3(0f, 0.09f, 0f),
+                new Vector3(0.032f, 0.09f, 0.032f),
+                gripMaterial);
+            grip.transform.localRotation = Quaternion.identity;
+
+            GameObject pommel = CreateVisualPart(
+                "Pommel",
+                PrimitiveType.Sphere,
+                swordRoot.transform,
+                new Vector3(0f, -0.015f, 0f),
+                new Vector3(0.075f, 0.055f, 0.055f),
+                guardMaterial);
+            pommel.transform.localRotation = Quaternion.identity;
+
+            GameObject guard = CreateVisualPart(
+                "Crossguard",
+                PrimitiveType.Cube,
+                swordRoot.transform,
+                new Vector3(0f, 0.195f, 0f),
+                new Vector3(0.30f, 0.035f, 0.052f),
+                guardMaterial);
+            guard.transform.localRotation = Quaternion.identity;
+
+            GameObject blade = new GameObject("Pointed Blade");
+            blade.layer = 2;
+            blade.transform.SetParent(swordRoot.transform, false);
+            blade.transform.localPosition = new Vector3(0f, 0.215f, 0f);
+            MeshFilter filter = blade.AddComponent<MeshFilter>();
+            filter.sharedMesh = GetOrCreateShortSwordBlade();
+            MeshRenderer renderer = blade.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = bladeMaterial;
+            return swordRoot.transform;
+        }
+
+        private static Mesh GetOrCreateShortSwordBlade()
+        {
+            Mesh existing = AssetDatabase.LoadAssetAtPath<Mesh>(ShortSwordBladePath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            const float halfWidth = 0.055f;
+            const float halfThickness = 0.012f;
+            const float shoulderHeight = 0.64f;
+            const float tipHeight = 0.78f;
+            Vector3[] vertices =
+            {
+                new Vector3(-halfWidth, 0f, -halfThickness),
+                new Vector3(halfWidth, 0f, -halfThickness),
+                new Vector3(-halfWidth, shoulderHeight, -halfThickness),
+                new Vector3(halfWidth, shoulderHeight, -halfThickness),
+                new Vector3(0f, tipHeight, -halfThickness),
+                new Vector3(-halfWidth, 0f, halfThickness),
+                new Vector3(halfWidth, 0f, halfThickness),
+                new Vector3(-halfWidth, shoulderHeight, halfThickness),
+                new Vector3(halfWidth, shoulderHeight, halfThickness),
+                new Vector3(0f, tipHeight, halfThickness)
+            };
+            int[] triangles =
+            {
+                0, 2, 1, 1, 2, 3, 2, 4, 3,
+                5, 6, 7, 6, 8, 7, 7, 8, 9,
+                0, 1, 5, 1, 6, 5,
+                0, 5, 2, 5, 7, 2,
+                1, 3, 6, 3, 8, 6,
+                2, 7, 4, 7, 9, 4,
+                3, 4, 8, 4, 9, 8
+            };
+
+            Mesh mesh = new Mesh
+            {
+                name = "Prototype Short Sword Blade",
+                vertices = vertices,
+                triangles = triangles
+            };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            AssetDatabase.CreateAsset(mesh, ShortSwordBladePath);
+            return mesh;
         }
 
         private static void CreateProceduralHumanoidVisual(
@@ -434,6 +628,7 @@ namespace WorldBuilder.Editor
             EnsureFolder("Assets/_Project", "Art");
             EnsureFolder("Assets/_Project/Art", "Prototype");
             EnsureFolder("Assets/_Project/Art/Prototype", "Materials");
+            EnsureFolder("Assets/_Project/Art/Prototype", "Weapons");
         }
 
         private static void EnsureFolder(string parent, string child)
