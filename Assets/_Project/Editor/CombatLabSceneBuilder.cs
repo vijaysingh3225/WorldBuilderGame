@@ -18,11 +18,14 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Unified Diagnostics V1";
+        public const string CheckpointMarkerName = "Prototype Systems - Restored Regular Three Hit Combo V34";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
-        private const string WeaponFolder = "Assets/_Project/Art/Prototype/Weapons";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
+        private const string SwordSwingAudioPath =
+            "Assets/_Project/Audio/SFX/Sword Swing.mp3";
+        private const string SwordHitAudioPath =
+            "Assets/_Project/Audio/SFX/Sword Hit.mp3";
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
         public static void Build()
@@ -37,7 +40,12 @@ namespace WorldBuilder.Editor
             Material accentMaterial = GetOrCreateMaterial("MossAccent", new Color(0.30f, 0.40f, 0.27f));
             Material playerMaterial = GetOrCreateMaterial("Player", new Color(0.18f, 0.34f, 0.46f));
             Material playerSecondaryMaterial = GetOrCreateMaterial("PlayerSecondary", new Color(0.09f, 0.13f, 0.16f));
-            Material enemyMaterial = GetOrCreateMaterial("Enemy", new Color(0.50f, 0.20f, 0.12f));
+            Material enemyMaterial = GetOrCreateMaterial(
+                "TrainingDummyRed",
+                new Color(0.68f, 0.055f, 0.045f));
+            Material enemySecondaryMaterial = GetOrCreateMaterial(
+                "TrainingDummyDarkRed",
+                new Color(0.24f, 0.018f, 0.015f));
             Material bladeMaterial = GetOrCreateMaterial(
                 "ShortSwordBlade",
                 new Color(0.56f, 0.62f, 0.67f),
@@ -66,7 +74,11 @@ namespace WorldBuilder.Editor
                 gripMaterial,
                 out Health playerHealth,
                 out PlayerInputSource playerInput);
-            GameObject enemy = CreateEnemy(new Vector3(0f, 1f, 5f), enemyMaterial, out Health enemyHealth);
+            GameObject enemy = CreateEnemy(
+                new Vector3(0f, 1f, 5f),
+                enemyMaterial,
+                enemySecondaryMaterial,
+                out Health enemyHealth);
             CreateCamera(player.transform, playerInput);
 
             GameObject systems = new GameObject(CheckpointMarkerName);
@@ -245,7 +257,11 @@ namespace WorldBuilder.Editor
                         player.transform,
                         motor,
                         player.GetComponent<MeleeWeapon>(),
-                        swordRoot);
+                        swordRoot,
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(SwordSwingAudioPath));
+                    UpperBodyAimPresenter aimPresenter =
+                        animator.gameObject.AddComponent<UpperBodyAimPresenter>();
+                    aimPresenter.Configure(animator, player.transform);
                     LocomotionDebugOverlay diagnostics = player.GetComponent<LocomotionDebugOverlay>();
                     if (diagnostics == null)
                     {
@@ -473,15 +489,21 @@ namespace WorldBuilder.Editor
             }
         }
 
-        private static GameObject CreateEnemy(Vector3 position, Material bodyMaterial, out Health health)
+        private static GameObject CreateEnemy(
+            Vector3 position,
+            Material bodyMaterial,
+            Material secondaryMaterial,
+            out Health health)
         {
-            GameObject enemy = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            GameObject enemy = new GameObject("Raider Prototype");
             enemy.name = "Raider Prototype";
             enemy.transform.position = position;
             enemy.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
-            Object.DestroyImmediate(enemy.GetComponent<CapsuleCollider>());
-            Renderer renderer = enemy.GetComponent<Renderer>();
-            renderer.sharedMaterial = bodyMaterial;
+
+            Transform visual = CreateTrainingDummyVisual(
+                enemy.transform,
+                bodyMaterial,
+                secondaryMaterial);
 
             CharacterController controller = enemy.AddComponent<CharacterController>();
             controller.height = 2f;
@@ -492,12 +514,88 @@ namespace WorldBuilder.Editor
             StableId stableId = enemy.AddComponent<StableId>();
             stableId.EnsureAssigned();
             health = enemy.AddComponent<Health>();
-            health.Configure(88f);
+            health.ConfigureWithFloor(88f, 1f);
             EnemyBrain brain = enemy.AddComponent<EnemyBrain>();
             brain.ConfigureAsTrainingDummy();
-            EnemyTelegraphPresenter presenter = enemy.AddComponent<EnemyTelegraphPresenter>();
-            presenter.Configure(renderer);
+            HitReactionPresenter hitReaction = enemy.AddComponent<HitReactionPresenter>();
+            hitReaction.Configure(
+                health,
+                visual,
+                AssetDatabase.LoadAssetAtPath<AudioClip>(SwordHitAudioPath),
+                0.138f);
             return enemy;
+        }
+
+        private static Transform CreateTrainingDummyVisual(
+            Transform parent,
+            Material bodyMaterial,
+            Material secondaryMaterial)
+        {
+            if (HumanoidAnimationSetup.EnsureGeneratedAssets())
+            {
+                GameObject modelPrefab =
+                    AssetDatabase.LoadAssetAtPath<GameObject>(HumanoidAnimationSetup.ModelPath);
+                RuntimeAnimatorController controller =
+                    AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(
+                        HumanoidAnimationSetup.ControllerPath);
+                if (modelPrefab != null && controller != null)
+                {
+                    GameObject visual =
+                        PrefabUtility.InstantiatePrefab(modelPrefab, parent) as GameObject;
+                    visual.name = "Training Dummy Humanoid Visual";
+                    visual.transform.localPosition = Vector3.down;
+                    visual.transform.localRotation = Quaternion.identity;
+                    visual.transform.localScale = Vector3.one * 1.1f;
+
+                    Transform previewFloor = FindDescendant(visual.transform, "Cube");
+                    if (previewFloor != null)
+                    {
+                        Object.DestroyImmediate(previewFloor.gameObject);
+                    }
+
+                    SkinnedMeshRenderer[] renderers =
+                        visual.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+                    for (int rendererIndex = 0;
+                         rendererIndex < renderers.Length;
+                         rendererIndex++)
+                    {
+                        Material[] materials = renderers[rendererIndex].sharedMaterials;
+                        for (int materialIndex = 0;
+                             materialIndex < materials.Length;
+                             materialIndex++)
+                        {
+                            materials[materialIndex] =
+                                materialIndex == 0 ? bodyMaterial : secondaryMaterial;
+                        }
+
+                        renderers[rendererIndex].sharedMaterials = materials;
+                    }
+
+                    Animator animator = visual.GetComponentInChildren<Animator>(true);
+                    if (animator == null)
+                    {
+                        animator = visual.AddComponent<Animator>();
+                    }
+
+                    animator.runtimeAnimatorController = controller;
+                    animator.applyRootMotion = false;
+                    animator.updateMode = AnimatorUpdateMode.Normal;
+                    animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    StationaryHumanoidPresenter stationaryPresenter =
+                        animator.gameObject.AddComponent<StationaryHumanoidPresenter>();
+                    stationaryPresenter.Configure(animator);
+                    return visual.transform;
+                }
+            }
+
+            Debug.LogWarning(
+                "The humanoid training dummy could not load, so the capsule fallback was used.");
+            GameObject fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            fallback.name = "Training Dummy Visual - Fallback";
+            fallback.transform.SetParent(parent, false);
+            Object.DestroyImmediate(fallback.GetComponent<CapsuleCollider>());
+            fallback.GetComponent<Renderer>().sharedMaterial = bodyMaterial;
+            return fallback.transform;
         }
 
         private static void CreateCamera(Transform target, PlayerInputSource input)
@@ -644,8 +742,6 @@ namespace WorldBuilder.Editor
     [InitializeOnLoad]
     internal static class CombatLabFirstImport
     {
-        private const string SessionKey = "WorldBuilder.GaitTuningV1Attempted";
-
         static CombatLabFirstImport()
         {
             EditorApplication.delayCall += TryBuildInitialScene;
@@ -653,12 +749,11 @@ namespace WorldBuilder.Editor
 
         private static void TryBuildInitialScene()
         {
-            if (SessionState.GetBool(SessionKey, false) || EditorApplication.isPlayingOrWillChangePlaymode)
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
                 return;
             }
 
-            SessionState.SetBool(SessionKey, true);
             if (!File.Exists(CombatLabSceneBuilder.ScenePath))
             {
                 CombatLabSceneBuilder.Build();

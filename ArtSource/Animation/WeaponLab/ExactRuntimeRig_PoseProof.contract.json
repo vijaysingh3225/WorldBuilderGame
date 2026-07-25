@@ -1,0 +1,70 @@
+{
+  "schema": "worldbuilder.exact-runtime-rig-unity-bridge.v2",
+  "intermediate_fbx": "Assets/_Project/Art/Prototype/Humanoid/WeaponAnimations/ShortSwordExactRigPoseProof.fbx",
+  "intermediate_fbx_sha256": "219ccc9877cebd5adce0c02d3b9535a887d5c5e5ce7198ebcb5f33038db4c870",
+  "blender_action": "ShortSword_ExactRig_PoseProof_V1",
+  "imported_clip_name_contains": "Exact Runtime Rig Pose Proof",
+  "fps": 60,
+  "blender_source_frame_range": [
+    1,
+    227
+  ],
+  "blender_reimport_frame_range": [
+    2,
+    228
+  ],
+  "unity_import_frame_range": [
+    1,
+    227
+  ],
+  "landmarks": [
+    {
+      "name": "Carry",
+      "frame": 35,
+      "unity_normalized_time": 0.150442478
+    },
+    {
+      "name": "High Right",
+      "frame": 83,
+      "unity_normalized_time": 0.362831858
+    },
+    {
+      "name": "Low Across",
+      "frame": 115,
+      "unity_normalized_time": 0.504424779
+    },
+    {
+      "name": "Recovery",
+      "frame": 191,
+      "unity_normalized_time": 0.840707965
+    }
+  ],
+  "fbx_export": {
+    "role": "intermediate sampled by Unity on the playable Avatar",
+    "axis_forward": "-Y",
+    "axis_up": "Z",
+    "primary_bone_axis": "Y",
+    "secondary_bone_axis": "X",
+    "includes_bind_mesh": true,
+    "single_animation_take": true,
+    "unity_bake_axis_conversion": true,
+    "final_runtime_clip": "Assets/_Project/Art/Prototype/Humanoid/WeaponAnimations/ShortSwordExactRigPoseProof_Baked.anim"
+  },
+  "unity_import": {
+    "animation_type": "Human",
+    "avatar_setup": "CopyFromOther",
+    "source_avatar": "Assets/_Project/Art/Prototype/Humanoid/AnimationLibrary_Unity_Standard.fbx",
+    "bake_axis_conversion": true
+  },
+  "unity_runtime_clip": {
+    "source_sample_rate": 60,
+    "asset": "Assets/_Project/Art/Prototype/Humanoid/WeaponAnimations/ShortSwordExactRigPoseProof_Baked.anim",
+    "clip_name": "ShortSwordExactRigPoseProof_Baked",
+    "representation": "serialized_humanoid_clone",
+    "comparison": "intermediate-on-playable-target versus standalone-humanoid-clone-on-playable-target"
+  },
+  "reference_video": {
+    "file": "IMG_2335.MOV",
+    "sha256": "bc4eb8bfbaff7d39b9ed41547bb1833c7784c36e9042c13c1b5669b801146f5f"
+  }
+}

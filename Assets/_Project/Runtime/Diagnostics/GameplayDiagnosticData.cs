@@ -111,6 +111,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public string enemyState;
         public float weaponCooldownRemaining;
         public Vector3 attackCenter;
+        public bool weaponAttackInProgress;
+        public Vector3 bladeBase;
+        public Vector3 bladeTip;
     }
 
     [Serializable]
@@ -281,6 +284,16 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public float weaponCooldown;
         public float weaponReach;
         public float weaponRadius;
+        public string weaponAttackId;
+        public float attackDuration;
+        public float attackActiveStart;
+        public float attackContactTime;
+        public float attackActiveEnd;
+        public float attackInputBuffer;
+        public float attackMovementMultiplier;
+        public float attackTurnRate;
+        public float attackCancelAfter;
+        public int bladeSweepSegments;
         public float cameraDistance;
         public float cameraShoulderOffset;
         public float cameraPositionSmoothTime;

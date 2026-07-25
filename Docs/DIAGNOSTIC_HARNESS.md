@@ -12,15 +12,14 @@ Free-play capture observes the current game without replacing player input. It i
 
 ### Deterministic full-scene suite
 
-Open **WorldBuilder -> Diagnostics -> Combat Lab Diagnostics** and select **Run Deterministic Full Suite**. The suite opens the real generated Combat Lab and drives the production `PlayerInputSource`, `ThirdPersonMotor`, Animator, CharacterController, `MeleeWeapon`, `DamageService`, `Health`, and `GameplayEventLog` at a frame-locked 60 Hz.
+Open **WorldBuilder -> Diagnostics -> Combat Lab Diagnostics** and select **Run Deterministic Full Suite**. The suite opens the real generated Combat Lab and drives the production `PlayerInputSource`, `ThirdPersonMotor`, Animator, and CharacterController at a frame-locked 60 Hz. Weapon and damage capabilities are included only when the current required phase set contains combat; the sword-carry-only checkpoint intentionally has none.
 
 The current suite covers:
 
 - idle, forward walk, stop, sprint, sprint release, and stop;
 - 180-degree sprint reversal, independent right and left sprint turns, and alternating sprint direction changes;
 - crouch idle, crouch movement, and crouch exit;
-- idle and running jumps through takeoff, apex, fall, and landing;
-- passive-dummy behavior, accepted out-of-range miss, in-range hit, cooldown rejection, lethal damage, overkill, death, and event ordering.
+- idle and running jumps through takeoff, apex, fall, and landing.
 
 The suite temporarily replaces device input at the existing input boundary. It does not call a second motor or fake combat implementation. Its scenario runner is an Update-driven transaction: each phase and frame command is committed before production input sampling and motor simulation, then the recorder samples the resulting frame in `LateUpdate`. This keeps recorded intent, motor state, animation, events, and screenshots on the same sample instead of shifting intent one frame ahead.
 
@@ -34,7 +33,7 @@ For unattended validation, use:
 Unity.exe -batchmode -projectPath <project> -executeMethod WorldBuilder.Editor.CombatLabDiagnosticsOrchestrator.RunBatch -logFile <log>
 ```
 
-The deterministic combat sequence also marks `slash-windup`, `slash-contact`, `slash-follow-through`, `slash-recovery`, and `slash-hit-contact` screenshots. Use those together with the attack-start, attack-resolved, and damage events when changing weapon animation or hit timing.
+When combat is reintroduced, add its phases back to the required phase set so the harness once again requires a weapon and validates attack/event alignment. Until then, no combat result is inferred from the movement-only suite.
 
 ### Isolated animation-cycle capture
 

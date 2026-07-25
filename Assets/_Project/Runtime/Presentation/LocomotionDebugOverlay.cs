@@ -88,7 +88,7 @@ namespace WorldBuilder.Gameplay.Presentation
             EnsureStyles();
             BuildText();
             const float panelWidth = 410f;
-            const float panelHeight = 246f;
+            const float panelHeight = 306f;
             const float screenMargin = 16f;
             Rect panelRect = new Rect(
                 Mathf.Max(screenMargin, Screen.width - panelWidth - screenMargin),

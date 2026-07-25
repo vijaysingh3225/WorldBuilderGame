@@ -16,12 +16,12 @@ Work on the Combat Lab only unless the user explicitly changes scope:
 
 - Refine stable third-person movement and the over-the-shoulder camera before deep combat work.
 - Replace capsules with a humanoid locomotion base supporting smooth directional movement, jumping, and crouching.
-- Keep the current melee interaction only as a diagnostic damage trigger.
+- Keep the short sword visibly equipped in the right hand and preserve the current asset-based three-hit combo while its timing and feel are refined.
 - Keep the enemy completely passive as a target dummy with visible damage feedback.
 - One small greybox obstacle room.
 - Fast restart and visible health and damage-number feedback.
 
-The current testing checkpoint replaces the procedural mannequin with a CC0 rigged Humanoid and authored in-place locomotion. The existing motor remains authoritative while an Animator-driven presentation layer covers idle, walk, jog, sprint, jump/fall/land, grounded tactical crouch, and crouch movement. Do not add upper-body aiming, aim-relative strafing, or real melee until the user has tested this authored-animation checkpoint.
+The current testing checkpoint replaces the procedural mannequin with a CC0 rigged Humanoid and authored in-place locomotion. The existing motor remains authoritative while an Animator-driven presentation layer covers idle, walk, jog, sprint, jump/fall/land, grounded tactical crouch, crouch movement, an equipped-sword grip, cursor-relative upper-body facing, and the restored regular three-hit sword combo. Attacks use an upper-body layer so locomotion continues below the torso, accept at most one follow-up inside each strike window, return through recovery states when the combo stops, and deal damage from swept visible-blade contact. Preserve the wider first sweep, reverse second slash, and slower third finisher unless the creator explicitly requests another combo change.
 
 Use the loop: make one observable change, compile and test, play it, judge it, then preserve or revise it. Prefer concrete feel discoveries over speculative system breadth.
 

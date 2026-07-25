@@ -38,11 +38,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "movement/idle-jump",
             "movement/running-jump-approach",
             "movement/running-jump",
-            "combat/accepted-miss",
-            "combat/passive-dummy",
-            "combat/in-range-hit",
-            "combat/cooldown-rejection",
-            "combat/lethal-chain",
             "suite/complete"
         };
 
@@ -50,7 +45,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private GameplayDiagnosticRecorder recorder;
         private ThirdPersonMotor motor;
         private PlayerInputSource input;
-        private MeleeWeapon weapon;
         private Health playerHealth;
         private Health enemyHealth;
         private EnemyBrain enemyBrain;
@@ -98,8 +92,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             }
 
             ResolveReferences();
-            if (recorder == null || motor == null || input == null || weapon == null ||
-                playerHealth == null || enemyHealth == null || enemyBrain == null)
+            if (recorder == null || motor == null || input == null)
             {
                 throw new InvalidOperationException(
                     "The Combat Lab diagnostic suite could not find every required production component.");
@@ -225,7 +218,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             recorder ??= FindFirstObjectByType<GameplayDiagnosticRecorder>();
             motor = FindFirstObjectByType<ThirdPersonMotor>();
             input = motor != null ? motor.GetComponent<PlayerInputSource>() : null;
-            weapon = motor != null ? motor.GetComponent<MeleeWeapon>() : null;
             playerHealth = motor != null ? motor.GetComponent<Health>() : null;
             enemyBrain = FindFirstObjectByType<EnemyBrain>();
             enemyHealth = enemyBrain != null ? enemyBrain.GetComponent<Health>() : null;
@@ -286,72 +278,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             EnqueuePlayerReset(PlayerStart, Quaternion.identity, 6);
             EnqueueFixed("movement", "running-jump-approach", 48, Intent(Vector2.up, sprint: true));
             EnqueueJump("running-jump", Vector2.up, true, screenshot: true);
-
-            EnqueuePlayerReset(PlayerStart, Quaternion.identity, 6, resetDummyHealth: 88f);
-            EnqueueStep(new DiagnosticStep
-            {
-                Scenario = "combat",
-                Phase = "accepted-miss",
-                FrameCount = 50,
-                Screenshot = true,
-                Intent = frame => Intent(Vector2.zero, attackPressed: frame == 0),
-                BeforeFrame = frame =>
-                {
-                    if (frame == 8)
-                    {
-                        recorder.MarkLastFrame("slash-windup", true);
-                    }
-                    else if (frame == 25)
-                    {
-                        recorder.MarkLastFrame("slash-contact", true);
-                    }
-                    else if (frame == 32)
-                    {
-                        recorder.MarkLastFrame("slash-follow-through", true);
-                    }
-                    else if (frame == 43)
-                    {
-                        recorder.MarkLastFrame("slash-recovery", true);
-                    }
-                },
-                OnEnd = () => recorder.MarkLastFrame("accepted-miss-observation", true)
-            });
-
-            EnqueuePlayerReset(new Vector3(0f, 1f, 3.2f), Quaternion.identity, 8, resetDummyHealth: 88f);
-            EnqueueFixed("combat", "passive-dummy", 30, default, screenshot: true);
-            EnqueueStep(new DiagnosticStep
-            {
-                Scenario = "combat",
-                Phase = "in-range-hit",
-                FrameCount = 30,
-                Screenshot = true,
-                Intent = frame => Intent(Vector2.zero, attackPressed: frame == 0),
-                BeforeFrame = frame =>
-                {
-                    if (frame == 25)
-                    {
-                        recorder.MarkLastFrame("slash-hit-contact", true);
-                    }
-                },
-                OnEnd = () => recorder.MarkLastFrame("post-hit", true)
-            });
-            EnqueueStep(new DiagnosticStep
-            {
-                Scenario = "combat",
-                Phase = "cooldown-rejection",
-                FrameCount = 47,
-                Intent = frame => Intent(Vector2.zero, attackPressed: frame == 0),
-                OnEnd = () => recorder.MarkLastFrame("post-cooldown-attempt", false)
-            });
-            EnqueueStep(new DiagnosticStep
-            {
-                Scenario = "combat",
-                Phase = "lethal-chain",
-                FrameCount = 54,
-                Screenshot = true,
-                Intent = frame => Intent(Vector2.zero, attackPressed: frame == 0 || frame == 45),
-                OnEnd = MarkLethalOutcome
-            });
 
             EnqueueFixed("suite", "complete", 3, default, screenshot: true);
         }

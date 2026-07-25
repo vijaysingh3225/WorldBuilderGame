@@ -10,6 +10,7 @@ namespace WorldBuilder.Gameplay.Input
 
         private bool diagnosticOverrideActive;
         private PlayerIntent diagnosticIntent;
+        private bool crouchToggled;
 
         public PlayerIntent CurrentIntent { get; private set; }
         public bool DiagnosticOverrideActive => diagnosticOverrideActive;
@@ -37,6 +38,7 @@ namespace WorldBuilder.Gameplay.Input
         {
             diagnosticOverrideActive = false;
             diagnosticIntent = default;
+            crouchToggled = false;
             CurrentIntent = default;
         }
 
@@ -50,13 +52,15 @@ namespace WorldBuilder.Gameplay.Input
 
             Keyboard keyboard = Keyboard.current;
             Mouse mouse = Mouse.current;
+            bool primaryClickPressed =
+                mouse != null && mouse.leftButton.wasPressedThisFrame;
 
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
-            else if (mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked)
+            else if (primaryClickPressed && Cursor.lockState != CursorLockMode.Locked)
             {
                 LockCursor();
             }
@@ -70,14 +74,27 @@ namespace WorldBuilder.Gameplay.Input
 
             bool cursorLocked = Cursor.lockState == CursorLockMode.Locked;
             Vector2 look = cursorLocked && mouse != null ? mouse.delta.ReadValue() * lookScale : Vector2.zero;
-            bool attackPressed = cursorLocked && mouse != null && mouse.leftButton.wasPressedThisFrame;
+            bool attackPressed = primaryClickPressed;
             bool sprintHeld = keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
             bool jumpPressed = keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
             bool jumpHeld = keyboard != null && keyboard.spaceKey.isPressed;
-            bool crouchHeld = keyboard != null &&
-                (keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed || keyboard.cKey.isPressed);
+            bool crouchPressed = keyboard != null &&
+                (keyboard.leftCtrlKey.wasPressedThisFrame ||
+                 keyboard.rightCtrlKey.wasPressedThisFrame ||
+                 keyboard.cKey.wasPressedThisFrame);
+            if (crouchPressed)
+            {
+                crouchToggled = !crouchToggled;
+            }
 
-            CurrentIntent = new PlayerIntent(move, look, sprintHeld, jumpPressed, jumpHeld, crouchHeld, attackPressed);
+            CurrentIntent = new PlayerIntent(
+                move,
+                look,
+                sprintHeld,
+                jumpPressed,
+                jumpHeld,
+                crouchToggled,
+                attackPressed);
         }
 
         private static float ReadAxis(bool negative, bool positive)

@@ -10,6 +10,8 @@
 /[Rr]ecordings/
 /Artifacts/LocomotionDiagnostics/latest/
 /Artifacts/CombatLabDiagnostics/
+/Artifacts/AnimationLab/
+*.blend1
 
 # IDE and generated project files
 .vs/

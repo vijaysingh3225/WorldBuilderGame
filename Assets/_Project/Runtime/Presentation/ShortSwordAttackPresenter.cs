@@ -8,56 +8,73 @@ namespace WorldBuilder.Gameplay.Presentation
     [RequireComponent(typeof(Animator))]
     public sealed class ShortSwordAttackPresenter : MonoBehaviour
     {
-        public const string AttackLayerName = "Short Sword Attack V4";
-        public const string AttackStateName = "Diagonal Sword Slash V4";
-        public const float AttackDuration = 0.72f;
+        public const string AttackLayerName = "Short Sword Combo";
+        public const string Hit1StateName = "Sword Cycle Hit 1";
+        public const string Hit1RecoveryStateName = "Sword Cycle Hit 1 Recovery";
+        public const string Hit2StateName = "Sword Cycle Hit 2";
+        public const string Hit2RecoveryStateName = "Sword Cycle Hit 2 Recovery";
+        public const string Hit3StateName = "Sword Cycle Hit 3";
+        public const string AttackStateName = Hit1StateName;
 
-        private static readonly int AttackStateHash = Animator.StringToHash(AttackStateName);
-        private const float ForearmTwistShare = 0.72f;
+        private static readonly int[] HitStateHashes =
+        {
+            Animator.StringToHash(Hit1StateName),
+            Animator.StringToHash(Hit2StateName),
+            Animator.StringToHash(Hit3StateName)
+        };
+
+        private static readonly int[] RecoveryStateHashes =
+        {
+            Animator.StringToHash(Hit1RecoveryStateName),
+            Animator.StringToHash(Hit2RecoveryStateName)
+        };
+
+        private static readonly float[] SwingSoundTimes = { 0.30f, 0.25f, 0.27f };
+        private static readonly float[] DamageWindowEndTimes = { 0.68f, 0.66f, 0.46f };
+        private static readonly float[] SwingPitches = { 1f, 1f, 0.86f };
 
         [SerializeField] private Animator animator;
         [SerializeField] private Transform playerRoot;
         [SerializeField] private ThirdPersonMotor motor;
         [SerializeField] private MeleeWeapon weapon;
         [SerializeField] private Transform swordRoot;
+        [SerializeField] private AudioClip swordSwingClip;
+        [SerializeField] private AudioSource swordAudioSource;
+        [SerializeField, Range(0f, 1f)] private float swordSwingVolume = 0.72f;
+        [SerializeField, Range(0.1f, 0.8f)] private float comboInputOpen = 0.20f;
+        [SerializeField, Range(0.3f, 1f)] private float comboInputClose = 0.99f;
+        [SerializeField, Range(0f, 0.9f)] private float comboRecoveryGrace = 0.50f;
+        [SerializeField, Range(0.3f, 0.9f)] private float comboChainPoint = 0.68f;
+        [SerializeField, Min(0f)] private float transitionDuration = 0.035f;
+        [SerializeField, Min(0.01f)] private float finalReturnBlendDuration = 0.12f;
+        [SerializeField, Min(0f)] private float firstSweepForwardExtension = 0.36f;
+        [SerializeField, Min(0f)] private float firstSweepLeftExtension = 0.34f;
+        [SerializeField, Range(0f, 1f)] private float firstSweepHorizontalWeight = 0.68f;
 
-        private Transform rightHand;
-        private Transform rightLowerArm;
-        private Transform rightIndexProximal;
-        private Transform rightMiddleProximal;
-        private Transform rightLittleProximal;
         private int attackLayerIndex = -1;
-        private float attackStartTime;
+        private int currentHit;
         private bool attackActive;
+        private bool recovering;
+        private bool returnBlending;
+        private bool comboFollowUpQueued;
+        private bool swingSoundPlayed;
+        private bool damageWindowOpened;
         private bool subscribed;
-        private Vector3 attackStartHandLocal;
-        private Vector3 desiredGripDirection;
-        private Vector3 desiredBladePlaneNormal;
-        private float desiredBladePlaneWeight;
+        private float returnBlendStartedAt;
 
         public bool IsAttacking => attackActive;
+        public int CurrentComboHit => attackActive ? currentHit + 1 : 0;
         public Vector3 SwordDirection => swordRoot != null ? swordRoot.up : Vector3.zero;
         public Vector3 BladePlaneNormal => swordRoot != null ? swordRoot.forward : Vector3.zero;
-        public float BladePlaneAlignmentError
-        {
-            get
-            {
-                if (swordRoot == null || desiredBladePlaneWeight < 0.99f ||
-                    desiredBladePlaneNormal.sqrMagnitude < 0.9f)
-                {
-                    return 0f;
-                }
-
-                return Vector3.Angle(swordRoot.forward, desiredBladePlaneNormal);
-            }
-        }
+        public float BladePlaneAlignmentError => 0f;
 
         public void Configure(
             Animator targetAnimator,
             Transform root,
             ThirdPersonMotor movementMotor,
             MeleeWeapon meleeWeapon,
-            Transform equippedSwordRoot)
+            Transform equippedSwordRoot,
+            AudioClip swingClip = null)
         {
             Unsubscribe();
             animator = targetAnimator;
@@ -65,6 +82,12 @@ namespace WorldBuilder.Gameplay.Presentation
             motor = movementMotor;
             weapon = meleeWeapon;
             swordRoot = equippedSwordRoot;
+            swordSwingClip = swingClip;
+            if (weapon != null && swordRoot != null)
+            {
+                weapon.ConfigureBlade(swordRoot.Find("Pointed Blade"));
+            }
+            ConfigureAudio();
             ResolveAnimatorState();
             Subscribe();
         }
@@ -75,6 +98,7 @@ namespace WorldBuilder.Gameplay.Presentation
             weapon ??= GetComponentInParent<MeleeWeapon>();
             motor ??= GetComponentInParent<ThirdPersonMotor>();
             playerRoot ??= weapon != null ? weapon.transform : transform.root;
+            ConfigureAudio();
             ResolveAnimatorState();
         }
 
@@ -86,218 +110,148 @@ namespace WorldBuilder.Gameplay.Presentation
         private void OnDisable()
         {
             Unsubscribe();
-            if (animator != null && attackLayerIndex >= 0)
-            {
-                animator.SetLayerWeight(attackLayerIndex, 0f);
-            }
+            ResetPresentation();
         }
 
         private void Update()
         {
-            if (animator == null || attackLayerIndex < 0 || !attackActive)
+            if (!attackActive || animator == null || attackLayerIndex < 0)
             {
                 return;
             }
 
-            float elapsed = Time.time - attackStartTime;
-            animator.SetLayerWeight(attackLayerIndex, AttackBlendWeight(elapsed));
-            if (elapsed < AttackDuration)
+            if (returnBlending)
+            {
+                UpdateFinalReturnBlend();
+                return;
+            }
+
+            int expectedHash = recovering
+                ? RecoveryStateHashes[currentHit]
+                : HitStateHashes[currentHit];
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(attackLayerIndex);
+            if (state.shortNameHash != expectedHash)
             {
                 return;
             }
 
-            animator.SetLayerWeight(attackLayerIndex, 0f);
-            attackActive = false;
-        }
+            if (!recovering)
+            {
+                UpdateStrikeEvents(state.normalizedTime);
+            }
 
-        private void LateUpdate()
-        {
-            if (swordRoot == null || rightHand == null || rightLowerArm == null ||
-                rightIndexProximal == null || rightLittleProximal == null ||
-                playerRoot == null)
+            if (recovering &&
+                currentHit < HitStateHashes.Length - 1 &&
+                comboFollowUpQueued &&
+                state.normalizedTime <= comboRecoveryGrace)
+            {
+                comboFollowUpQueued = false;
+                StartHit(currentHit + 1, true);
+                return;
+            }
+
+            if (!recovering &&
+                currentHit < HitStateHashes.Length - 1 &&
+                comboFollowUpQueued &&
+                state.normalizedTime >= comboChainPoint)
+            {
+                comboFollowUpQueued = false;
+                StartHit(currentHit + 1, true);
+                return;
+            }
+
+            if (state.normalizedTime < 1f)
             {
                 return;
             }
 
-            Vector3 forearmDirection =
-                (rightHand.position - rightLowerArm.position).normalized;
-            if (!attackActive)
+            if (!recovering && currentHit < RecoveryStateHashes.Length)
             {
-                desiredGripDirection = LockedCarryDirection(forearmDirection);
-                desiredBladePlaneWeight = 0f;
-            }
-
-            Vector3 currentGripAxis = GetGripAxis();
-            if (attackActive && desiredBladePlaneWeight > 0f)
-            {
-                ApplyForearmTwist(
-                    forearmDirection,
-                    currentGripAxis,
-                    desiredBladePlaneNormal,
-                    desiredBladePlaneWeight);
-                forearmDirection =
-                    (rightHand.position - rightLowerArm.position).normalized;
-                currentGripAxis = GetGripAxis();
-            }
-
-            if (!TryBuildSwordRotation(
-                    currentGripAxis,
-                    forearmDirection,
-                    out Quaternion currentSwordRotation) ||
-                !TryBuildSwordRotation(
-                    desiredGripDirection,
-                    forearmDirection,
-                    out Quaternion naturalTargetRotation))
-            {
+                recovering = true;
+                animator.CrossFadeInFixedTime(
+                    RecoveryStateHashes[currentHit],
+                    transitionDuration,
+                    attackLayerIndex,
+                    0f);
                 return;
             }
 
-            Vector3 targetPlaneNormal = Vector3.ProjectOnPlane(
-                desiredBladePlaneNormal,
-                desiredGripDirection).normalized;
-            Vector3 targetSwordForward = naturalTargetRotation * Vector3.forward;
-            if (desiredBladePlaneWeight > 0f &&
-                targetPlaneNormal.sqrMagnitude >= 0.9f)
+            if (currentHit == HitStateHashes.Length - 1 && !recovering)
             {
-                targetSwordForward = Vector3.Slerp(
-                    targetSwordForward,
-                    targetPlaneNormal,
-                    desiredBladePlaneWeight).normalized;
+                returnBlending = true;
+                returnBlendStartedAt = Time.time;
+                return;
             }
 
-            Quaternion targetSwordRotation = Quaternion.LookRotation(
-                targetSwordForward,
-                desiredGripDirection);
-            rightHand.rotation =
-                targetSwordRotation *
-                Quaternion.Inverse(currentSwordRotation) *
-                rightHand.rotation;
-
-            Vector3 swordDirection = targetSwordRotation * Vector3.up;
-            Vector3 knuckleCenter = rightMiddleProximal != null
-                ? rightMiddleProximal.position
-                : (rightIndexProximal.position + rightLittleProximal.position) * 0.5f;
-            Vector3 palmCenter = Vector3.Lerp(rightHand.position, knuckleCenter, 0.68f);
-            const float gripCenterFromPommel = 0.09f;
-            swordRoot.SetPositionAndRotation(
-                palmCenter - swordDirection * gripCenterFromPommel,
-                targetSwordRotation);
+            FinishCurrentAttack();
         }
 
         private void OnAnimatorIK(int layerIndex)
         {
-            if (animator == null || playerRoot == null || layerIndex != 0)
+            if (animator == null || playerRoot == null || layerIndex != attackLayerIndex)
             {
                 return;
             }
 
-            animator.SetIKRotationWeight(AvatarIKGoal.RightHand, 0f);
-            if (!attackActive)
+            animator.SetIKPositionWeight(AvatarIKGoal.RightHand, 0f);
+            animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, 0f);
+            if (!attackActive || recovering || returnBlending || currentHit != 0)
             {
-                animator.SetIKPositionWeight(AvatarIKGoal.RightHand, 0f);
-                animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, 0f);
                 return;
             }
 
-            float elapsed = Time.time - attackStartTime;
-            float normalized = Mathf.Clamp01(elapsed / AttackDuration);
-            Vector3 currentLocomotionHand = rightHand != null
-                ? playerRoot.InverseTransformPoint(rightHand.position)
-                : attackStartHandLocal;
-            Vector3 restingHand = currentLocomotionHand;
-            Vector3 restingElbow = rightLowerArm != null
-                ? playerRoot.InverseTransformPoint(rightLowerArm.position)
-                : new Vector3(0.50f, 0.18f, 0.08f);
-            Vector3 windup = new Vector3(0.64f, 0.73f, 0.04f);
-            Vector3 contact = new Vector3(-0.36f, -0.02f, 0.58f);
-            Vector3 followThrough = new Vector3(-0.46f, -0.22f, 0.40f);
-            Vector3 restingForearmDirection =
-                (rightHand.position - rightLowerArm.position).normalized;
-            Vector3 restingSwordDirection =
-                LockedCarryDirection(restingForearmDirection);
-            Vector3 slashPlaneNormal =
-                (playerRoot.forward + playerRoot.right * 0.22f).normalized;
-            Vector3 windupSwordDirection = ConstrainToPlane(
-                playerRoot.up + playerRoot.right * 0.18f,
-                slashPlaneNormal);
-            Vector3 contactSwordDirection = ConstrainToPlane(
-                -playerRoot.right * 0.82f - playerRoot.up * 0.28f,
-                slashPlaneNormal);
-            Vector3 followThroughSwordDirection = ConstrainToPlane(
-                -playerRoot.right * 0.50f - playerRoot.up * 0.66f,
-                slashPlaneNormal);
-
-            Vector3 targetLocal;
-            Vector3 elbowHintLocal;
-            Vector3 targetSwordDirection;
-            float bladePlaneWeight;
-            if (normalized < 0.27f)
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(attackLayerIndex);
+            if (state.shortNameHash != HitStateHashes[0])
             {
-                float phase = Smooth01(normalized / 0.27f);
-                targetLocal = Vector3.Lerp(attackStartHandLocal, windup, phase);
-                targetSwordDirection =
-                    Vector3.Slerp(restingSwordDirection, windupSwordDirection, phase);
-                bladePlaneWeight = phase;
-                elbowHintLocal = Vector3.Lerp(
-                    restingElbow,
-                    new Vector3(0.74f, 0.38f, -0.04f),
-                    phase);
-            }
-            else if (normalized < 0.58f)
-            {
-                float phase = Smooth01((normalized - 0.27f) / 0.31f);
-                targetLocal = Vector3.Lerp(windup, contact, phase);
-                targetSwordDirection =
-                    Vector3.Slerp(windupSwordDirection, contactSwordDirection, phase);
-                bladePlaneWeight = 1f;
-                elbowHintLocal = Vector3.Lerp(
-                    new Vector3(0.74f, 0.38f, -0.04f),
-                    new Vector3(0.18f, 0.18f, 0.32f),
-                    phase);
-            }
-            else if (normalized < 0.73f)
-            {
-                float phase = Smooth01((normalized - 0.58f) / 0.15f);
-                targetLocal = Vector3.Lerp(contact, followThrough, phase);
-                targetSwordDirection =
-                    Vector3.Slerp(contactSwordDirection, followThroughSwordDirection, phase);
-                bladePlaneWeight = 1f;
-                elbowHintLocal = Vector3.Lerp(
-                    new Vector3(0.18f, 0.18f, 0.32f),
-                    new Vector3(0.06f, 0.12f, 0.24f),
-                    phase);
-            }
-            else
-            {
-                float phase = Smooth01((normalized - 0.73f) / 0.27f);
-                targetLocal = Vector3.Lerp(followThrough, restingHand, phase);
-                targetSwordDirection =
-                    Vector3.Slerp(followThroughSwordDirection, restingSwordDirection, phase);
-                bladePlaneWeight = 1f - phase;
-                elbowHintLocal = Vector3.Lerp(
-                    new Vector3(0.06f, 0.12f, 0.24f),
-                    restingElbow,
-                    phase);
+                return;
             }
 
-            float weight = AttackBlendWeight(elapsed);
+            float normalizedTime = state.normalizedTime;
+            float blendIn = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.08f, 0.20f, normalizedTime));
+            float blendOut = 1f - Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.56f, 0.70f, normalizedTime));
+            float weight = blendIn * blendOut;
+            if (weight <= 0.001f)
+            {
+                return;
+            }
+
+            float sweepProgress = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.12f, 0.62f, normalizedTime));
+            float outwardArc = 0.5f + 0.5f * Mathf.Sin(sweepProgress * Mathf.PI);
+            Vector3 animatedHandPosition = animator.GetIKPosition(AvatarIKGoal.RightHand);
+            Vector3 targetHandPosition =
+                animatedHandPosition +
+                playerRoot.forward * (firstSweepForwardExtension * outwardArc) -
+                playerRoot.right * (firstSweepLeftExtension * sweepProgress);
+            float levelSweepHeight = playerRoot.position.y + 0.28f;
+            targetHandPosition.y = Mathf.Lerp(
+                animatedHandPosition.y,
+                levelSweepHeight,
+                firstSweepHorizontalWeight);
+
+            animator.SetIKPosition(AvatarIKGoal.RightHand, targetHandPosition);
             animator.SetIKPositionWeight(AvatarIKGoal.RightHand, weight);
-            animator.SetIKPosition(
-                AvatarIKGoal.RightHand,
-                playerRoot.TransformPoint(targetLocal));
-            animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, weight);
-            animator.SetIKHintPosition(
-                AvatarIKHint.RightElbow,
-                playerRoot.TransformPoint(elbowHintLocal));
-            ApplyWristRotation(
-                targetSwordDirection,
-                slashPlaneNormal,
-                bladePlaneWeight);
+
+            Vector3 elbowHint =
+                playerRoot.position +
+                playerRoot.up * 0.38f +
+                playerRoot.right * 0.43f +
+                playerRoot.forward * 0.08f;
+            animator.SetIKHintPosition(AvatarIKHint.RightElbow, elbowHint);
+            animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, weight * 0.55f);
         }
 
-        private void OnAttackStarted()
+        private void OnAttackRequested()
         {
-            if (animator == null || playerRoot == null)
+            if (animator == null || weapon == null)
             {
                 return;
             }
@@ -312,13 +266,168 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            attackStartHandLocal = rightHand != null
-                ? playerRoot.InverseTransformPoint(rightHand.position)
-                : new Vector3(0.38f, 0.02f, 0.12f);
-            attackStartTime = Time.time;
+            if (attackActive)
+            {
+                QueueFollowUp();
+                return;
+            }
+
+            StartHit(0, false);
+        }
+
+        private void StartHit(int hitIndex, bool chained)
+        {
+            currentHit = Mathf.Clamp(hitIndex, 0, HitStateHashes.Length - 1);
+            recovering = false;
+            returnBlending = false;
             attackActive = true;
+            swingSoundPlayed = false;
+            damageWindowOpened = false;
+            if (chained)
+            {
+                animator.CrossFadeInFixedTime(
+                    HitStateHashes[currentHit],
+                    transitionDuration,
+                    attackLayerIndex,
+                    0f);
+            }
+            else
+            {
+                animator.Play(HitStateHashes[currentHit], attackLayerIndex, 0f);
+            }
+
+            animator.SetLayerWeight(attackLayerIndex, 1f);
+            weapon.BeginSwing();
+        }
+
+        private void UpdateStrikeEvents(float normalizedTime)
+        {
+            if (!swingSoundPlayed && normalizedTime >= SwingSoundTimes[currentHit])
+            {
+                swingSoundPlayed = true;
+                PlaySwingSound();
+                weapon.OpenBladeDamageWindow();
+                damageWindowOpened = true;
+            }
+
+            if (damageWindowOpened && normalizedTime >= DamageWindowEndTimes[currentHit])
+            {
+                damageWindowOpened = false;
+                weapon.CloseBladeDamageWindow();
+            }
+        }
+
+        private void PlaySwingSound()
+        {
+            if (swordAudioSource == null || swordSwingClip == null)
+            {
+                return;
+            }
+
+            // A new cut supersedes the tail of the previous whoosh, which keeps a
+            // rapid combo crisp. The slower finisher gets the same source at a
+            // lower pitch to follow its longer acceleration.
+            swordAudioSource.Stop();
+            swordAudioSource.pitch = SwingPitches[currentHit];
+            swordAudioSource.PlayOneShot(swordSwingClip, swordSwingVolume);
+        }
+
+        private void ConfigureAudio()
+        {
+            swordAudioSource ??= GetComponent<AudioSource>();
+            if (swordAudioSource == null)
+            {
+                swordAudioSource = gameObject.AddComponent<AudioSource>();
+            }
+
+            swordAudioSource.playOnAwake = false;
+            swordAudioSource.loop = false;
+            swordAudioSource.spatialBlend = 0.15f;
+            swordAudioSource.dopplerLevel = 0f;
+        }
+
+        private void QueueFollowUp()
+        {
+            // Inputs never carry across a recovery or into a future combo. A new
+            // strike must be authorized by a fresh click in the current hit's
+            // continuation window.
+            if (returnBlending ||
+                comboFollowUpQueued ||
+                currentHit >= HitStateHashes.Length - 1)
+            {
+                return;
+            }
+
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(attackLayerIndex);
+            if (recovering)
+            {
+                bool enteringRecovery = animator.IsInTransition(attackLayerIndex);
+                bool insideRecoveryGrace =
+                    state.shortNameHash == RecoveryStateHashes[currentHit] &&
+                    state.normalizedTime <= comboRecoveryGrace;
+                if (enteringRecovery || insideRecoveryGrace)
+                {
+                    comboFollowUpQueued = true;
+                }
+
+                return;
+            }
+
+            bool correctAttackState = state.shortNameHash == HitStateHashes[currentHit];
+            bool insideComboWindow =
+                correctAttackState &&
+                state.normalizedTime >= comboInputOpen &&
+                state.normalizedTime <= comboInputClose;
+            if (insideComboWindow)
+            {
+                comboFollowUpQueued = true;
+            }
+        }
+
+        private void UpdateFinalReturnBlend()
+        {
+            float progress = Mathf.Clamp01(
+                (Time.time - returnBlendStartedAt) / finalReturnBlendDuration);
+            animator.SetLayerWeight(attackLayerIndex, 1f - progress);
+            if (progress >= 1f)
+            {
+                FinishCurrentAttack();
+            }
+        }
+
+        private void FinishCurrentAttack()
+        {
+            attackActive = false;
+            recovering = false;
+            returnBlending = false;
             animator.SetLayerWeight(attackLayerIndex, 0f);
-            animator.Play(AttackStateHash, attackLayerIndex, 0f);
+            comboFollowUpQueued = false;
+            swingSoundPlayed = false;
+            damageWindowOpened = false;
+            weapon.EndSwing();
+        }
+
+        private void ResetPresentation()
+        {
+            attackActive = false;
+            recovering = false;
+            returnBlending = false;
+            comboFollowUpQueued = false;
+            swingSoundPlayed = false;
+            damageWindowOpened = false;
+            weapon?.EndSwing();
+            if (swordAudioSource != null)
+            {
+                swordAudioSource.Stop();
+                swordAudioSource.pitch = 1f;
+            }
+            if (animator != null &&
+                animator.isActiveAndEnabled &&
+                animator.runtimeAnimatorController != null &&
+                attackLayerIndex >= 0)
+            {
+                animator.SetLayerWeight(attackLayerIndex, 0f);
+            }
         }
 
         private void ResolveAnimatorState()
@@ -328,14 +437,6 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-            rightLowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
-            rightIndexProximal = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
-            rightMiddleProximal = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
-            rightLittleProximal = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
-            desiredGripDirection = playerRoot != null
-                ? playerRoot.forward
-                : transform.forward;
             attackLayerIndex = animator.GetLayerIndex(AttackLayerName);
             if (attackLayerIndex >= 0)
             {
@@ -350,7 +451,7 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            weapon.AttackStarted += OnAttackStarted;
+            weapon.AttackRequested += OnAttackRequested;
             subscribed = true;
         }
 
@@ -361,154 +462,8 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            weapon.AttackStarted -= OnAttackStarted;
+            weapon.AttackRequested -= OnAttackRequested;
             subscribed = false;
-        }
-
-        private static float AttackBlendWeight(float elapsed)
-        {
-            return Mathf.Min(
-                Mathf.Clamp01(elapsed / 0.06f),
-                Mathf.Clamp01((AttackDuration - elapsed) / 0.10f));
-        }
-
-        private static float Smooth01(float value)
-        {
-            value = Mathf.Clamp01(value);
-            return value * value * (3f - 2f * value);
-        }
-
-        private void ApplyWristRotation(
-            Vector3 targetSwordDirection,
-            Vector3 bladePlaneNormal,
-            float bladePlaneWeight)
-        {
-            if (targetSwordDirection.sqrMagnitude < 0.9f)
-            {
-                return;
-            }
-
-            desiredGripDirection = targetSwordDirection.normalized;
-            desiredBladePlaneNormal = bladePlaneNormal.normalized;
-            desiredBladePlaneWeight = Mathf.Clamp01(bladePlaneWeight);
-        }
-
-        private Vector3 LockedCarryDirection(Vector3 forearmDirection)
-        {
-            if (playerRoot == null || forearmDirection.sqrMagnitude < 0.9f)
-            {
-                return transform.forward;
-            }
-
-            Vector3 lockedDirection = Vector3.ProjectOnPlane(
-                playerRoot.forward,
-                forearmDirection).normalized;
-            if (lockedDirection.sqrMagnitude < 0.9f)
-            {
-                lockedDirection = Vector3.ProjectOnPlane(
-                    playerRoot.up,
-                    forearmDirection).normalized;
-            }
-
-            return lockedDirection.sqrMagnitude >= 0.9f
-                ? lockedDirection
-                : transform.forward;
-        }
-
-        private bool TryBuildSwordRotation(
-            Vector3 gripDirection,
-            Vector3 forearmDirection,
-            out Quaternion rotation)
-        {
-            rotation = Quaternion.identity;
-            if (gripDirection.sqrMagnitude < 0.9f ||
-                forearmDirection.sqrMagnitude < 0.9f)
-            {
-                return false;
-            }
-
-            gripDirection.Normalize();
-            Vector3 swordRight =
-                Vector3.ProjectOnPlane(forearmDirection, gripDirection).normalized;
-            if (swordRight.sqrMagnitude < 0.9f)
-            {
-                swordRight = Vector3.ProjectOnPlane(
-                    playerRoot.right,
-                    gripDirection).normalized;
-            }
-
-            if (swordRight.sqrMagnitude < 0.9f)
-            {
-                return false;
-            }
-
-            Vector3 bladePlaneNormal =
-                Vector3.Cross(swordRight, gripDirection).normalized;
-            rotation = Quaternion.LookRotation(
-                bladePlaneNormal,
-                gripDirection);
-            return true;
-        }
-
-        private void ApplyForearmTwist(
-            Vector3 forearmDirection,
-            Vector3 currentGripDirection,
-            Vector3 targetBladePlaneNormal,
-            float weight)
-        {
-            if (rightLowerArm == null ||
-                !TryBuildSwordRotation(
-                    currentGripDirection,
-                    forearmDirection,
-                    out Quaternion currentRotation))
-            {
-                return;
-            }
-
-            Vector3 currentNormal = Vector3.ProjectOnPlane(
-                currentRotation * Vector3.forward,
-                forearmDirection).normalized;
-            Vector3 targetNormal = Vector3.ProjectOnPlane(
-                targetBladePlaneNormal,
-                forearmDirection).normalized;
-            if (currentNormal.sqrMagnitude < 0.9f ||
-                targetNormal.sqrMagnitude < 0.9f)
-            {
-                return;
-            }
-
-            float twistAngle = Mathf.Clamp(
-                Vector3.SignedAngle(
-                    currentNormal,
-                    targetNormal,
-                    forearmDirection),
-                -75f,
-                75f);
-            rightLowerArm.rotation =
-                Quaternion.AngleAxis(
-                    twistAngle * Mathf.Clamp01(weight) * ForearmTwistShare,
-                    forearmDirection) *
-                rightLowerArm.rotation;
-        }
-
-        private static Vector3 ConstrainToPlane(
-            Vector3 direction,
-            Vector3 planeNormal)
-        {
-            Vector3 constrained = Vector3.ProjectOnPlane(direction, planeNormal);
-            return constrained.sqrMagnitude >= 0.0001f
-                ? constrained.normalized
-                : direction.normalized;
-        }
-
-        private Vector3 GetGripAxis()
-        {
-            if (rightIndexProximal == null || rightLittleProximal == null)
-            {
-                return Vector3.zero;
-            }
-
-            return (rightIndexProximal.position - rightLittleProximal.position).normalized;
         }
     }
 }

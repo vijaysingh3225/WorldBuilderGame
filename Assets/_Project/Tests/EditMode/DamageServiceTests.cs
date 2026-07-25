@@ -35,6 +35,28 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void HealthFloor_KeepsTrainingTargetAlive_AndContinuesDamageEvents()
+        {
+            health.ConfigureWithFloor(88f, 1f);
+            int damageEvents = 0;
+            int deathEvents = 0;
+            health.Damaged += _ => damageEvents++;
+            health.Died += _ => deathEvents++;
+            DamageRequest request =
+                new DamageRequest(target, 20f, target.transform.position, Vector3.forward, "test");
+
+            for (int hit = 0; hit < 8; hit++)
+            {
+                health.ReceiveDamage(request);
+            }
+
+            Assert.That(health.Current, Is.EqualTo(1f));
+            Assert.That(health.IsAlive, Is.True);
+            Assert.That(damageEvents, Is.EqualTo(8));
+            Assert.That(deathEvents, Is.Zero);
+        }
+
+        [Test]
         public void ValidDamageRequestPublishesTheResolvedDamage()
         {
             float reportedDamage = 0f;

@@ -1,5 +1,9 @@
 # Faster planted walk + tucked run V12 candidate
 
+## Walk posture V4 candidate
+
+Creator review found that the walk dropped both shoulders down and forward compared with the preferred idle stance, then identified too much whole-body forward lean after the shoulders were corrected. `Grounded Tactical Walk V4` holds the shoulder height and upper-arm lateral/twist posture at the standing-idle values, adds only a slight forward shoulder bias, and blends the walk root, torso, neck, and head pitch strongly toward the idle posture while retaining 20% of the authored walk motion. Front-to-back arm swing and all lower-body curves remain authored. The isolated 60-sample capture completed without compilation errors or crossover frames; walk hand spread is 0.852 m and left/right elbow lateral ranges are 0.028/0.039 m. Jog and sprint retain their existing forward lean and are unchanged. This remains a visual candidate pending creator playtesting.
+
 ## Diagnostic workflow
 
 Before changing a gait, run **WorldBuilder -> Animation -> Capture Full Locomotion Diagnostic** or open **WorldBuilder -> Animation -> Locomotion Diagnostics**. The capture evaluates the actual standing blend tree at steady walk, jog, and sprint speeds and writes the following to `Artifacts/LocomotionDiagnostics/latest`:
@@ -24,15 +28,11 @@ The generated run loop remains phase-aligned to planted right-foot contact, with
 
 The V12 isolated capture records zero crossover frames for walk, jog, and sprint. The sprint cycle remains 0.64 seconds and its foot clearance, contact travel, and maximum frame travel remain effectively unchanged from V11. Maximum run hand spread falls from 1.138 to 0.906 m, while left/right elbow lateral ranges fall from 0.047/0.057 to 0.033/0.031 m. Shoulder-facing error remains effectively zero and head-to-chest rotation remains approximately 1.6 degrees. The deterministic full-scene suite passes with zero functional failures.
 
-## First short-sword presentation candidate
+## Equipped-sword movement checkpoint
 
-The player now carries a generated prototype short sword with the leather grip centered inside the right fist, the pommel below it, and the guard and blade above it. After animation each frame, the socket is rebuilt from the actual little-to-index-knuckle grip axis. Outside an attack, the sword direction is constrained perpendicular to the animated forearm, holding an exact 90-degree hand/forearm relationship. The wrist therefore cannot independently level the blade as the arm swings.
+The player carries the generated prototype short sword in the established right-hand socket. A finger-only ready layer closes the grip, while the attack layer masks out the legs so walk, run, crouch, and jump continue below the torso. Left mouse drives the restored regular three-hit combo: a widened `Sword_Regular_A` opening sweep, reverse `Sword_Regular_B` follow-up, and slower `Sword_Regular_C` finisher. The first two hits have recovery states for a smooth return to ready when the next input is not received.
 
-Left mouse still uses the existing `MeleeWeapon` request and cooldown, but an accepted attack also triggers one 0.72-second diagonal slash. A fingers-only grip layer and a torso layer are combined with Humanoid hand and elbow IK on the Animator object. The hand follows explicit high-right wind-up, left-side contact, low-left follow-through, and locomotion-relative recovery targets; smooth layer/IK weights replace the previous ready-to-attack transitions that caused visible double pops.
-
-This is an intentionally narrow presentation checkpoint, not the final melee contract. Damage still resolves immediately when the request is accepted; the next combat pass can move the damage window to visible blade contact after the creator judges the revised grip, carry, and swing. The deterministic suite now captures explicit `slash-windup`, `slash-contact`, `slash-follow-through`, `slash-recovery`, and `slash-hit-contact` screenshots for that tuning.
-
-The carry now uses no hand or elbow IK. Walking and running retain the complete authored arm motion, with the blade rising and falling solely because the locked forearm/wrist unit moves. In the deterministic sprint capture, the sword arm travels 0.542 m versus 0.564 m for the free arm, while the sword-to-forearm angle remains exactly 90 degrees throughout both walk and run. During wind-up, lower-arm twist and wrist roll are deliberately shared to present the blade in a slightly outward diagonal cutting plane. The committed contact/follow-through section holds that plane within approximately one degree.
+Each strike accepts at most one follow-up during its active continuation window, so repeated clicks cannot accumulate into delayed attacks. Damage is driven by a swept capsule along the visible blade and impact feedback begins on first blade contact. Cursor-relative upper-body facing keeps attacks aimed toward the intended target while the lower body follows movement. Rejected Blender and replacement-combo experiments remain research artifacts rather than playable controller states, and the exact-rig transport validator remains available for future authored replacements.
 
 Stationary crouching now puts the rear knee at floor contact, raises the rear ankle out of the floor, lowers the forward sole, and shifts the pelvis toward the rear heel. The spine stays upright and the empty hands remain relaxed. Moving crouch still uses the accepted crouch-forward clip.
 
@@ -51,7 +51,9 @@ Rebuild with **WorldBuilder -> Build Combat Lab**, play `Assets/_Project/Scenes/
 7. Begin and stop crouch movement repeatedly. The accepted crouch-forward loop should blend to and from the new rest pose without a large pop.
 8. Jump once and then jump repeatedly from idle, walking, and sprinting. Look for the brief push-off, the bent-knee moving-jump silhouette, the rise-to-fall change near the apex, and immediate exit from the airborne pose when the capsule lands.
 9. Walk off a platform without jumping. The fall pose should begin without replaying a takeoff clip.
-10. Recheck low-clearance collision, platform edges, camera collision, air steering, the passive dummy, damage numbers, and R restart.
+10. Recheck low-clearance collision, platform edges, camera collision, air steering, the passive dummy, and R restart.
+11. Click once, twice, and three times at varied cadences. Confirm each incomplete sequence returns smoothly to ready, stale clicks do not fire later, and the full sequence reads as a wider first sweep, reverse second slash, and slower third finisher.
+12. Strafe past the dummy while aiming toward it. Confirm the torso and sword follow the cursor direction, damage occurs on first visible blade contact, swing and impact sounds match the motion, and the red dummy shakes without dropping below one health.
 
 Record any remaining walk/run glide, directional offset, reversal delay, crouch floor gap, pose intersection, or jump transition pop. Correlate visual findings with exact samples and screenshots, then check contact sample counts and calibration before treating an automated ground-gap or slip warning as conclusive.
 
@@ -65,4 +67,4 @@ The current crouch is otherwise accepted, but its grounded rest still has a smal
 - Production character model, clothing, facial animation, and final materials.
 - Production foot IK, contact curves, uneven-terrain adjustment, and slope tilting.
 - Root-motion movement.
-- Production sword art, finalized grip, combo animation, and animation-aligned hit timing.
+- Production sword art and a creator-approved replacement for the current prototype combo.

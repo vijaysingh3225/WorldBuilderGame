@@ -9,6 +9,7 @@ namespace WorldBuilder.Gameplay.Combat
     {
         [SerializeField, Min(1f)] private float maximum = 100f;
         [SerializeField] private float current = 100f;
+        [SerializeField, Min(0f)] private float minimum;
 
         public event Action<float, float> Changed;
         public event Action<DamageRequest> Damaged;
@@ -16,12 +17,22 @@ namespace WorldBuilder.Gameplay.Combat
 
         public float Current => current;
         public float Maximum => maximum;
+        public float Minimum => minimum;
         public float Normalized => maximum > 0f ? current / maximum : 0f;
         public bool IsAlive => current > 0f;
 
         public void Configure(float maximumHealth)
         {
             maximum = Mathf.Max(1f, maximumHealth);
+            minimum = Mathf.Clamp(minimum, 0f, maximum);
+            current = maximum;
+            Changed?.Invoke(current, maximum);
+        }
+
+        public void ConfigureWithFloor(float maximumHealth, float minimumHealth)
+        {
+            maximum = Mathf.Max(1f, maximumHealth);
+            minimum = Mathf.Clamp(minimumHealth, 0f, maximum);
             current = maximum;
             Changed?.Invoke(current, maximum);
         }
@@ -33,7 +44,7 @@ namespace WorldBuilder.Gameplay.Combat
                 return;
             }
 
-            current = Mathf.Max(0f, current - request.Amount);
+            current = Mathf.Max(minimum, current - request.Amount);
             Changed?.Invoke(current, maximum);
             Damaged?.Invoke(request);
 
