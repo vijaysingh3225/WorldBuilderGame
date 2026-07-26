@@ -18,7 +18,8 @@ namespace WorldBuilder.Editor
     public static class CombatLabSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
-        public const string CheckpointMarkerName = "Prototype Systems - Restored Regular Three Hit Combo V34";
+        public const string CheckpointMarkerName =
+            "Prototype Systems - Natural Two Handed Sword Block V36";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
@@ -259,6 +260,14 @@ namespace WorldBuilder.Editor
                         player.GetComponent<MeleeWeapon>(),
                         swordRoot,
                         AssetDatabase.LoadAssetAtPath<AudioClip>(SwordSwingAudioPath));
+                    ShortSwordBlockPresenter blockPresenter =
+                        animator.gameObject.AddComponent<ShortSwordBlockPresenter>();
+                    blockPresenter.Configure(
+                        animator,
+                        player.GetComponent<PlayerInputSource>(),
+                        attackPresenter,
+                        player.transform,
+                        swordRoot);
                     UpperBodyAimPresenter aimPresenter =
                         animator.gameObject.AddComponent<UpperBodyAimPresenter>();
                     aimPresenter.Configure(animator, player.transform);

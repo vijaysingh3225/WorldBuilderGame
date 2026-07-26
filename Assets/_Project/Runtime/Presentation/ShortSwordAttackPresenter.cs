@@ -47,9 +47,6 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField, Range(0.3f, 0.9f)] private float comboChainPoint = 0.68f;
         [SerializeField, Min(0f)] private float transitionDuration = 0.035f;
         [SerializeField, Min(0.01f)] private float finalReturnBlendDuration = 0.12f;
-        [SerializeField, Min(0f)] private float firstSweepForwardExtension = 0.36f;
-        [SerializeField, Min(0f)] private float firstSweepLeftExtension = 0.34f;
-        [SerializeField, Range(0f, 1f)] private float firstSweepHorizontalWeight = 0.68f;
 
         private int attackLayerIndex = -1;
         private int currentHit;
@@ -184,69 +181,6 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             FinishCurrentAttack();
-        }
-
-        private void OnAnimatorIK(int layerIndex)
-        {
-            if (animator == null || playerRoot == null || layerIndex != attackLayerIndex)
-            {
-                return;
-            }
-
-            animator.SetIKPositionWeight(AvatarIKGoal.RightHand, 0f);
-            animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, 0f);
-            if (!attackActive || recovering || returnBlending || currentHit != 0)
-            {
-                return;
-            }
-
-            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(attackLayerIndex);
-            if (state.shortNameHash != HitStateHashes[0])
-            {
-                return;
-            }
-
-            float normalizedTime = state.normalizedTime;
-            float blendIn = Mathf.SmoothStep(
-                0f,
-                1f,
-                Mathf.InverseLerp(0.08f, 0.20f, normalizedTime));
-            float blendOut = 1f - Mathf.SmoothStep(
-                0f,
-                1f,
-                Mathf.InverseLerp(0.56f, 0.70f, normalizedTime));
-            float weight = blendIn * blendOut;
-            if (weight <= 0.001f)
-            {
-                return;
-            }
-
-            float sweepProgress = Mathf.SmoothStep(
-                0f,
-                1f,
-                Mathf.InverseLerp(0.12f, 0.62f, normalizedTime));
-            float outwardArc = 0.5f + 0.5f * Mathf.Sin(sweepProgress * Mathf.PI);
-            Vector3 animatedHandPosition = animator.GetIKPosition(AvatarIKGoal.RightHand);
-            Vector3 targetHandPosition =
-                animatedHandPosition +
-                playerRoot.forward * (firstSweepForwardExtension * outwardArc) -
-                playerRoot.right * (firstSweepLeftExtension * sweepProgress);
-            float levelSweepHeight = playerRoot.position.y + 0.28f;
-            targetHandPosition.y = Mathf.Lerp(
-                animatedHandPosition.y,
-                levelSweepHeight,
-                firstSweepHorizontalWeight);
-
-            animator.SetIKPosition(AvatarIKGoal.RightHand, targetHandPosition);
-            animator.SetIKPositionWeight(AvatarIKGoal.RightHand, weight);
-
-            Vector3 elbowHint =
-                playerRoot.position +
-                playerRoot.up * 0.38f +
-                playerRoot.right * 0.43f +
-                playerRoot.forward * 0.08f;
-            animator.SetIKHintPosition(AvatarIKHint.RightElbow, elbowHint);
-            animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, weight * 0.55f);
         }
 
         private void OnAttackRequested()

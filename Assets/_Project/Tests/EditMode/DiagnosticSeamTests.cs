@@ -22,6 +22,7 @@ namespace WorldBuilder.Tests.EditMode
                     true,
                     true,
                     false,
+                    true,
                     true);
 
                 input.SetDiagnosticOverride(expected);
@@ -31,6 +32,7 @@ namespace WorldBuilder.Tests.EditMode
                 Assert.That(input.CurrentIntent.SprintHeld, Is.True);
                 Assert.That(input.CurrentIntent.JumpPressed, Is.True);
                 Assert.That(input.CurrentIntent.AttackPressed, Is.True);
+                Assert.That(input.CurrentIntent.BlockHeld, Is.True);
             }
             finally
             {

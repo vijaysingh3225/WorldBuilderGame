@@ -64,7 +64,7 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             EnsureStyles();
             GUI.Label(new Rect(24f, 20f, 580f, 30f), "MOVEMENT LAB  /  GAIT TUNING CHECKPOINT", titleStyle);
-            GUI.Label(new Rect(24f, 54f, 780f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   LMB test damage   R restart", textStyle);
+            GUI.Label(new Rect(24f, 54f, 920f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   LMB attack   Hold RMB block   R restart", textStyle);
 
             DrawHealthBar(new Rect(24f, 88f, 260f, 18f), playerHealth, new Color(0.25f, 0.68f, 0.45f), "PLAYER");
             DrawHealthBar(new Rect(Screen.width - 284f, 24f, 260f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), "TARGET DUMMY");

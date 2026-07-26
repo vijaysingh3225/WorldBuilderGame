@@ -38,6 +38,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "movement/idle-jump",
             "movement/running-jump-approach",
             "movement/running-jump",
+            "combat/block-hold",
+            "combat/block-release",
             "suite/complete"
         };
 
@@ -279,6 +281,22 @@ namespace WorldBuilder.Gameplay.Diagnostics
             EnqueueFixed("movement", "running-jump-approach", 48, Intent(Vector2.up, sprint: true));
             EnqueueJump("running-jump", Vector2.up, true, screenshot: true);
 
+            EnqueuePlayerReset(PlayerStart, Quaternion.identity, 6);
+            EnqueueFixed(
+                "combat",
+                "block-hold",
+                60,
+                Intent(Vector2.zero, blockHeld: true),
+                screenshot: true,
+                onEnd: () => recorder.MarkLastFrame("two-handed-block-held", true));
+            EnqueueFixed(
+                "combat",
+                "block-release",
+                30,
+                default,
+                screenshot: true,
+                onEnd: () => recorder.MarkLastFrame("one-handed-carry-restored", true));
+
             EnqueueFixed("suite", "complete", 3, default, screenshot: true);
         }
 
@@ -428,9 +446,18 @@ namespace WorldBuilder.Gameplay.Diagnostics
             bool jumpPressed = false,
             bool jumpHeld = false,
             bool crouch = false,
-            bool attackPressed = false)
+            bool attackPressed = false,
+            bool blockHeld = false)
         {
-            return new PlayerIntent(move, Vector2.zero, sprint, jumpPressed, jumpHeld, crouch, attackPressed);
+            return new PlayerIntent(
+                move,
+                Vector2.zero,
+                sprint,
+                jumpPressed,
+                jumpHeld,
+                crouch,
+                attackPressed,
+                blockHeld);
         }
 
         private void FinalizeSuite(bool completed, string reason)

@@ -27,6 +27,12 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public bool intentJumpHeld;
         public bool intentCrouch;
         public bool intentAttack;
+        public bool intentBlock;
+        public float blockWeight;
+        public float leftHandHiltContactGap;
+        public float leftGripAxisAlignmentAngle;
+        public float bladeHeadClearance;
+        public float bladeHeadSilhouetteClearance;
         public Vector3 playerPosition;
         public float playerYaw;
         public Vector3 horizontalVelocity;
@@ -94,6 +100,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public float handSpread;
         public Vector3 leftHandLocal;
         public Vector3 rightHandLocal;
+        public float leftHandLocalFrameTravel;
         public bool swordAttackActive;
         public Vector3 swordDirection;
         public Vector3 swordBladePlaneNormal;

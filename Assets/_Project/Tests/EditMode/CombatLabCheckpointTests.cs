@@ -21,7 +21,7 @@ namespace WorldBuilder.Tests.EditMode
                     HumanoidAnimationSetup.ControllerPath);
 
             Assert.That(controller, Is.Not.Null);
-            Assert.That(controller.layers, Has.Length.EqualTo(3));
+            Assert.That(controller.layers, Has.Length.EqualTo(4));
             Assert.That(
                 controller.layers[0].stateMachine.states
                     .Select(state => state.state.name),
@@ -38,15 +38,31 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(gripLayer.defaultWeight, Is.EqualTo(1f));
             Assert.That(gripLayer.avatarMask, Is.Not.Null);
             Assert.That(
-                gripLayer.stateMachine.defaultState.motion,
-                Is.EqualTo(AssetDatabase.LoadAllAssetsAtPath(
-                        HumanoidAnimationSetup.ModelPath)
-                    .OfType<AnimationClip>()
-                    .Single(clip => clip.name.EndsWith("|Sword_Idle"))));
+                gripLayer.stateMachine.defaultState.motion.name,
+                Does.EndWith("|Sword_Idle"));
 
-            AnimatorControllerLayer attackLayer = controller.layers[2];
+            AnimatorControllerLayer blockLayer = controller.layers[2];
+            Assert.That(blockLayer.name, Is.EqualTo(ShortSwordBlockPresenter.BlockLayerName));
+            Assert.That(blockLayer.defaultWeight, Is.EqualTo(0f));
+            Assert.That(
+                blockLayer.iKPass,
+                Is.True,
+                "The restored guard uses position-only left-hand IK.");
+            Assert.That(blockLayer.avatarMask, Is.Not.Null);
+            Assert.That(
+                blockLayer.stateMachine.states.Single().state.name,
+                Is.EqualTo(ShortSwordBlockPresenter.BlockStateName));
+            Assert.That(
+                blockLayer.stateMachine.states.Single().state.motion.name,
+                Is.EqualTo(HumanoidAnimationSetup.GeneratedSwordBlockClipName));
+
+            AnimatorControllerLayer attackLayer = controller.layers[3];
             Assert.That(attackLayer.name, Is.EqualTo(ShortSwordAttackPresenter.AttackLayerName));
             Assert.That(attackLayer.defaultWeight, Is.EqualTo(0f));
+            Assert.That(
+                attackLayer.iKPass,
+                Is.False,
+                "The combo layer must not procedurally modify the original first attack.");
             Assert.That(attackLayer.avatarMask, Is.Not.Null);
             Assert.That(
                 attackLayer.avatarMask.GetHumanoidBodyPartActive(
@@ -82,16 +98,10 @@ namespace WorldBuilder.Tests.EditMode
                 HumanoidAnimationSetup.SwordComboHit2RecoveryClipName,
                 HumanoidAnimationSetup.SwordComboHit3ClipName
             };
-            AnimationClip[] comboClips = AssetDatabase.LoadAllAssetsAtPath(
-                    HumanoidAnimationSetup.SwordComboModelPath)
-                .OfType<AnimationClip>()
-                .Where(clip => clipNames.Any(name =>
-                    clip.name.EndsWith(name, System.StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
             Assert.That(
                 attackLayer.stateMachine.states
-                    .Select(state => state.state.motion),
-                Is.EquivalentTo(comboClips));
+                    .Select(state => state.state.motion.name),
+                Is.EquivalentTo(clipNames.Select(name => "Armature|" + name)));
 
             Scene scene = EditorSceneManager.OpenScene(
                 CombatLabSceneBuilder.ScenePath,
@@ -103,6 +113,10 @@ namespace WorldBuilder.Tests.EditMode
                 Is.Not.Null);
             Assert.That(
                 Object.FindFirstObjectByType<ShortSwordAttackPresenter>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null);
+            Assert.That(
+                Object.FindFirstObjectByType<ShortSwordBlockPresenter>(
                     FindObjectsInactive.Include),
                 Is.Not.Null);
             Assert.That(
@@ -120,5 +134,6 @@ namespace WorldBuilder.Tests.EditMode
                 sword.parent,
                 Is.EqualTo(animator.GetBoneTransform(HumanBodyBones.RightHand)));
         }
+
     }
 }

@@ -12,6 +12,7 @@ using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Gameplay.Diagnostics
 {
@@ -39,6 +40,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         [SerializeField] private Health enemyHealth;
         [SerializeField] private EnemyBrain enemyBrain;
         [SerializeField] private Camera gameplayCamera;
+        [SerializeField] private ShortSwordBlockPresenter blockPresenter;
 
         private Transform player;
         private Transform enemy;
@@ -62,6 +64,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private Transform rightHand;
         private Vector3 previousLeftFootWorld;
         private Vector3 previousRightFootWorld;
+        private Vector3 previousLeftHandLocal;
         private Quaternion previousHeadRotation;
         private bool hasPreviousPose;
         private bool recording;
@@ -342,6 +345,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             hasPreviousPose = false;
             previousLeftFootWorld = Vector3.zero;
             previousRightFootWorld = Vector3.zero;
+            previousLeftHandLocal = Vector3.zero;
             previousHeadRotation = Quaternion.identity;
         }
 
@@ -493,6 +497,11 @@ namespace WorldBuilder.Gameplay.Diagnostics
             if (animator == null && player != null)
             {
                 animator = player.GetComponentInChildren<Animator>(true);
+            }
+
+            if (blockPresenter == null && animator != null)
+            {
+                blockPresenter = animator.GetComponent<ShortSwordBlockPresenter>();
             }
 
             if (playerHealth == null && player != null)
@@ -665,6 +674,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
             float spinePitch = SpineWorldPitch();
             float leftTravel = hasPreviousPose ? Vector3.Distance(previousLeftFootWorld, leftWorld) : 0f;
             float rightTravel = hasPreviousPose ? Vector3.Distance(previousRightFootWorld, rightWorld) : 0f;
+            Vector3 leftHandLocal = LocalPoint(leftHand);
+            float leftHandLocalTravel = hasPreviousPose
+                ? Vector3.Distance(previousLeftHandLocal, leftHandLocal)
+                : 0f;
             float headAngularSpeed = hasPreviousPose && head != null && sampleDeltaTime > 0f
                 ? Quaternion.Angle(previousHeadRotation, head.rotation) / sampleDeltaTime
                 : 0f;
@@ -701,6 +714,24 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 intentJumpHeld = intent.JumpHeld,
                 intentCrouch = intent.CrouchHeld,
                 intentAttack = intent.AttackPressed,
+                intentBlock = intent.BlockHeld,
+                blockWeight = blockPresenter != null ? blockPresenter.BlockWeight : 0f,
+                leftHandHiltContactGap =
+                    blockPresenter != null
+                        ? blockPresenter.LeftHandHiltContactGap
+                        : MissingGroundGap,
+                leftGripAxisAlignmentAngle =
+                    blockPresenter != null
+                        ? blockPresenter.LeftGripAxisAlignmentAngle
+                        : 180f,
+                bladeHeadClearance =
+                    blockPresenter != null
+                        ? blockPresenter.BladeHeadClearance
+                        : MissingGroundGap,
+                bladeHeadSilhouetteClearance =
+                    blockPresenter != null
+                        ? blockPresenter.BladeHeadSilhouetteClearance
+                        : MissingGroundGap,
                 playerPosition = playerPosition,
                 playerYaw = player != null ? player.eulerAngles.y : 0f,
                 horizontalVelocity = velocity,
@@ -780,8 +811,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 handSpread = leftHand != null && rightHand != null
                     ? Vector3.Distance(leftHand.position, rightHand.position)
                     : 0f,
-                leftHandLocal = LocalPoint(leftHand),
+                leftHandLocal = leftHandLocal,
                 rightHandLocal = LocalPoint(rightHand),
+                leftHandLocalFrameTravel = leftHandLocalTravel,
                 cameraPosition = cameraPosition,
                 cameraYaw = cameraEuler.y,
                 cameraPitch = NormalizeAngle(cameraEuler.x),
@@ -804,6 +836,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             observedEnemyHealth = frame.enemyHealth;
             previousLeftFootWorld = leftWorld;
             previousRightFootWorld = rightWorld;
+            previousLeftHandLocal = leftHandLocal;
             previousHeadRotation = head != null ? head.rotation : Quaternion.identity;
             previousWallCaptureTime = wallNow;
             hasPreviousPose = true;
@@ -1167,6 +1200,28 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     "firstTargetSpeed", firstStop != null ? firstStop.targetSpeed : -1f,
                     firstStop != null && Mathf.Abs(firstStop.intentMoveY) < 0.01f && firstStop.targetSpeed < 0.01f,
                     "zero intent and zero target on same frame", "Phase boundaries must not be one frame out of sync.");
+
+                GameplayDiagnosticFrame heldBlock = frames.LastOrDefault(
+                    frame => frame.scenario == "combat" && frame.phase == "block-hold");
+                AddSystemCheck(checks, "block-held-two-handed", "failure", "combat", "block-hold",
+                    "leftHandHiltContactGap",
+                    heldBlock != null ? heldBlock.leftHandHiltContactGap : -1f,
+                    heldBlock != null &&
+                    heldBlock.intentBlock &&
+                    heldBlock.blockWeight >= 0.99f &&
+                    heldBlock.leftHandHiltContactGap <= 0.08f,
+                    "held, weight >= 0.99, left knuckles <= 0.08 m from hilt",
+                    "The held block must reach the actual two-handed hilt pose.");
+                GameplayDiagnosticFrame releasedBlock = frames.LastOrDefault(
+                    frame => frame.scenario == "combat" && frame.phase == "block-release");
+                AddSystemCheck(checks, "block-release-restores-carry", "failure", "combat", "block-release",
+                    "blockWeight", releasedBlock != null ? releasedBlock.blockWeight : -1f,
+                    releasedBlock != null &&
+                    !releasedBlock.intentBlock &&
+                    releasedBlock.blockWeight <= 0.01f &&
+                    releasedBlock.handSpread >= 0.6f,
+                    "released, weight <= 0.01, hands >= 0.60 m apart",
+                    "Releasing right click must restore the one-handed carry.");
             }
 
             bool eventOrderValid = events.Select((item, index) => item.sequence == index + 1).All(value => value);
@@ -1438,7 +1493,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private void WriteFramesCsv(string path)
         {
             using StreamWriter writer = new StreamWriter(path, false, new UTF8Encoding(false));
-            writer.WriteLine("sample,unity_frame,time,game_time,delta_time,wall_time,wall_delta_time,scenario,phase,intent_x,intent_y,sprint,jump_pressed,jump_held,crouch,attack,player_x,player_y,player_z,player_yaw,velocity_x,velocity_y,velocity_z,speed,target_speed,vertical_velocity,grounded,ground_control,crouched,crouch_amount,controller_height,reversal_braking,velocity_facing_error,desired_facing_error,animator_state_hash,animator_normalized_time,dominant_clip,dominant_weight,animator_in_transition,next_state_hash,next_normalized_time,next_clip,next_clip_weight,pose_facing_error,shoulder_facing_error,head_chest_angle,head_angular_speed,left_foot_x,left_foot_y,left_foot_z,right_foot_x,right_foot_y,right_foot_z,left_ground_gap,right_ground_gap,left_knee_gap,right_knee_gap,left_toe_gap,right_toe_gap,left_foot_travel,right_foot_travel,foot_width,left_is_rear,rear_knee_gap,front_foot_gap,rear_foot_gap,pelvis_rear_foot_distance,pelvis_gap,spine_upright_angle,sole_calibrated,left_heel_probe_gap,right_heel_probe_gap,left_toe_probe_gap,right_toe_probe_gap,left_knee_surface_gap,right_knee_surface_gap,left_knee_flexion,right_knee_flexion,front_plant_error,pelvis_height_ratio,spine_pitch,rear_hip_heel_ratio,rear_hip_heel_forward_ratio,split_stance,left_elbow_x,right_elbow_x,hand_spread,left_hand_x,left_hand_y,left_hand_z,right_hand_x,right_hand_y,right_hand_z,sword_attack_active,sword_direction_x,sword_direction_y,sword_direction_z,sword_plane_normal_x,sword_plane_normal_y,sword_plane_normal_z,sword_plane_error,sword_forearm_angle,camera_x,camera_y,camera_z,camera_yaw,camera_pitch,camera_distance,player_health,enemy_health,enemy_x,enemy_y,enemy_z,enemy_distance,enemy_facing_angle,enemy_state,cooldown,attack_center_x,attack_center_y,attack_center_z,weapon_attack_in_progress,blade_base_x,blade_base_y,blade_base_z,blade_tip_x,blade_tip_y,blade_tip_z");
+            writer.WriteLine("sample,unity_frame,time,game_time,delta_time,wall_time,wall_delta_time,scenario,phase,intent_x,intent_y,sprint,jump_pressed,jump_held,crouch,attack,block,block_weight,left_hand_hilt_gap,left_grip_axis_angle,blade_head_clearance,blade_head_silhouette_clearance,player_x,player_y,player_z,player_yaw,velocity_x,velocity_y,velocity_z,speed,target_speed,vertical_velocity,grounded,ground_control,crouched,crouch_amount,controller_height,reversal_braking,velocity_facing_error,desired_facing_error,animator_state_hash,animator_normalized_time,dominant_clip,dominant_weight,animator_in_transition,next_state_hash,next_normalized_time,next_clip,next_clip_weight,pose_facing_error,shoulder_facing_error,head_chest_angle,head_angular_speed,left_foot_x,left_foot_y,left_foot_z,right_foot_x,right_foot_y,right_foot_z,left_ground_gap,right_ground_gap,left_knee_gap,right_knee_gap,left_toe_gap,right_toe_gap,left_foot_travel,right_foot_travel,foot_width,left_is_rear,rear_knee_gap,front_foot_gap,rear_foot_gap,pelvis_rear_foot_distance,pelvis_gap,spine_upright_angle,sole_calibrated,left_heel_probe_gap,right_heel_probe_gap,left_toe_probe_gap,right_toe_probe_gap,left_knee_surface_gap,right_knee_surface_gap,left_knee_flexion,right_knee_flexion,front_plant_error,pelvis_height_ratio,spine_pitch,rear_hip_heel_ratio,rear_hip_heel_forward_ratio,split_stance,left_elbow_x,right_elbow_x,hand_spread,left_hand_x,left_hand_y,left_hand_z,right_hand_x,right_hand_y,right_hand_z,left_hand_local_frame_travel,sword_attack_active,sword_direction_x,sword_direction_y,sword_direction_z,sword_plane_normal_x,sword_plane_normal_y,sword_plane_normal_z,sword_plane_error,sword_forearm_angle,camera_x,camera_y,camera_z,camera_yaw,camera_pitch,camera_distance,player_health,enemy_health,enemy_x,enemy_y,enemy_z,enemy_distance,enemy_facing_angle,enemy_state,cooldown,attack_center_x,attack_center_y,attack_center_z,weapon_attack_in_progress,blade_base_x,blade_base_y,blade_base_z,blade_tip_x,blade_tip_y,blade_tip_z");
             foreach (GameplayDiagnosticFrame frame in frames)
             {
                 writer.WriteLine(string.Join(",", new[]
@@ -1448,6 +1503,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     Csv(frame.scenario), Csv(frame.phase),
                     F(frame.intentMoveX), F(frame.intentMoveY), B(frame.intentSprint), B(frame.intentJumpPressed),
                     B(frame.intentJumpHeld), B(frame.intentCrouch), B(frame.intentAttack),
+                    B(frame.intentBlock), F(frame.blockWeight),
+                    F(frame.leftHandHiltContactGap),
+                    F(frame.leftGripAxisAlignmentAngle), F(frame.bladeHeadClearance),
+                    F(frame.bladeHeadSilhouetteClearance),
                     F(frame.playerPosition.x), F(frame.playerPosition.y), F(frame.playerPosition.z), F(frame.playerYaw),
                     F(frame.horizontalVelocity.x), F(frame.horizontalVelocity.y), F(frame.horizontalVelocity.z),
                     F(frame.horizontalSpeed), F(frame.targetSpeed), F(frame.verticalVelocity), B(frame.grounded),
@@ -1476,6 +1535,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     F(frame.rightElbowLocalX), F(frame.handSpread),
                     F(frame.leftHandLocal.x), F(frame.leftHandLocal.y), F(frame.leftHandLocal.z),
                     F(frame.rightHandLocal.x), F(frame.rightHandLocal.y), F(frame.rightHandLocal.z),
+                    F(frame.leftHandLocalFrameTravel),
                     B(frame.swordAttackActive),
                     F(frame.swordDirection.x), F(frame.swordDirection.y), F(frame.swordDirection.z),
                     F(frame.swordBladePlaneNormal.x), F(frame.swordBladePlaneNormal.y),

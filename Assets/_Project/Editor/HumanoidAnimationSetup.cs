@@ -37,6 +37,8 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Art/Prototype/Humanoid/NaturalJumpFall.anim";
         public const string ShortSwordGripPath =
             "Assets/_Project/Art/Prototype/Humanoid/ShortSwordGrip.anim";
+        public const string ShortSwordBlockPath =
+            "Assets/_Project/Art/Prototype/Humanoid/ShortSwordBlock.anim";
         public const string ShortSwordUpperBodyMaskPath =
             "Assets/_Project/Art/Prototype/Humanoid/ShortSwordUpperBody.mask";
         public const string ShortSwordGripMaskPath =
@@ -52,14 +54,19 @@ namespace WorldBuilder.Editor
         private const string NaturalJumpFallClipName = "Natural Jump Fall V2";
         private const string ShortSwordReadyClipName = "Sword_Idle";
         private const string LegacyShortSwordGripClipName = "Short Sword Grip V2";
+        public const string GeneratedSwordBlockClipName =
+            "Natural Two Handed Block V2";
         public const string SwordComboHit1ClipName = "Sword_Regular_A";
         public const string SwordComboHit1RecoveryClipName = "Sword_Regular_A_Rec";
         public const string SwordComboHit2ClipName = "Sword_Regular_B";
         public const string SwordComboHit2RecoveryClipName = "Sword_Regular_B_Rec";
         public const string SwordComboHit3ClipName = "Sword_Regular_C";
+        public const string SwordBlockClipName = "Sword_Block";
         private const string ShortSwordLayerName = ShortSwordAttackPresenter.AttackLayerName;
         private const string ShortSwordGripLayerName = "Short Sword Ready";
         private const string ShortSwordGripStateName = "Sword Ready Idle";
+        private const string ShortSwordBlockLayerName = ShortSwordBlockPresenter.BlockLayerName;
+        private const string ShortSwordBlockStateName = ShortSwordBlockPresenter.BlockStateName;
         private const string StandingStateName = "Standing Locomotion V8";
         private const string NaturalJumpRiseStateName = "Natural Jump Rise V2";
         private const float TacticalCrouchRootDrop = 0.08f;
@@ -182,9 +189,11 @@ namespace WorldBuilder.Editor
                 FindClipAtPath(SwordComboModelPath, SwordComboHit2RecoveryClipName);
             AnimationClip swordComboHit3 =
                 FindClipAtPath(SwordComboModelPath, SwordComboHit3ClipName);
+            AnimationClip swordBlockSource =
+                FindClipAtPath(SwordComboModelPath, SwordBlockClipName);
             if (swordComboHit1 == null || swordComboHit1Recovery == null ||
                 swordComboHit2 == null || swordComboHit2Recovery == null ||
-                swordComboHit3 == null)
+                swordComboHit3 == null || swordBlockSource == null)
             {
                 string availableComboClips = string.Join(
                     ", ",
@@ -198,6 +207,11 @@ namespace WorldBuilder.Editor
             }
             AvatarMask shortSwordMask =
                 AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordUpperBodyMaskPath);
+            AnimationClip shortSwordBlock =
+                AssetDatabase.LoadAssetAtPath<AnimationClip>(ShortSwordBlockPath);
+            bool shortSwordBlockOutdated =
+                shortSwordBlock == null ||
+                shortSwordBlock.name != GeneratedSwordBlockClipName;
             bool shortSwordOutdated =
                 shortSwordReady == null ||
                 swordComboHit1 == null ||
@@ -205,7 +219,8 @@ namespace WorldBuilder.Editor
                 swordComboHit2 == null ||
                 swordComboHit2Recovery == null ||
                 swordComboHit3 == null ||
-                shortSwordMask == null;
+                shortSwordMask == null ||
+                shortSwordBlockOutdated;
             if (forceControllerRebuild || tacticalCrouchOutdated)
             {
                 BuildTacticalCrouchClip(crouchSource, standingIdleSource);
@@ -244,6 +259,10 @@ namespace WorldBuilder.Editor
             }
 
             BuildShortSwordMasks();
+            if (forceControllerRebuild || shortSwordBlockOutdated)
+            {
+                BuildShortSwordBlockClip(swordBlockSource, standingIdleSource);
+            }
 
             AnimatorController existing = AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath);
             if (forceControllerRebuild || tacticalCrouchOutdated || naturalJumpOutdated ||
@@ -257,21 +276,29 @@ namespace WorldBuilder.Editor
 
         private static bool IsCurrentController(AnimatorController controller)
         {
-            if (controller == null || controller.layers.Length != 3 ||
+            if (controller == null || controller.layers.Length != 4 ||
                 controller.layers[1].name != ShortSwordGripLayerName ||
-                controller.layers[2].name != ShortSwordLayerName)
+                controller.layers[2].name != ShortSwordBlockLayerName ||
+                controller.layers[3].name != ShortSwordLayerName)
             {
                 return false;
             }
 
             ChildAnimatorState[] states = controller.layers[0].stateMachine.states;
-            ChildAnimatorState[] comboStates = controller.layers[2].stateMachine.states;
+            ChildAnimatorState[] blockStates = controller.layers[2].stateMachine.states;
+            ChildAnimatorState[] comboStates = controller.layers[3].stateMachine.states;
             AvatarMask expectedGripMask =
                 AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordGripMaskPath);
             return states.Any(state => state.state.name == StandingStateName) &&
                 expectedGripMask != null &&
                 controller.layers[1].avatarMask == expectedGripMask &&
+                controller.layers[2].avatarMask ==
+                    AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordUpperBodyMaskPath) &&
+                controller.layers[2].defaultWeight == 0f &&
                 controller.layers[2].iKPass &&
+                blockStates.Length == 1 &&
+                blockStates[0].state.name == ShortSwordBlockStateName &&
+                !controller.layers[3].iKPass &&
                 states.Any(state => state.state.name == TacticalCrouchStateName) &&
                 states.Any(state => state.state.name == NaturalJumpRiseStateName) &&
                 comboStates.Any(state =>
@@ -469,6 +496,8 @@ namespace WorldBuilder.Editor
                 FindClipAtPath(SwordComboModelPath, SwordComboHit2RecoveryClipName);
             AnimationClip swordComboHit3 =
                 FindClipAtPath(SwordComboModelPath, SwordComboHit3ClipName);
+            AnimationClip swordBlock =
+                AssetDatabase.LoadAssetAtPath<AnimationClip>(ShortSwordBlockPath);
             AvatarMask shortSwordMask =
                 AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordUpperBodyMaskPath);
             AvatarMask shortSwordGripMask =
@@ -479,7 +508,8 @@ namespace WorldBuilder.Editor
                 idle, walk, jog, sprint, crouchIdle, crouchForward, jumpRise,
                 movingJumpRise, jumpFall, shortSwordReady,
                 swordComboHit1, swordComboHit1Recovery,
-                swordComboHit2, swordComboHit2Recovery, swordComboHit3
+                swordComboHit2, swordComboHit2Recovery, swordComboHit3,
+                swordBlock
             };
             if (requiredClips.Any(clip => clip == null) ||
                 shortSwordMask == null ||
@@ -560,11 +590,34 @@ namespace WorldBuilder.Editor
                 avatarMask = shortSwordGripMask,
                 blendingMode = AnimatorLayerBlendingMode.Override,
                 defaultWeight = 1f,
-                iKPass = false,
+                iKPass = true,
                 syncedLayerIndex = -1,
                 stateMachine = swordGripStateMachine
             };
             controller.AddLayer(swordGripLayer);
+
+            AnimatorStateMachine swordBlockStateMachine = new AnimatorStateMachine
+            {
+                name = ShortSwordBlockLayerName
+            };
+            AssetDatabase.AddObjectToAsset(swordBlockStateMachine, controller);
+            AnimatorState swordBlockState = swordBlockStateMachine.AddState(
+                ShortSwordBlockStateName,
+                new Vector3(240f, 80f));
+            swordBlockState.motion = swordBlock;
+            swordBlockState.speed = 0f;
+            swordBlockStateMachine.defaultState = swordBlockState;
+            AnimatorControllerLayer swordBlockLayer = new AnimatorControllerLayer
+            {
+                name = ShortSwordBlockLayerName,
+                avatarMask = shortSwordMask,
+                blendingMode = AnimatorLayerBlendingMode.Override,
+                defaultWeight = 0f,
+                iKPass = true,
+                syncedLayerIndex = -1,
+                stateMachine = swordBlockStateMachine
+            };
+            controller.AddLayer(swordBlockLayer);
 
             AnimatorStateMachine swordStateMachine = new AnimatorStateMachine
             {
@@ -602,7 +655,7 @@ namespace WorldBuilder.Editor
                 avatarMask = shortSwordMask,
                 blendingMode = AnimatorLayerBlendingMode.Override,
                 defaultWeight = 0f,
-                iKPass = true,
+                iKPass = false,
                 syncedLayerIndex = -1,
                 stateMachine = swordStateMachine
             };
@@ -1154,6 +1207,61 @@ namespace WorldBuilder.Editor
             }
 
             SetLoopTime(clip, true);
+            EditorUtility.SetDirty(clip);
+            AssetDatabase.SaveAssets();
+        }
+
+        private static void BuildShortSwordBlockClip(
+            AnimationClip source,
+            AnimationClip humanoidReference)
+        {
+            AnimationClip clip = GetOrCreateGeneratedClip(
+                ShortSwordBlockPath,
+                GeneratedSwordBlockClipName,
+                source.frameRate,
+                false);
+
+            foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(source))
+            {
+                AnimationCurve curve = AnimationUtility.GetEditorCurve(source, binding);
+                if (binding.propertyName.StartsWith("LeftHand.", StringComparison.Ordinal))
+                {
+                    curve = AnimationCurve.Constant(
+                        0f,
+                        source.length,
+                        GetSwordGripValue(binding.propertyName));
+                }
+
+                AnimationUtility.SetEditorCurve(clip, binding, curve);
+            }
+
+            foreach (EditorCurveBinding binding in
+                     AnimationUtility.GetCurveBindings(humanoidReference))
+            {
+                if (!binding.propertyName.StartsWith("LeftHand.", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                AnimationUtility.SetEditorCurve(
+                    clip,
+                    binding,
+                    AnimationCurve.Constant(
+                        0f,
+                        source.length,
+                        GetSwordGripValue(binding.propertyName)));
+            }
+
+            foreach (EditorCurveBinding binding in
+                     AnimationUtility.GetObjectReferenceCurveBindings(source))
+            {
+                AnimationUtility.SetObjectReferenceCurve(
+                    clip,
+                    binding,
+                    AnimationUtility.GetObjectReferenceCurve(source, binding));
+            }
+
+            SetLoopTime(clip, false);
             EditorUtility.SetDirty(clip);
             AssetDatabase.SaveAssets();
         }

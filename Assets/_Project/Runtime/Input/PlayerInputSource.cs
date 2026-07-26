@@ -54,13 +54,16 @@ namespace WorldBuilder.Gameplay.Input
             Mouse mouse = Mouse.current;
             bool primaryClickPressed =
                 mouse != null && mouse.leftButton.wasPressedThisFrame;
+            bool secondaryClickPressed =
+                mouse != null && mouse.rightButton.wasPressedThisFrame;
 
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
-            else if (primaryClickPressed && Cursor.lockState != CursorLockMode.Locked)
+            else if ((primaryClickPressed || secondaryClickPressed) &&
+                Cursor.lockState != CursorLockMode.Locked)
             {
                 LockCursor();
             }
@@ -75,6 +78,10 @@ namespace WorldBuilder.Gameplay.Input
             bool cursorLocked = Cursor.lockState == CursorLockMode.Locked;
             Vector2 look = cursorLocked && mouse != null ? mouse.delta.ReadValue() * lookScale : Vector2.zero;
             bool attackPressed = primaryClickPressed;
+            bool blockHeld =
+                cursorLocked &&
+                mouse != null &&
+                mouse.rightButton.isPressed;
             bool sprintHeld = keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
             bool jumpPressed = keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
             bool jumpHeld = keyboard != null && keyboard.spaceKey.isPressed;
@@ -94,7 +101,8 @@ namespace WorldBuilder.Gameplay.Input
                 jumpPressed,
                 jumpHeld,
                 crouchToggled,
-                attackPressed);
+                attackPressed,
+                blockHeld);
         }
 
         private static float ReadAxis(bool negative, bool positive)
