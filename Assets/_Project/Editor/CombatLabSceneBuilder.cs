@@ -23,6 +23,8 @@ namespace WorldBuilder.Editor
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
+        private const string BowLimbBeamPath =
+            "Assets/_Project/Art/Prototype/Weapons/PrototypeBowLimbBeam.asset";
         private const string SwordSwingAudioPath =
             "Assets/_Project/Audio/SFX/Sword Swing.mp3";
         private const string SwordHitAudioPath =
@@ -312,6 +314,16 @@ namespace WorldBuilder.Editor
                         CreateShortSwordBackSocket(
                             animator,
                             player.transform);
+                    Transform bowBackSocket =
+                        CreateBowBackSocket(
+                            animator,
+                            player.transform);
+                    Transform bowRoot = CreateLowPolyBow(
+                        bowBackSocket,
+                        gripMaterial,
+                        guardMaterial,
+                        bladeMaterial,
+                        out Transform arrowRoot);
                     ShortSwordAttackPresenter attackPresenter =
                         animator.gameObject.AddComponent<ShortSwordAttackPresenter>();
                     attackPresenter.Configure(
@@ -341,6 +353,9 @@ namespace WorldBuilder.Editor
                         player.transform,
                         swordRoot,
                         swordBackSocket,
+                        bowRoot,
+                        bowBackSocket,
+                        arrowRoot,
                         attackPresenter,
                         blockPresenter);
                     UpperBodyAimPresenter aimPresenter =
@@ -558,6 +573,382 @@ namespace WorldBuilder.Editor
                 Quaternion.LookRotation(-player.forward, bladeDirection);
             socket.transform.SetParent(upperChest, true);
             return socket.transform;
+        }
+
+        private static Transform CreateBowBackSocket(
+            Animator animator,
+            Transform player)
+        {
+            Transform upperChest =
+                animator.GetBoneTransform(HumanBodyBones.UpperChest) ??
+                animator.GetBoneTransform(HumanBodyBones.Chest);
+            if (upperChest == null)
+            {
+                Debug.LogWarning(
+                    "The prototype bow could not find an upper-chest back socket.");
+                return null;
+            }
+
+            Vector3 bowUp =
+                (player.up + player.right * 0.24f).normalized;
+            GameObject socket = new GameObject("Bow Back Socket");
+            socket.layer = 2;
+            socket.transform.position =
+                upperChest.position +
+                player.up * 0.06f -
+                player.right * 0.14f -
+                player.forward * 0.20f;
+            socket.transform.rotation =
+                Quaternion.LookRotation(-player.forward, bowUp);
+            socket.transform.SetParent(upperChest, true);
+            return socket.transform;
+        }
+
+        private static Transform CreateLowPolyBow(
+            Transform backSocket,
+            Material woodMaterial,
+            Material stringMaterial,
+            Material arrowTipMaterial,
+            out Transform arrowRoot)
+        {
+            Material bowWoodMaterial = GetOrCreateMaterial(
+                "BowWood",
+                new Color(0.34f, 0.14f, 0.035f),
+                0.20f,
+                0.04f);
+            Material bowTrimMaterial = GetOrCreateMaterial(
+                "BowMetalTrim",
+                new Color(0.38f, 0.25f, 0.09f),
+                0.48f,
+                0.62f);
+            Material fletchingMaterial = GetOrCreateMaterial(
+                "ArrowFletching",
+                new Color(0.52f, 0.12f, 0.035f),
+                0.12f);
+            GameObject bow = new GameObject("Low Poly Bow");
+            bow.layer = 2;
+            bow.transform.SetParent(backSocket, false);
+            bow.transform.localPosition = Vector3.zero;
+            bow.transform.localRotation = Quaternion.identity;
+            bow.transform.localScale = Vector3.one;
+
+            Vector3 upperInner = new Vector3(0f, 0.13f, 0f);
+            Vector3 upperPeak = new Vector3(0f, 0.27f, 0.12f);
+            Vector3 upperOuter = new Vector3(0f, 0.40f, -0.03f);
+            Vector3 upperTip = new Vector3(0f, 0.52f, -0.20f);
+            Vector3 lowerInner = new Vector3(0f, -0.13f, 0f);
+            Vector3 lowerPeak = new Vector3(0f, -0.27f, 0.12f);
+            Vector3 lowerOuter = new Vector3(0f, -0.40f, -0.03f);
+            Vector3 lowerTip = new Vector3(0f, -0.52f, -0.20f);
+            CreatePolygonBeamBetween(
+                "Upper Bow Inner Limb",
+                bow.transform,
+                upperInner,
+                upperPeak,
+                0.052f,
+                0.070f,
+                bowWoodMaterial);
+            CreatePolygonBeamBetween(
+                "Upper Bow Middle Limb",
+                bow.transform,
+                upperPeak,
+                upperOuter,
+                0.048f,
+                0.066f,
+                bowWoodMaterial);
+            CreatePolygonBeamBetween(
+                "Upper Bow Tip",
+                bow.transform,
+                upperOuter,
+                upperTip,
+                0.042f,
+                0.058f,
+                bowWoodMaterial);
+            CreatePolygonBeamBetween(
+                "Lower Bow Inner Limb",
+                bow.transform,
+                lowerInner,
+                lowerPeak,
+                0.052f,
+                0.070f,
+                bowWoodMaterial);
+            CreatePolygonBeamBetween(
+                "Lower Bow Middle Limb",
+                bow.transform,
+                lowerPeak,
+                lowerOuter,
+                0.048f,
+                0.066f,
+                bowWoodMaterial);
+            CreatePolygonBeamBetween(
+                "Lower Bow Tip",
+                bow.transform,
+                lowerOuter,
+                lowerTip,
+                0.042f,
+                0.058f,
+                bowWoodMaterial);
+            CreatePolygonBeamBetween(
+                "Lower Gray Bow Grip",
+                bow.transform,
+                lowerInner,
+                new Vector3(0f, -0.035f, 0f),
+                0.075f,
+                0.080f,
+                stringMaterial);
+            CreatePolygonBeamBetween(
+                "Upper Gray Bow Grip",
+                bow.transform,
+                new Vector3(0f, 0.035f, 0f),
+                upperInner,
+                0.075f,
+                0.080f,
+                stringMaterial);
+            CreatePolygonBeamBetween(
+                "Upper Grip Collar",
+                bow.transform,
+                new Vector3(0f, 0.130f, 0f),
+                new Vector3(0f, 0.160f, 0f),
+                0.092f,
+                0.098f,
+                bowTrimMaterial);
+            CreatePolygonBeamBetween(
+                "Lower Grip Collar",
+                bow.transform,
+                new Vector3(0f, -0.160f, 0f),
+                new Vector3(0f, -0.130f, 0f),
+                0.092f,
+                0.098f,
+                bowTrimMaterial);
+            for (int wrapIndex = -2; wrapIndex <= 2; wrapIndex++)
+            {
+                if (Mathf.Abs(wrapIndex) < 2)
+                {
+                    continue;
+                }
+
+                float wrapCenter = wrapIndex * 0.045f;
+                CreatePolygonBeamBetween(
+                    "Leather Wrap " + (wrapIndex + 3),
+                    bow.transform,
+                    new Vector3(0f, wrapCenter - 0.0045f, 0f),
+                    new Vector3(0f, wrapCenter + 0.0045f, 0f),
+                    0.081f,
+                    0.087f,
+                    bowTrimMaterial);
+            }
+
+            Vector3 stringNock = new Vector3(0f, 0f, -0.20f);
+            CreateCylinderBetween(
+                "Upper Bow String",
+                bow.transform,
+                upperTip,
+                stringNock,
+                0.004f,
+                stringMaterial);
+            CreateCylinderBetween(
+                "Lower Bow String",
+                bow.transform,
+                lowerTip,
+                stringNock,
+                0.004f,
+                stringMaterial);
+
+            GameObject arrow = new GameObject("Nocked Arrow");
+            arrow.layer = 2;
+            arrow.transform.SetParent(bow.transform, false);
+            arrow.transform.localPosition = Vector3.zero;
+            arrow.transform.localRotation = Quaternion.identity;
+            arrowRoot = arrow.transform;
+            CreateCylinderBetween(
+                "Arrow Shaft",
+                arrow.transform,
+                new Vector3(0f, 0f, -0.20f),
+                new Vector3(0f, 0f, 0.60f),
+                0.008f,
+                bowWoodMaterial);
+            GameObject arrowTip = CreateVisualPart(
+                "Arrow Tip",
+                PrimitiveType.Cube,
+                arrow.transform,
+                new Vector3(0f, 0f, 0.62f),
+                new Vector3(0.025f, 0.025f, 0.055f),
+                arrowTipMaterial);
+            arrowTip.transform.localRotation =
+                Quaternion.Euler(0f, 0f, 45f);
+            GameObject fletchingHorizontal = CreateVisualPart(
+                "Arrow Fletching Horizontal",
+                PrimitiveType.Cube,
+                arrow.transform,
+                new Vector3(0f, 0f, -0.145f),
+                new Vector3(0.07f, 0.012f, 0.11f),
+                fletchingMaterial);
+            fletchingHorizontal.transform.localRotation =
+                Quaternion.identity;
+            GameObject fletchingVertical = CreateVisualPart(
+                "Arrow Fletching Vertical",
+                PrimitiveType.Cube,
+                arrow.transform,
+                new Vector3(0f, 0f, -0.145f),
+                new Vector3(0.012f, 0.07f, 0.11f),
+                fletchingMaterial);
+            fletchingVertical.transform.localRotation =
+                Quaternion.identity;
+            arrow.SetActive(false);
+            return bow.transform;
+        }
+
+        private static GameObject CreateCylinderBetween(
+            string name,
+            Transform parent,
+            Vector3 start,
+            Vector3 end,
+            float radius,
+            Material material)
+        {
+            Vector3 direction = end - start;
+            GameObject cylinder = CreateVisualPart(
+                name,
+                PrimitiveType.Cylinder,
+                parent,
+                Vector3.Lerp(start, end, 0.5f),
+                new Vector3(
+                    radius,
+                    direction.magnitude * 0.5f,
+                    radius),
+                material);
+            cylinder.transform.localRotation =
+                Quaternion.FromToRotation(Vector3.up, direction.normalized);
+            return cylinder;
+        }
+
+        private static GameObject CreateBoxBeamBetween(
+            string name,
+            Transform parent,
+            Vector3 start,
+            Vector3 end,
+            float width,
+            float depth,
+            Material material)
+        {
+            Vector3 direction = end - start;
+            GameObject beam = CreateVisualPart(
+                name,
+                PrimitiveType.Cube,
+                parent,
+                Vector3.Lerp(start, end, 0.5f),
+                new Vector3(
+                    width,
+                    direction.magnitude,
+                    depth),
+                material);
+            beam.transform.localRotation =
+                Quaternion.FromToRotation(Vector3.up, direction.normalized);
+            return beam;
+        }
+
+        private static GameObject CreatePolygonBeamBetween(
+            string name,
+            Transform parent,
+            Vector3 start,
+            Vector3 end,
+            float width,
+            float depth,
+            Material material)
+        {
+            Vector3 direction = end - start;
+            GameObject beam = new GameObject(name);
+            beam.layer = 2;
+            beam.transform.SetParent(parent, false);
+            beam.transform.localPosition =
+                Vector3.Lerp(start, end, 0.5f);
+            beam.transform.localRotation =
+                Quaternion.FromToRotation(Vector3.up, direction.normalized);
+            beam.transform.localScale =
+                new Vector3(width, direction.magnitude, depth);
+            MeshFilter filter = beam.AddComponent<MeshFilter>();
+            filter.sharedMesh = GetOrCreateBowLimbBeamMesh();
+            MeshRenderer renderer = beam.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            return beam;
+        }
+
+        private static Mesh GetOrCreateBowLimbBeamMesh()
+        {
+            Mesh existing =
+                AssetDatabase.LoadAssetAtPath<Mesh>(BowLimbBeamPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            const int sides = 8;
+            float[] ringHeights = { -0.5f, 0f, 0.5f };
+            float[] ringScales = { 0.82f, 1f, 0.82f };
+            Vector2[] profile =
+            {
+                new Vector2(-0.35f, -0.50f),
+                new Vector2(0.35f, -0.50f),
+                new Vector2(0.50f, -0.35f),
+                new Vector2(0.50f, 0.35f),
+                new Vector2(0.35f, 0.50f),
+                new Vector2(-0.35f, 0.50f),
+                new Vector2(-0.50f, 0.35f),
+                new Vector2(-0.50f, -0.35f)
+            };
+            Vector3[] vertices =
+                new Vector3[ringHeights.Length * sides];
+            for (int ring = 0; ring < ringHeights.Length; ring++)
+            {
+                for (int side = 0; side < sides; side++)
+                {
+                    Vector2 point = profile[side] * ringScales[ring];
+                    vertices[ring * sides + side] =
+                        new Vector3(point.x, ringHeights[ring], point.y);
+                }
+            }
+
+            int[] triangles = new int[132];
+            int triangleIndex = 0;
+            for (int ring = 0; ring < ringHeights.Length - 1; ring++)
+            {
+                for (int side = 0; side < sides; side++)
+                {
+                    int next = (side + 1) % sides;
+                    int lower = ring * sides + side;
+                    int lowerNext = ring * sides + next;
+                    int upper = (ring + 1) * sides + side;
+                    int upperNext = (ring + 1) * sides + next;
+                    triangles[triangleIndex++] = lower;
+                    triangles[triangleIndex++] = upper;
+                    triangles[triangleIndex++] = lowerNext;
+                    triangles[triangleIndex++] = lowerNext;
+                    triangles[triangleIndex++] = upper;
+                    triangles[triangleIndex++] = upperNext;
+                }
+            }
+
+            for (int side = 1; side < sides - 1; side++)
+            {
+                triangles[triangleIndex++] = 0;
+                triangles[triangleIndex++] = side + 1;
+                triangles[triangleIndex++] = side;
+                int top = (ringHeights.Length - 1) * sides;
+                triangles[triangleIndex++] = top;
+                triangles[triangleIndex++] = top + side;
+                triangles[triangleIndex++] = top + side + 1;
+            }
+
+            Mesh mesh = new Mesh
+            {
+                name = "PrototypeBowLimbBeam",
+                vertices = vertices,
+                triangles = triangles
+            };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            AssetDatabase.CreateAsset(mesh, BowLimbBeamPath);
+            return mesh;
         }
 
         private static Mesh GetOrCreateShortSwordBlade()

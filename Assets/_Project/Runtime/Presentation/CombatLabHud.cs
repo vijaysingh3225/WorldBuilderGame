@@ -73,7 +73,7 @@ namespace WorldBuilder.Gameplay.Presentation
             string slotLabel = weaponSlots == null ||
                 weaponSlots.ActiveSlot == TwoSlotWeaponPresenter.PrimarySlot
                     ? "1  SHORT SWORD"
-                    : "2  UNARMED";
+                    : "2  BOW";
             GUI.Label(new Rect(24f, 116f, 260f, 22f), slotLabel, titleStyle);
             DrawHealthBar(new Rect(Screen.width - 284f, 24f, 260f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), "TARGET DUMMY");
             DrawDamagePopups();

@@ -46,7 +46,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "combat/block-hold",
             "combat/block-release",
             "combat/sheathe-sword",
-            "combat/unarmed-slot",
+            "combat/bow-slot",
             "combat/draw-sword",
             "suite/complete"
         };
@@ -379,17 +379,19 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     frame > 2 &&
                     !weaponSlots.IsTransitioning &&
                     weaponSlots.ActiveSlot ==
-                        TwoSlotWeaponPresenter.SecondarySlot,
+                        TwoSlotWeaponPresenter.SecondarySlot &&
+                    weaponSlots.BowIsEquipped,
                 OnEnd = () =>
                     recorder.MarkLastFrame("sword-sheathed-on-back", true)
             });
             EnqueueFixed(
                 "combat",
-                "unarmed-slot",
+                "bow-slot",
                 30,
                 default,
                 screenshot: true,
-                onEnd: () => recorder.MarkLastFrame("slot-two-unarmed", true));
+                onEnd: () =>
+                    recorder.MarkLastFrame("slot-two-bow-equipped", true));
             EnqueueStep(new DiagnosticStep
             {
                 Scenario = "combat",

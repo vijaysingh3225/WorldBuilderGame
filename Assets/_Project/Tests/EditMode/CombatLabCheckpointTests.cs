@@ -208,6 +208,23 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(
                     animator.GetBoneTransform(HumanBodyBones.UpperChest) ??
                     animator.GetBoneTransform(HumanBodyBones.Chest)));
+            Transform bowBackSocket = animator
+                .GetComponentsInChildren<Transform>(true)
+                .Single(
+                    transform =>
+                        transform.name == "Bow Back Socket");
+            Transform bow = animator
+                .GetComponentsInChildren<Transform>(true)
+                .Single(
+                    transform =>
+                        transform.name == "Low Poly Bow");
+            Transform arrow = animator
+                .GetComponentsInChildren<Transform>(true)
+                .Single(
+                    transform =>
+                        transform.name == "Nocked Arrow");
+            Assert.That(bow.parent, Is.EqualTo(bowBackSocket));
+            Assert.That(arrow.gameObject.activeSelf, Is.False);
             Assert.That(weaponSlots.RequestSlot(1), Is.True);
             Assert.That(weaponSlots.IsTransitioning, Is.True);
             Assert.That(
