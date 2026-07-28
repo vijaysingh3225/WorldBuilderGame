@@ -20,6 +20,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         [SerializeField] private Health playerHealth;
         [SerializeField] private Health enemyHealth;
+        [SerializeField] private TwoSlotWeaponPresenter weaponSlots;
 
         private readonly List<DamagePopup> damagePopups = new List<DamagePopup>();
         private GUIStyle titleStyle;
@@ -63,10 +64,17 @@ namespace WorldBuilder.Gameplay.Presentation
         private void OnGUI()
         {
             EnsureStyles();
+            weaponSlots ??=
+                Object.FindFirstObjectByType<TwoSlotWeaponPresenter>();
             GUI.Label(new Rect(24f, 20f, 580f, 30f), "MOVEMENT LAB  /  GAIT TUNING CHECKPOINT", titleStyle);
-            GUI.Label(new Rect(24f, 54f, 920f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   LMB attack   Hold RMB block   R restart", textStyle);
+            GUI.Label(new Rect(24f, 54f, 1100f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   LMB attack   Hold RMB block   1/2 or wheel switch   R restart", textStyle);
 
             DrawHealthBar(new Rect(24f, 88f, 260f, 18f), playerHealth, new Color(0.25f, 0.68f, 0.45f), "PLAYER");
+            string slotLabel = weaponSlots == null ||
+                weaponSlots.ActiveSlot == TwoSlotWeaponPresenter.PrimarySlot
+                    ? "1  SHORT SWORD"
+                    : "2  UNARMED";
+            GUI.Label(new Rect(24f, 116f, 260f, 22f), slotLabel, titleStyle);
             DrawHealthBar(new Rect(Screen.width - 284f, 24f, 260f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), "TARGET DUMMY");
             DrawDamagePopups();
 

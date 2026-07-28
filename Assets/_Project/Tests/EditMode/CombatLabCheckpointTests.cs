@@ -191,6 +191,31 @@ namespace WorldBuilder.Tests.EditMode
                         -0.17096046f,
                         0.29420236f)),
                 Is.LessThan(0.001f));
+
+            TwoSlotWeaponPresenter weaponSlots =
+                animator.GetComponent<TwoSlotWeaponPresenter>();
+            Assert.That(weaponSlots, Is.Not.Null);
+            Assert.That(
+                weaponSlots.ActiveSlot,
+                Is.EqualTo(TwoSlotWeaponPresenter.PrimarySlot));
+            Transform backSocket = animator
+                .GetComponentsInChildren<Transform>(true)
+                .Single(
+                    transform =>
+                        transform.name == "Short Sword Back Socket");
+            Assert.That(
+                backSocket.parent,
+                Is.EqualTo(
+                    animator.GetBoneTransform(HumanBodyBones.UpperChest) ??
+                    animator.GetBoneTransform(HumanBodyBones.Chest)));
+            Assert.That(weaponSlots.RequestSlot(1), Is.True);
+            Assert.That(weaponSlots.IsTransitioning, Is.True);
+            Assert.That(
+                animator.GetComponent<ShortSwordAttackPresenter>().WeaponEquipped,
+                Is.False);
+            Assert.That(
+                animator.GetComponent<ShortSwordBlockPresenter>().WeaponEquipped,
+                Is.False);
         }
 
         [Test]

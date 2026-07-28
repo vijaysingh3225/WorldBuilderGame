@@ -58,8 +58,10 @@ namespace WorldBuilder.Gameplay.Presentation
         private bool damageWindowOpened;
         private bool subscribed;
         private float returnBlendStartedAt;
+        private bool weaponEquipped = true;
 
         public bool IsAttacking => attackActive;
+        public bool WeaponEquipped => weaponEquipped;
         public int CurrentComboHit => attackActive ? currentHit + 1 : 0;
         public Vector3 SwordDirection => swordRoot != null ? swordRoot.up : Vector3.zero;
         public Vector3 BladePlaneNormal => swordRoot != null ? swordRoot.forward : Vector3.zero;
@@ -87,6 +89,15 @@ namespace WorldBuilder.Gameplay.Presentation
             ConfigureAudio();
             ResolveAnimatorState();
             Subscribe();
+        }
+
+        public void SetWeaponEquipped(bool equipped)
+        {
+            weaponEquipped = equipped;
+            if (!weaponEquipped)
+            {
+                ResetPresentation();
+            }
         }
 
         private void Awake()
@@ -185,7 +196,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void OnAttackRequested()
         {
-            if (animator == null || weapon == null)
+            if (!weaponEquipped || animator == null || weapon == null)
             {
                 return;
             }

@@ -308,6 +308,10 @@ namespace WorldBuilder.Editor
                         bladeMaterial,
                         guardMaterial,
                         gripMaterial);
+                    Transform swordBackSocket =
+                        CreateShortSwordBackSocket(
+                            animator,
+                            player.transform);
                     ShortSwordAttackPresenter attackPresenter =
                         animator.gameObject.AddComponent<ShortSwordAttackPresenter>();
                     attackPresenter.Configure(
@@ -329,6 +333,16 @@ namespace WorldBuilder.Editor
                         ShortSwordGuardLocalPosition,
                         ShortSwordGuardLocalRotation,
                         ShortSwordGuardLeftHandLocalRotation);
+                    TwoSlotWeaponPresenter loadoutPresenter =
+                        animator.gameObject.AddComponent<TwoSlotWeaponPresenter>();
+                    loadoutPresenter.Configure(
+                        animator,
+                        player.GetComponent<PlayerInputSource>(),
+                        player.transform,
+                        swordRoot,
+                        swordBackSocket,
+                        attackPresenter,
+                        blockPresenter);
                     UpperBodyAimPresenter aimPresenter =
                         animator.gameObject.AddComponent<UpperBodyAimPresenter>();
                     aimPresenter.Configure(animator, player.transform);
@@ -515,6 +529,35 @@ namespace WorldBuilder.Editor
             MeshRenderer renderer = blade.AddComponent<MeshRenderer>();
             renderer.sharedMaterial = bladeMaterial;
             return swordRoot.transform;
+        }
+
+        private static Transform CreateShortSwordBackSocket(
+            Animator animator,
+            Transform player)
+        {
+            Transform upperChest =
+                animator.GetBoneTransform(HumanBodyBones.UpperChest) ??
+                animator.GetBoneTransform(HumanBodyBones.Chest);
+            if (upperChest == null)
+            {
+                Debug.LogWarning(
+                    "The prototype short sword could not find an upper-chest back socket.");
+                return null;
+            }
+
+            Vector3 bladeDirection =
+                (-player.up - player.right * 0.28f).normalized;
+            GameObject socket = new GameObject("Short Sword Back Socket");
+            socket.layer = 2;
+            socket.transform.position =
+                upperChest.position +
+                player.up * 0.26f +
+                player.right * 0.10f -
+                player.forward * 0.16f;
+            socket.transform.rotation =
+                Quaternion.LookRotation(-player.forward, bladeDirection);
+            socket.transform.SetParent(upperChest, true);
+            return socket.transform;
         }
 
         private static Mesh GetOrCreateShortSwordBlade()

@@ -4,6 +4,7 @@ using UnityEngine;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Gameplay.Diagnostics
 {
@@ -44,6 +45,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "combat/block-entry-rest",
             "combat/block-hold",
             "combat/block-release",
+            "combat/sheathe-sword",
+            "combat/unarmed-slot",
+            "combat/draw-sword",
             "suite/complete"
         };
 
@@ -55,6 +59,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private Health enemyHealth;
         private EnemyBrain enemyBrain;
         private CharacterController enemyController;
+        private TwoSlotWeaponPresenter weaponSlots;
         private DiagnosticStep currentStep;
         private int currentStepFrame;
         private bool running;
@@ -228,6 +233,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
             enemyBrain = FindFirstObjectByType<EnemyBrain>();
             enemyHealth = enemyBrain != null ? enemyBrain.GetComponent<Health>() : null;
             enemyController = enemyBrain != null ? enemyBrain.GetComponent<CharacterController>() : null;
+            weaponSlots =
+                FindFirstObjectByType<TwoSlotWeaponPresenter>();
         }
 
         private void BuildScenarioSteps()
@@ -336,6 +343,91 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 default,
                 screenshot: true,
                 onEnd: () => recorder.MarkLastFrame("one-handed-carry-restored", true));
+
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "sheathe-sword",
+                FrameCount = 120,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    if (weaponSlots == null ||
+                        !weaponSlots.RequestSlot(
+                            TwoSlotWeaponPresenter.SecondarySlot))
+                    {
+                        throw new InvalidOperationException(
+                            "The two-slot presenter rejected the diagnostic sheathe request.");
+                    }
+                },
+                Intent = _ => default,
+                BeforeFrame = frame =>
+                {
+                    if (frame == 10 ||
+                        frame == 22 ||
+                        frame == 34 ||
+                        frame == 50 ||
+                        frame == 70 ||
+                        frame == 90)
+                    {
+                        recorder.MarkLastFrame(
+                            "sheathe-progress-" + frame.ToString("00"),
+                            true);
+                    }
+                },
+                CompleteBeforeFrame = frame =>
+                    frame > 2 &&
+                    !weaponSlots.IsTransitioning &&
+                    weaponSlots.ActiveSlot ==
+                        TwoSlotWeaponPresenter.SecondarySlot,
+                OnEnd = () =>
+                    recorder.MarkLastFrame("sword-sheathed-on-back", true)
+            });
+            EnqueueFixed(
+                "combat",
+                "unarmed-slot",
+                30,
+                default,
+                screenshot: true,
+                onEnd: () => recorder.MarkLastFrame("slot-two-unarmed", true));
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "draw-sword",
+                FrameCount = 120,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    if (!weaponSlots.RequestSlot(
+                            TwoSlotWeaponPresenter.PrimarySlot))
+                    {
+                        throw new InvalidOperationException(
+                            "The two-slot presenter rejected the diagnostic draw request.");
+                    }
+                },
+                Intent = _ => default,
+                BeforeFrame = frame =>
+                {
+                    if (frame == 10 ||
+                        frame == 22 ||
+                        frame == 34 ||
+                        frame == 50 ||
+                        frame == 70 ||
+                        frame == 90)
+                    {
+                        recorder.MarkLastFrame(
+                            "draw-progress-" + frame.ToString("00"),
+                            true);
+                    }
+                },
+                CompleteBeforeFrame = frame =>
+                    frame > 2 &&
+                    !weaponSlots.IsTransitioning &&
+                    weaponSlots.ActiveSlot ==
+                        TwoSlotWeaponPresenter.PrimarySlot,
+                OnEnd = () =>
+                    recorder.MarkLastFrame("sword-redrawn", true)
+            });
 
             EnqueueFixed("suite", "complete", 3, default, screenshot: true);
         }

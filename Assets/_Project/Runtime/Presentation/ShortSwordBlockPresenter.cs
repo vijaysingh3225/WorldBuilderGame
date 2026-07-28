@@ -39,9 +39,11 @@ namespace WorldBuilder.Gameplay.Presentation
         private Quaternion swordCarryLocalRotation;
         private Vector3 swordCarryLocalPosition;
         private bool hasSwordCarryTransform;
+        private bool weaponEquipped = true;
 
         public float BlockWeight => blockWeight;
         public bool IsBlocking => blockWeight > 0.01f;
+        public bool WeaponEquipped => weaponEquipped;
         public float LeftHandHiltContactGap =>
             leftIndexKnuckle != null &&
             leftLittleKnuckle != null &&
@@ -125,6 +127,22 @@ namespace WorldBuilder.Gameplay.Presentation
             ResolveLayer();
         }
 
+        public void SetWeaponEquipped(bool equipped)
+        {
+            weaponEquipped = equipped;
+            if (weaponEquipped)
+            {
+                return;
+            }
+
+            blockWeight = 0f;
+            poseRequestedLastFrame = false;
+            if (animator != null && blockLayerIndex >= 0)
+            {
+                animator.SetLayerWeight(blockLayerIndex, 0f);
+            }
+        }
+
         public void ConfigureAuthoredGuardSwordTransform(
             Vector3 localPosition,
             Quaternion localRotation,
@@ -177,6 +195,7 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             bool poseRequested =
+                weaponEquipped &&
                 input.CurrentIntent.BlockHeld &&
                 (attackPresenter == null || !attackPresenter.IsAttacking);
             if (poseRequested && !poseRequestedLastFrame)
@@ -199,7 +218,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void LateUpdate()
         {
-            if (swordRoot == null)
+            if (swordRoot == null || !weaponEquipped)
             {
                 return;
             }

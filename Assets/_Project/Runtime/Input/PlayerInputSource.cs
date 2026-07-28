@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -14,6 +15,7 @@ namespace WorldBuilder.Gameplay.Input
 
         public PlayerIntent CurrentIntent { get; private set; }
         public bool DiagnosticOverrideActive => diagnosticOverrideActive;
+        public event Action<int> WeaponSlotRequested;
 
         public void SetDiagnosticOverride(in PlayerIntent intent)
         {
@@ -94,6 +96,7 @@ namespace WorldBuilder.Gameplay.Input
                 crouchToggled = !crouchToggled;
             }
 
+            ReadWeaponSlotRequest(keyboard, mouse);
             CurrentIntent = new PlayerIntent(
                 move,
                 look,
@@ -103,6 +106,38 @@ namespace WorldBuilder.Gameplay.Input
                 crouchToggled,
                 attackPressed,
                 blockHeld);
+        }
+
+        private void ReadWeaponSlotRequest(Keyboard keyboard, Mouse mouse)
+        {
+            int requestedSlot = -1;
+            if (keyboard != null)
+            {
+                if (keyboard.digit1Key.wasPressedThisFrame ||
+                    keyboard.numpad1Key.wasPressedThisFrame)
+                {
+                    requestedSlot = 0;
+                }
+                else if (keyboard.digit2Key.wasPressedThisFrame ||
+                    keyboard.numpad2Key.wasPressedThisFrame)
+                {
+                    requestedSlot = 1;
+                }
+            }
+
+            if (requestedSlot < 0 && mouse != null)
+            {
+                float scroll = mouse.scroll.ReadValue().y;
+                if (Mathf.Abs(scroll) > 0.01f)
+                {
+                    requestedSlot = scroll > 0f ? 0 : 1;
+                }
+            }
+
+            if (requestedSlot >= 0)
+            {
+                WeaponSlotRequested?.Invoke(requestedSlot);
+            }
         }
 
         private static float ReadAxis(bool negative, bool positive)
