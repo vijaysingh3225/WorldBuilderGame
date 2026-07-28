@@ -91,3 +91,10 @@ The current crouch is otherwise accepted, but its grounded rest still has a smal
 - Production foot IK, contact curves, uneven-terrain adjustment, and slope tilting.
 - Root-motion movement.
 - Production sword art and a creator-approved replacement for the current prototype combo.
+
+## 2026-07-27 sword edge-orientation review
+
+- Preserve the current body, hand, guard, and combo animations.
+- Restore the earlier resting sword placement and blade-facing convention: the cutting edge points toward the opponent in guard, angles toward the ground at rest, and follows each slash axis during attacks.
+- Treat blade roll around its length separately from the accepted animation pose.
+- The corrected two-handed guard is now explicitly accepted and locked. Further sword-orientation work must change only the one-handed carry/attack transform.

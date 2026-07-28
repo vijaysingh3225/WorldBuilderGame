@@ -27,6 +27,30 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Audio/SFX/Sword Swing.mp3";
         private const string SwordHitAudioPath =
             "Assets/_Project/Audio/SFX/Sword Hit.mp3";
+        private static readonly Vector3 ShortSwordGuardLocalPosition =
+            new Vector3(0.035220847f, -0.066798866f, -0.038464874f);
+        private static readonly Quaternion ShortSwordGuardLocalRotation =
+            new Quaternion(
+                -0.28831902f,
+                0.8950361f,
+                -0.17096046f,
+                0.29420236f);
+        private static readonly Quaternion ShortSwordGuardLeftHandLocalRotation =
+            new Quaternion(
+                -0.2711382f,
+                0.16369334f,
+                0.27808982f,
+                -0.9068378f);
+        private static readonly Vector3 ShortSwordCarryLocalPosition =
+            new Vector3(-0.00072210626f, -0.07712167f, -0.068963856f);
+        private static readonly Quaternion ShortSwordCarryLocalRotation =
+            new Quaternion(
+                -0.0575469f,
+                0.7047954f,
+                -0.06148468f,
+                0.70439446f);
+        private static readonly Vector3 ShortSwordCarryLocalScale =
+            new Vector3(0.9090908f, 0.9090911f, 0.90909094f);
 
         [MenuItem("WorldBuilder/Build Combat Lab")]
         public static void Build()
@@ -281,7 +305,6 @@ namespace WorldBuilder.Editor
                     presenter.Configure(motor, animator);
                     Transform swordRoot = CreateShortSword(
                         animator,
-                        player.transform,
                         bladeMaterial,
                         guardMaterial,
                         gripMaterial);
@@ -302,6 +325,10 @@ namespace WorldBuilder.Editor
                         attackPresenter,
                         player.transform,
                         swordRoot);
+                    blockPresenter.ConfigureAuthoredGuardSwordTransform(
+                        ShortSwordGuardLocalPosition,
+                        ShortSwordGuardLocalRotation,
+                        ShortSwordGuardLeftHandLocalRotation);
                     UpperBodyAimPresenter aimPresenter =
                         animator.gameObject.AddComponent<UpperBodyAimPresenter>();
                     aimPresenter.Configure(animator, player.transform);
@@ -434,55 +461,23 @@ namespace WorldBuilder.Editor
 
         private static Transform CreateShortSword(
             Animator animator,
-            Transform player,
             Material bladeMaterial,
             Material guardMaterial,
             Material gripMaterial)
         {
             Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-            Transform lowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
-            Transform indexKnuckle =
-                animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
-            Transform middleKnuckle =
-                animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
-            Transform littleKnuckle =
-                animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
-            if (hand == null || lowerArm == null)
+            if (hand == null)
             {
                 Debug.LogWarning("The prototype short sword could not find the humanoid right-hand socket.");
                 return null;
             }
 
-            Vector3 forearmDirection = (hand.position - lowerArm.position).normalized;
-            if (forearmDirection.sqrMagnitude < 0.9f)
-            {
-                forearmDirection = -player.up;
-            }
-
-            Vector3 swordDirection =
-                indexKnuckle != null && littleKnuckle != null
-                    ? (indexKnuckle.position - littleKnuckle.position).normalized
-                    : player.forward;
-            Vector3 swordRight =
-                Vector3.ProjectOnPlane(forearmDirection, swordDirection).normalized;
-            if (swordRight.sqrMagnitude < 0.9f)
-            {
-                swordRight =
-                    Vector3.ProjectOnPlane(player.right, swordDirection).normalized;
-            }
-
-            Vector3 swordForward = Vector3.Cross(swordRight, swordDirection).normalized;
-            Vector3 knuckleCenter = middleKnuckle != null
-                ? middleKnuckle.position
-                : indexKnuckle != null && littleKnuckle != null
-                    ? (indexKnuckle.position + littleKnuckle.position) * 0.5f
-                    : hand.position + swordDirection * 0.13f;
-            Vector3 palmCenter = Vector3.Lerp(hand.position, knuckleCenter, 0.68f);
             GameObject swordRoot = new GameObject("Equipped Short Sword");
             swordRoot.layer = 2;
-            swordRoot.transform.position = palmCenter - swordDirection * 0.09f;
-            swordRoot.transform.rotation = Quaternion.LookRotation(swordForward, swordDirection);
-            swordRoot.transform.SetParent(hand, true);
+            swordRoot.transform.SetParent(hand, false);
+            swordRoot.transform.localPosition = ShortSwordCarryLocalPosition;
+            swordRoot.transform.localRotation = ShortSwordCarryLocalRotation;
+            swordRoot.transform.localScale = ShortSwordCarryLocalScale;
 
             GameObject grip = CreateVisualPart(
                 "Leather Grip",

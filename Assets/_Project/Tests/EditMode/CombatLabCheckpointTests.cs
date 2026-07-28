@@ -158,6 +158,39 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 sword.parent,
                 Is.EqualTo(animator.GetBoneTransform(HumanBodyBones.RightHand)));
+            Assert.That(
+                Vector3.Distance(
+                    sword.localPosition,
+                    new Vector3(
+                        -0.00072210626f,
+                        -0.07712167f,
+                        -0.068963856f)),
+                Is.LessThan(0.0001f));
+            Assert.That(
+                Quaternion.Angle(
+                    sword.localRotation,
+                    new Quaternion(
+                        -0.0575469f,
+                        0.7047954f,
+                        -0.06148468f,
+                        0.70439446f)),
+                Is.LessThan(0.001f));
+            ShortSwordBlockPresenter blockPresenter =
+                animator.GetComponent<ShortSwordBlockPresenter>();
+            SerializedObject serializedBlock =
+                new SerializedObject(blockPresenter);
+            Quaternion guardRotation = serializedBlock
+                .FindProperty("authoredGuardSwordLocalRotation")
+                .quaternionValue;
+            Assert.That(
+                Quaternion.Angle(
+                    guardRotation,
+                    new Quaternion(
+                        -0.28831902f,
+                        0.8950361f,
+                        -0.17096046f,
+                        0.29420236f)),
+                Is.LessThan(0.001f));
         }
 
         [Test]
