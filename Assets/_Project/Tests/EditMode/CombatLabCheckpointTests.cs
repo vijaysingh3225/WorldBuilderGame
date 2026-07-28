@@ -148,6 +148,19 @@ namespace WorldBuilder.Tests.EditMode
                 Object.FindFirstObjectByType<UpperBodyAimPresenter>(
                     FindObjectsInactive.Include),
                 Is.Not.Null);
+            HitReactionPresenter hitReaction =
+                Object.FindFirstObjectByType<HitReactionPresenter>(
+                    FindObjectsInactive.Include);
+            Assert.That(hitReaction, Is.Not.Null);
+            Assert.That(
+                hitReaction.UsesHitSoundForSource(
+                    "prototype-sword"),
+                Is.True);
+            Assert.That(
+                hitReaction.UsesHitSoundForSource(
+                    "prototype-bow"),
+                Is.False,
+                "Arrow damage must not trigger the sword-hit clip.");
 
             Transform sword = Object.FindObjectsByType<Transform>(
                     FindObjectsInactive.Include,
@@ -225,6 +238,10 @@ namespace WorldBuilder.Tests.EditMode
                         transform.name == "Nocked Arrow");
             Assert.That(bow.parent, Is.EqualTo(bowBackSocket));
             Assert.That(arrow.gameObject.activeSelf, Is.False);
+            BowWeapon bowWeapon = animator.GetComponent<BowWeapon>();
+            Assert.That(bowWeapon, Is.Not.Null);
+            Assert.That(bowWeapon.WeaponEquipped, Is.False);
+            Assert.That(bowWeapon.FiredArrowCount, Is.Zero);
             Assert.That(weaponSlots.RequestSlot(1), Is.True);
             Assert.That(weaponSlots.IsTransitioning, Is.True);
             Assert.That(

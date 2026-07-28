@@ -350,9 +350,21 @@ namespace WorldBuilder.Editor
             ChildAnimatorState[] states = controller.layers[0].stateMachine.states;
             ChildAnimatorState[] blockStates = controller.layers[2].stateMachine.states;
             ChildAnimatorState[] comboStates = controller.layers[3].stateMachine.states;
+            AnimatorState standingState = states
+                .Select(child => child.state)
+                .FirstOrDefault(state =>
+                    state.name == StandingStateName);
             AvatarMask expectedGripMask =
                 AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordGripMaskPath);
-            return states.Any(state => state.state.name == StandingStateName) &&
+            return standingState != null &&
+                standingState.speedParameterActive &&
+                standingState.speedParameter ==
+                    HumanoidAnimatorPresenter.GaitPlaybackParameter &&
+                controller.parameters.Any(parameter =>
+                    parameter.name ==
+                        HumanoidAnimatorPresenter.GaitPlaybackParameter &&
+                    parameter.type ==
+                        AnimatorControllerParameterType.Float) &&
                 expectedGripMask != null &&
                 controller.layers[1].avatarMask == expectedGripMask &&
                 controller.layers[2].avatarMask ==
@@ -557,6 +569,12 @@ namespace WorldBuilder.Editor
             controller.AddParameter(HumanoidAnimatorPresenter.SpeedParameter, AnimatorControllerParameterType.Float);
             controller.AddParameter(HumanoidAnimatorPresenter.MoveXParameter, AnimatorControllerParameterType.Float);
             controller.AddParameter(HumanoidAnimatorPresenter.MoveZParameter, AnimatorControllerParameterType.Float);
+            controller.AddParameter(new AnimatorControllerParameter
+            {
+                name = HumanoidAnimatorPresenter.GaitPlaybackParameter,
+                type = AnimatorControllerParameterType.Float,
+                defaultFloat = 1f
+            });
             controller.AddParameter(HumanoidAnimatorPresenter.VerticalSpeedParameter, AnimatorControllerParameterType.Float);
             controller.AddParameter(HumanoidAnimatorPresenter.GroundedParameter, AnimatorControllerParameterType.Bool);
             controller.AddParameter(HumanoidAnimatorPresenter.CrouchedParameter, AnimatorControllerParameterType.Bool);
@@ -608,6 +626,9 @@ namespace WorldBuilder.Editor
             AnimatorStateMachine stateMachine = controller.layers[0].stateMachine;
             AnimatorState standing = stateMachine.AddState(StandingStateName, new Vector3(240f, 40f));
             standing.motion = CreateStandingBlendTree(controller, idle, walk, jog, sprint);
+            standing.speedParameterActive = true;
+            standing.speedParameter =
+                HumanoidAnimatorPresenter.GaitPlaybackParameter;
             AnimatorState crouching = stateMachine.AddState(TacticalCrouchStateName, new Vector3(240f, 160f));
             crouching.motion = CreateCrouchBlendTree(controller, crouchIdle, crouchForward);
             AnimatorState rising = stateMachine.AddState(NaturalJumpRiseStateName, new Vector3(520f, 20f));

@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using WorldBuilder.Gameplay.Combat;
 
@@ -10,6 +11,8 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Health health;
         [SerializeField] private Transform visualRoot;
         [SerializeField] private AudioClip hitSound;
+        [SerializeField] private string hitSoundSourceId =
+            "prototype-sword";
         [SerializeField, Min(0.01f)] private float shakeDuration = 0.14f;
         [SerializeField, Min(0f)] private float shakeDistance = 0.14f;
         [SerializeField, Min(0f)] private float shakeAngle = 7f;
@@ -21,6 +24,18 @@ namespace WorldBuilder.Gameplay.Presentation
         private Quaternion restingLocalRotation;
         private float reactionStartedAt = float.NegativeInfinity;
         private int reactionSequence;
+
+        public string HitSoundSourceId => hitSoundSourceId;
+        public int HitSoundPlayCount { get; private set; }
+
+        public bool UsesHitSoundForSource(
+            string sourceId)
+        {
+            return string.Equals(
+                sourceId,
+                hitSoundSourceId,
+                StringComparison.Ordinal);
+        }
 
         public void Configure(
             Health targetHealth,
@@ -95,7 +110,9 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             reactionSequence++;
             reactionStartedAt = Time.time;
-            if (audioSource != null && hitSound != null)
+            if (audioSource != null &&
+                hitSound != null &&
+                UsesHitSoundForSource(request.SourceId))
             {
                 // The supplied MP3 has 138 ms of leading silence. Starting at its
                 // first audible transient keeps the sound on the damage/contact frame.
@@ -107,6 +124,7 @@ namespace WorldBuilder.Gameplay.Presentation
                     hitSoundStartOffset,
                     Mathf.Max(0f, hitSound.length - 0.001f));
                 audioSource.Play();
+                HitSoundPlayCount++;
             }
         }
 

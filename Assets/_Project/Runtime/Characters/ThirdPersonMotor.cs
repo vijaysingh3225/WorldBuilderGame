@@ -20,6 +20,7 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0f)] private float airAcceleration = 14f;
         [SerializeField, Min(0f)] private float standingJumpAirSpeedLimit = 2.2f;
         [SerializeField, Min(0f)] private float turnSpeed = 360f;
+        [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 720f;
         [SerializeField, Range(-1f, 0f)] private float reversalBrakeDot = -0.35f;
         [SerializeField, Range(0f, 90f)] private float reversalRestartAngle = 38f;
         [SerializeField, Min(0f)] private float reversalStopSpeed = 0.08f;
@@ -53,6 +54,7 @@ namespace WorldBuilder.Gameplay.Characters
         private bool hasGroundControl;
         private Vector3 desiredWorldDirection;
         private float targetHorizontalSpeed;
+        private MonoBehaviour[] facingOverrideBehaviours;
 
         public Vector3 HorizontalVelocity => horizontalVelocity;
         public Vector3 LocalHorizontalVelocity => transform.InverseTransformDirection(horizontalVelocity);
@@ -101,6 +103,8 @@ namespace WorldBuilder.Gameplay.Characters
             lastGroundedTime = Time.time;
             lastJumpRequestedTime = float.NegativeInfinity;
             isGrounded = HasSupportedGroundContact();
+            facingOverrideBehaviours =
+                GetComponentsInChildren<MonoBehaviour>(true);
             hasGroundControl = isGrounded;
         }
 
@@ -115,6 +119,8 @@ namespace WorldBuilder.Gameplay.Characters
             crouchingCenter = standingCenter + Vector3.down * ((standingHeight - crouchingHeight) * 0.5f);
             airborneSpeedLimit = standingJumpAirSpeedLimit;
             isGrounded = HasSupportedGroundContact();
+            facingOverrideBehaviours =
+                GetComponentsInChildren<MonoBehaviour>(true);
         }
 
         private void Update()
@@ -136,13 +142,27 @@ namespace WorldBuilder.Gameplay.Characters
             PlayerIntent intent = input.CurrentIntent;
             UpdateCrouch(intent.CrouchHeld);
             Vector3 desiredDirection = ToWorldDirection(intent.Move);
+            bool facingOverridden =
+                TryGetFacingOverride(out Vector3 overrideFacingDirection);
             desiredWorldDirection = desiredDirection;
             hasGroundControl = HasSupportedGroundContact();
             if (hasGroundControl)
             {
-                float targetSpeed = isCrouched ? crouchSpeed : intent.SprintHeld ? sprintSpeed : walkSpeed;
+                // Aim-locked movement keeps the deliberate walk gait even
+                // when the player is holding the sprint input.
+                bool sprintAllowed =
+                    !facingOverridden &&
+                    intent.SprintHeld;
+                float targetSpeed = isCrouched
+                    ? crouchSpeed
+                    : sprintAllowed
+                        ? sprintSpeed
+                        : walkSpeed;
                 targetHorizontalSpeed = desiredDirection.sqrMagnitude > 0.001f ? targetSpeed : 0f;
-                Vector3 desiredVelocity = GetGroundTargetVelocity(desiredDirection, targetSpeed);
+                Vector3 desiredVelocity = GetGroundTargetVelocity(
+                    desiredDirection,
+                    targetSpeed,
+                    facingOverridden);
                 horizontalVelocity = Vector3.MoveTowards(
                     horizontalVelocity,
                     desiredVelocity,
@@ -163,7 +183,10 @@ namespace WorldBuilder.Gameplay.Characters
                 targetHorizontalSpeed = 0f;
             }
 
-            UpdateFacing(desiredDirection);
+            UpdateFacing(
+                desiredDirection,
+                facingOverridden,
+                overrideFacingDirection);
 
             UpdateVerticalMotion(intent);
             Vector3 motion = horizontalVelocity + Vector3.up * verticalVelocity;
@@ -183,7 +206,10 @@ namespace WorldBuilder.Gameplay.Characters
             return Vector3.ClampMagnitude(forward * move.y + right * move.x, 1f);
         }
 
-        private Vector3 GetGroundTargetVelocity(Vector3 desiredDirection, float targetSpeed)
+        private Vector3 GetGroundTargetVelocity(
+            Vector3 desiredDirection,
+            float targetSpeed,
+            bool facingOverridden)
         {
             if (desiredDirection.sqrMagnitude <= 0.001f)
             {
@@ -204,7 +230,9 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             float facingAngle = Vector3.Angle(transform.forward, desiredDirection);
-            if (currentSpeed <= reversalStopSpeed && facingAngle <= reversalRestartAngle)
+            if (currentSpeed <= reversalStopSpeed &&
+                (facingOverridden ||
+                    facingAngle <= reversalRestartAngle))
             {
                 isBrakingForReversal = false;
                 return desiredDirection * targetSpeed;
@@ -213,10 +241,17 @@ namespace WorldBuilder.Gameplay.Characters
             return Vector3.zero;
         }
 
-        private void UpdateFacing(Vector3 desiredDirection)
+        private void UpdateFacing(
+            Vector3 desiredDirection,
+            bool facingOverridden,
+            Vector3 overrideFacingDirection)
         {
-            Vector3 facingDirection = horizontalVelocity;
-            if (facingDirection.sqrMagnitude <= reversalStopSpeed * reversalStopSpeed)
+            Vector3 facingDirection = facingOverridden
+                ? overrideFacingDirection
+                : horizontalVelocity;
+            if (!facingOverridden &&
+                facingDirection.sqrMagnitude <=
+                    reversalStopSpeed * reversalStopSpeed)
             {
                 facingDirection = desiredDirection;
             }
@@ -232,7 +267,48 @@ namespace WorldBuilder.Gameplay.Characters
             transform.rotation = Quaternion.RotateTowards(
                 transform.rotation,
                 targetRotation,
-                turnSpeed * Time.deltaTime);
+                (facingOverridden
+                    ? aimFacingTurnSpeed
+                    : turnSpeed) *
+                Time.deltaTime);
+        }
+
+        private bool TryGetFacingOverride(
+            out Vector3 facingDirection)
+        {
+            facingDirection = Vector3.zero;
+            if (facingOverrideBehaviours == null)
+            {
+                facingOverrideBehaviours =
+                    GetComponentsInChildren<MonoBehaviour>(true);
+            }
+
+            for (int index = 0;
+                 index < facingOverrideBehaviours.Length;
+                 index++)
+            {
+                MonoBehaviour behaviour =
+                    facingOverrideBehaviours[index];
+                if (behaviour == null ||
+                    !behaviour.isActiveAndEnabled ||
+                    !(behaviour is ICharacterFacingOverride source) ||
+                    !source.TryGetFacingDirection(
+                        out Vector3 candidate))
+                {
+                    continue;
+                }
+
+                candidate.y = 0f;
+                if (candidate.sqrMagnitude <= 0.001f)
+                {
+                    continue;
+                }
+
+                facingDirection = candidate.normalized;
+                return true;
+            }
+
+            return false;
         }
 
         private void ApplyGravityOnly()

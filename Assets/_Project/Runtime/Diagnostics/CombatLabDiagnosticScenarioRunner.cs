@@ -44,9 +44,22 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "combat/block-toggle-stress",
             "combat/block-entry-rest",
             "combat/block-hold",
+            "combat/block-strafe",
+            "combat/block-backpedal",
             "combat/block-release",
             "combat/sheathe-sword",
             "combat/bow-slot",
+            "combat/bow-grace-cancel",
+            "combat/bow-partial-draw",
+            "combat/bow-partial-release",
+            "combat/bow-full-draw",
+            "combat/bow-aim-yaw-sweep",
+            "combat/bow-aim-pitch-sweep",
+            "combat/bow-aim-strafe",
+            "combat/bow-aim-backpedal",
+            "combat/bow-aim-forward-walk",
+            "combat/bow-full-release",
+            "combat/bow-flight-impact",
             "combat/draw-sword",
             "suite/complete"
         };
@@ -58,8 +71,11 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private Health playerHealth;
         private Health enemyHealth;
         private EnemyBrain enemyBrain;
+        private HitReactionPresenter enemyHitReaction;
         private CharacterController enemyController;
         private TwoSlotWeaponPresenter weaponSlots;
+        private BowWeapon bowWeapon;
+        private AimStanceLocomotionPresenter stancePresenter;
         private DiagnosticStep currentStep;
         private int currentStepFrame;
         private bool running;
@@ -103,10 +119,28 @@ namespace WorldBuilder.Gameplay.Diagnostics
             }
 
             ResolveReferences();
-            if (recorder == null || motor == null || input == null)
+            if (recorder == null ||
+                motor == null ||
+                input == null ||
+                bowWeapon == null)
             {
                 throw new InvalidOperationException(
                     "The Combat Lab diagnostic suite could not find every required production component.");
+            }
+            if (!bowWeapon.AudioConfigured)
+            {
+                throw new InvalidOperationException(
+                    "The Combat Lab bow is missing its trimmed pullback or impact audio.");
+            }
+            if (bowWeapon.PullbackVolume > 0.40f ||
+                bowWeapon.FullDrawDuration < 1.05f ||
+                bowWeapon.PartialVelocityExponent < 2f)
+            {
+                throw new InvalidOperationException(
+                    "The bow did not retain the quieter, slower, nonlinear draw tuning: " +
+                    $"volume={bowWeapon.PullbackVolume:0.00}, " +
+                    $"fullDraw={bowWeapon.FullDrawDuration:0.00}, " +
+                    $"powerExponent={bowWeapon.PartialVelocityExponent:0.00}.");
             }
 
             SaveTimingSettings();
@@ -232,9 +266,17 @@ namespace WorldBuilder.Gameplay.Diagnostics
             playerHealth = motor != null ? motor.GetComponent<Health>() : null;
             enemyBrain = FindFirstObjectByType<EnemyBrain>();
             enemyHealth = enemyBrain != null ? enemyBrain.GetComponent<Health>() : null;
+            enemyHitReaction =
+                enemyBrain != null
+                    ? enemyBrain.GetComponent<HitReactionPresenter>()
+                    : null;
             enemyController = enemyBrain != null ? enemyBrain.GetComponent<CharacterController>() : null;
             weaponSlots =
                 FindFirstObjectByType<TwoSlotWeaponPresenter>();
+            bowWeapon = FindFirstObjectByType<BowWeapon>();
+            stancePresenter =
+                FindFirstObjectByType<
+                    AimStanceLocomotionPresenter>();
         }
 
         private void BuildScenarioSteps()
@@ -336,6 +378,63 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 },
                 OnEnd = () => recorder.MarkLastFrame("two-handed-block-held", true)
             });
+            float maximumBlockStrafeFacingError = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "block-strafe",
+                FrameCount = 60,
+                Screenshot = true,
+                OnStart = () =>
+                    maximumBlockStrafeFacingError = 0f,
+                Intent = _ => Intent(
+                    Vector2.right,
+                    sprint: true,
+                    blockHeld: true),
+                BeforeFrame = _ =>
+                    maximumBlockStrafeFacingError = Mathf.Max(
+                        maximumBlockStrafeFacingError,
+                        CameraFacingError()),
+                OnEnd = () =>
+                {
+                    RequireAimFacing(
+                        "sword block strafe",
+                        maximumBlockStrafeFacingError);
+                    RequireAimWalkSpeed(
+                        "sword block strafe");
+                    RequireSwordGuardLateral(
+                        "sword block strafe");
+                    recorder.MarkLastFrame(
+                        "sword-block-aim-forward-shuffle-held",
+                        true);
+                }
+            });
+            float maximumBlockBackpedalFacingError = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "block-backpedal",
+                FrameCount = 60,
+                Screenshot = true,
+                OnStart = () =>
+                    maximumBlockBackpedalFacingError = 0f,
+                Intent = _ => Intent(
+                    Vector2.down,
+                    blockHeld: true),
+                BeforeFrame = _ =>
+                    maximumBlockBackpedalFacingError = Mathf.Max(
+                        maximumBlockBackpedalFacingError,
+                        CameraFacingError()),
+                OnEnd = () =>
+                {
+                    RequireAimFacing(
+                        "sword block backpedal",
+                        maximumBlockBackpedalFacingError);
+                    RequireSwordGuardWalk(
+                        "sword block backpedal",
+                        -1f);
+                }
+            });
             EnqueueFixed(
                 "combat",
                 "block-release",
@@ -392,6 +491,528 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 screenshot: true,
                 onEnd: () =>
                     recorder.MarkLastFrame("slot-two-bow-equipped", true));
+            int arrowsBeforeGrace = 0;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-grace-cancel",
+                FrameCount = 18,
+                Screenshot = true,
+                OnStart = () =>
+                    arrowsBeforeGrace = bowWeapon.FiredArrowCount,
+                Intent = frame => Intent(
+                    Vector2.zero,
+                    blockHeld: frame < 6),
+                OnEnd = () =>
+                {
+                    if (bowWeapon.FiredArrowCount != arrowsBeforeGrace)
+                    {
+                        throw new InvalidOperationException(
+                            "A bow tap inside the grace period fired an arrow.");
+                    }
+
+                    recorder.MarkLastFrame("bow-grace-cancelled", true);
+                }
+            });
+            EnqueueFixed(
+                "combat",
+                "bow-partial-draw",
+                32,
+                Intent(Vector2.zero, blockHeld: true),
+                screenshot: true,
+                onEnd: () =>
+                    recorder.MarkLastFrame("bow-partially-drawn", true));
+            int arrowsBeforePartialRelease = 0;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-partial-release",
+                FrameCount = 45,
+                Screenshot = true,
+                OnStart = () =>
+                    arrowsBeforePartialRelease =
+                        bowWeapon.FiredArrowCount,
+                Intent = _ => default,
+                CompleteBeforeFrame = frame =>
+                    frame > 2 &&
+                    bowWeapon.FiredArrowCount >
+                        arrowsBeforePartialRelease,
+                OnEnd = () =>
+                {
+                    if (bowWeapon.LastShotSpeed >
+                        bowWeapon.MaximumArrowSpeed * 0.35f)
+                    {
+                        throw new InvalidOperationException(
+                            "The partial bow shot retained too much velocity: " +
+                            $"speed={bowWeapon.LastShotSpeed:0.00}, " +
+                            $"full={bowWeapon.MaximumArrowSpeed:0.00} m/s.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "bow-partial-arrow-fired",
+                        true);
+                }
+            });
+            EnqueueFixed("combat", "bow-reload", 30, default);
+            EnqueueFixed(
+                "combat",
+                "bow-full-draw",
+                66,
+                Intent(Vector2.zero, blockHeld: true),
+                screenshot: true,
+                onEnd: () =>
+                    recorder.MarkLastFrame("bow-fully-drawn", true));
+            float maximumBowSweepFacingError = 0f;
+            float minimumBowSweepElbowSide = float.PositiveInfinity;
+            float minimumBowSweepHeadClearance = float.PositiveInfinity;
+            Transform bowSweepHead = null;
+            Transform bowSweepShoulder = null;
+            Transform bowSweepElbow = null;
+            Transform bowSweepHand = null;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-aim-yaw-sweep",
+                FrameCount = 120,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    maximumBowSweepFacingError = 0f;
+                    minimumBowSweepElbowSide =
+                        float.PositiveInfinity;
+                    minimumBowSweepHeadClearance =
+                        float.PositiveInfinity;
+                    Animator animator =
+                        weaponSlots.GetComponent<Animator>();
+                    bowSweepHead = animator.GetBoneTransform(
+                        HumanBodyBones.Head);
+                    bowSweepShoulder = animator.GetBoneTransform(
+                        HumanBodyBones.RightUpperArm);
+                    bowSweepElbow = animator.GetBoneTransform(
+                        HumanBodyBones.RightLowerArm);
+                    bowSweepHand = animator.GetBoneTransform(
+                        HumanBodyBones.RightHand);
+                },
+                Intent = frame => Intent(
+                    Vector2.zero,
+                    blockHeld: true,
+                    look: new Vector2(
+                        frame < 60 ? 1.5f : -1.5f,
+                        0f)),
+                BeforeFrame = _ =>
+                {
+                    maximumBowSweepFacingError = Mathf.Max(
+                        maximumBowSweepFacingError,
+                        CameraFacingError());
+                    minimumBowSweepElbowSide = Mathf.Min(
+                        minimumBowSweepElbowSide,
+                        Vector3.Dot(
+                            bowSweepElbow.position -
+                                bowSweepHead.position,
+                            motor.transform.right));
+                    minimumBowSweepHeadClearance = Mathf.Min(
+                        minimumBowSweepHeadClearance,
+                        Mathf.Min(
+                            DistanceToSegment(
+                                bowSweepHead.position,
+                                bowSweepShoulder.position,
+                                bowSweepElbow.position),
+                            DistanceToSegment(
+                                bowSweepHead.position,
+                                bowSweepElbow.position,
+                                bowSweepHand.position)));
+                },
+                OnEnd = () =>
+                {
+                    RequireAimFacing(
+                        "bow yaw sweep",
+                        maximumBowSweepFacingError);
+                    if (minimumBowSweepElbowSide < 0.10f ||
+                        minimumBowSweepHeadClearance < 0.09f)
+                    {
+                        throw new InvalidOperationException(
+                            "The bow elbow crossed its stable outside bend " +
+                            $"plane: side={minimumBowSweepElbowSide:0.000}, " +
+                            $"headClearance={minimumBowSweepHeadClearance:0.000}.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "bow-yaw-sweep-stable",
+                        true);
+                }
+            });
+            float minimumBowAimHeight = float.PositiveInfinity;
+            float maximumBowAimHeight = float.NegativeInfinity;
+            float maximumBowPitchAlignmentError = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-aim-pitch-sweep",
+                FrameCount = 120,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    minimumBowAimHeight = float.PositiveInfinity;
+                    maximumBowAimHeight = float.NegativeInfinity;
+                    maximumBowPitchAlignmentError = 0f;
+                },
+                Intent = frame => Intent(
+                    Vector2.zero,
+                    blockHeld: true,
+                    look: new Vector2(
+                        0f,
+                        frame < 30
+                            ? 1.2f
+                            : frame < 90
+                                ? -1.2f
+                                : 1.2f)),
+                BeforeFrame = _ =>
+                {
+                    Vector3 aimDirection =
+                        bowWeapon.CurrentAimDirection;
+                    minimumBowAimHeight = Mathf.Min(
+                        minimumBowAimHeight,
+                        aimDirection.y);
+                    maximumBowAimHeight = Mathf.Max(
+                        maximumBowAimHeight,
+                        aimDirection.y);
+                    maximumBowPitchAlignmentError = Mathf.Max(
+                        maximumBowPitchAlignmentError,
+                        Vector3.Angle(
+                            bowWeapon.PresentedArrowDirection,
+                            aimDirection));
+                },
+                OnEnd = () =>
+                {
+                    if (minimumBowAimHeight > -0.05f ||
+                        maximumBowAimHeight < 0.30f)
+                    {
+                        throw new InvalidOperationException(
+                            "The bow pitch sweep did not cover both downward " +
+                            $"and upward aim: minY={minimumBowAimHeight:0.000}, " +
+                            $"maxY={maximumBowAimHeight:0.000}.");
+                    }
+
+                    if (maximumBowPitchAlignmentError > 2f)
+                    {
+                        throw new InvalidOperationException(
+                            "The presented bow diverged from the camera aim " +
+                            $"during pitch: maxError={maximumBowPitchAlignmentError:0.00} degrees.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "bow-pitch-and-reticle-aligned",
+                        true);
+                }
+            });
+            float maximumBowStrafeFacingError = 0f;
+            float maximumBowStrafeJitter = 0f;
+            float maximumBowStrafePositionStep = 0f;
+            float maximumBowStrafeLeftHandStep = 0f;
+            float maximumBowStrafeRightHandStep = 0f;
+            float maximumBowStrafeElbowStep = 0f;
+            Vector3 previousBowStrafeDirection = Vector3.zero;
+            Vector3 previousBowStrafePosition = Vector3.zero;
+            Vector3 previousBowStrafeLeftHand = Vector3.zero;
+            Vector3 previousBowStrafeRightHand = Vector3.zero;
+            Vector3 previousBowStrafeElbow = Vector3.zero;
+            Transform bowStrafeLeftHand = null;
+            Transform bowStrafeRightHand = null;
+            Transform bowStrafeElbow = null;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-aim-strafe",
+                FrameCount = 60,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    maximumBowStrafeFacingError = 0f;
+                    maximumBowStrafeJitter = 0f;
+                    maximumBowStrafePositionStep = 0f;
+                    maximumBowStrafeLeftHandStep = 0f;
+                    maximumBowStrafeRightHandStep = 0f;
+                    maximumBowStrafeElbowStep = 0f;
+                    Animator animator =
+                        weaponSlots.GetComponent<Animator>();
+                    bowStrafeLeftHand = animator.GetBoneTransform(
+                        HumanBodyBones.LeftHand);
+                    bowStrafeRightHand = animator.GetBoneTransform(
+                        HumanBodyBones.RightHand);
+                    bowStrafeElbow = animator.GetBoneTransform(
+                        HumanBodyBones.RightLowerArm);
+                    previousBowStrafeDirection =
+                        bowWeapon.PresentedArrowDirection;
+                    previousBowStrafePosition =
+                        motor.transform.InverseTransformPoint(
+                            bowWeapon.PresentedBowPosition);
+                    previousBowStrafeLeftHand =
+                        motor.transform.InverseTransformPoint(
+                            bowStrafeLeftHand.position);
+                    previousBowStrafeRightHand =
+                        motor.transform.InverseTransformPoint(
+                            bowStrafeRightHand.position);
+                    previousBowStrafeElbow =
+                        motor.transform.InverseTransformPoint(
+                            bowStrafeElbow.position);
+                },
+                Intent = _ => Intent(
+                    Vector2.left,
+                    sprint: true,
+                    blockHeld: true),
+                BeforeFrame = frame =>
+                {
+                    maximumBowStrafeFacingError = Mathf.Max(
+                        maximumBowStrafeFacingError,
+                        CameraFacingError());
+                    Vector3 direction =
+                        bowWeapon.PresentedArrowDirection;
+                    Vector3 bowPosition =
+                        motor.transform.InverseTransformPoint(
+                            bowWeapon.PresentedBowPosition);
+                    Vector3 leftHandPosition =
+                        motor.transform.InverseTransformPoint(
+                            bowStrafeLeftHand.position);
+                    Vector3 rightHandPosition =
+                        motor.transform.InverseTransformPoint(
+                            bowStrafeRightHand.position);
+                    Vector3 elbowPosition =
+                        motor.transform.InverseTransformPoint(
+                            bowStrafeElbow.position);
+                    if (frame >= 10)
+                    {
+                        maximumBowStrafeJitter = Mathf.Max(
+                            maximumBowStrafeJitter,
+                            Vector3.Angle(
+                                previousBowStrafeDirection,
+                                direction));
+                        maximumBowStrafePositionStep = Mathf.Max(
+                            maximumBowStrafePositionStep,
+                            Vector3.Distance(
+                                previousBowStrafePosition,
+                                bowPosition));
+                        maximumBowStrafeLeftHandStep = Mathf.Max(
+                            maximumBowStrafeLeftHandStep,
+                            Vector3.Distance(
+                                previousBowStrafeLeftHand,
+                                leftHandPosition));
+                        maximumBowStrafeRightHandStep = Mathf.Max(
+                            maximumBowStrafeRightHandStep,
+                            Vector3.Distance(
+                                previousBowStrafeRightHand,
+                                rightHandPosition));
+                        maximumBowStrafeElbowStep = Mathf.Max(
+                            maximumBowStrafeElbowStep,
+                            Vector3.Distance(
+                                previousBowStrafeElbow,
+                                elbowPosition));
+                    }
+                    previousBowStrafeDirection = direction;
+                    previousBowStrafePosition = bowPosition;
+                    previousBowStrafeLeftHand = leftHandPosition;
+                    previousBowStrafeRightHand = rightHandPosition;
+                    previousBowStrafeElbow = elbowPosition;
+                },
+                OnEnd = () =>
+                {
+                    RequireAimFacing(
+                        "bow strafe",
+                        maximumBowStrafeFacingError);
+                    RequireAimWalkSpeed("bow strafe");
+                    if (maximumBowStrafeJitter > 1f)
+                    {
+                        throw new InvalidOperationException(
+                            "The bow aim visibly stepped while strafing: " +
+                            $"maxFrameDelta={maximumBowStrafeJitter:0.00} degrees.");
+                    }
+
+                    if (maximumBowStrafePositionStep > 0.015f ||
+                        maximumBowStrafeLeftHandStep > 0.035f ||
+                        maximumBowStrafeRightHandStep > 0.035f ||
+                        maximumBowStrafeElbowStep > 0.045f)
+                    {
+                        throw new InvalidOperationException(
+                            "The aimed bow rig stepped while strafing: " +
+                            $"bow={maximumBowStrafePositionStep:0.000}, " +
+                            $"leftHand={maximumBowStrafeLeftHandStep:0.000}, " +
+                            $"rightHand={maximumBowStrafeRightHandStep:0.000}, " +
+                            $"elbow={maximumBowStrafeElbowStep:0.000} m/frame.");
+                    }
+
+                    RequireBowWalk(
+                        "bow reverse strafe",
+                        65f,
+                        85f,
+                        -1f);
+                    recorder.MarkLastFrame(
+                        "bow-aim-archer-stance-held",
+                        true);
+                }
+            });
+            float maximumBowBackpedalFacingError = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-aim-backpedal",
+                FrameCount = 60,
+                Screenshot = true,
+                OnStart = () =>
+                    maximumBowBackpedalFacingError = 0f,
+                Intent = _ => Intent(
+                    Vector2.down,
+                    blockHeld: true),
+                BeforeFrame = _ =>
+                    maximumBowBackpedalFacingError = Mathf.Max(
+                        maximumBowBackpedalFacingError,
+                        CameraFacingError()),
+                OnEnd = () =>
+                {
+                    RequireAimFacing(
+                        "bow backpedal",
+                        maximumBowBackpedalFacingError);
+                    RequireBowWalk(
+                        "bow backpedal",
+                        35f,
+                        55f,
+                        -1f);
+                }
+            });
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-aim-forward-walk",
+                FrameCount = 60,
+                Screenshot = true,
+                Intent = _ => Intent(
+                    Vector2.up,
+                    blockHeld: true),
+                OnEnd = () =>
+                {
+                    RequireBowWalk(
+                        "bow forward walk",
+                        35f,
+                        55f,
+                        1f);
+                    recorder.MarkLastFrame(
+                        "bow-forward-authored-walk-held",
+                        true);
+                }
+            });
+            int arrowsBeforeFullRelease = 0;
+            int stuckArrowsBeforeFullRelease = 0;
+            int swordHitSoundsBeforeFullRelease = 0;
+            float enemyHealthBeforeFullRelease = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-full-release",
+                FrameCount = 45,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    arrowsBeforeFullRelease =
+                        bowWeapon.FiredArrowCount;
+                    stuckArrowsBeforeFullRelease =
+                        CountStuckArrows();
+                    swordHitSoundsBeforeFullRelease =
+                        enemyHitReaction != null
+                            ? enemyHitReaction.HitSoundPlayCount
+                            : 0;
+                    enemyHealthBeforeFullRelease =
+                        enemyHealth.Current;
+                },
+                Intent = _ => default,
+                CompleteBeforeFrame = frame =>
+                    frame > 2 &&
+                    bowWeapon.FiredArrowCount >
+                        arrowsBeforeFullRelease,
+                OnEnd = () =>
+                {
+                    float zeroGravityError =
+                        Vector3.ProjectOnPlane(
+                            bowWeapon.LastZeroGravityImpactPoint -
+                                bowWeapon.LastCrosshairPoint,
+                            bowWeapon.LastAimDirection).magnitude;
+                    if (zeroGravityError > 0.015f)
+                    {
+                        throw new InvalidOperationException(
+                            "The predicted zero-gravity arrow impact did not " +
+                            $"match the crosshair: error={zeroGravityError:0.000} m.");
+                    }
+                    if (bowWeapon.LastShotSpeed <
+                        bowWeapon.MaximumArrowSpeed * 0.98f)
+                    {
+                        throw new InvalidOperationException(
+                            "The full bow shot lost its accepted velocity: " +
+                            $"speed={bowWeapon.LastShotSpeed:0.00}, " +
+                            $"expected={bowWeapon.MaximumArrowSpeed:0.00} m/s.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "bow-full-arrow-fired-crosshair-solved",
+                        true);
+                }
+            });
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-flight-impact",
+                FrameCount = 180,
+                Screenshot = true,
+                Intent = _ => default,
+                CompleteBeforeFrame = frame =>
+                    frame > 2 &&
+                    CountStuckArrows() >
+                        stuckArrowsBeforeFullRelease &&
+                    enemyHealth.Current <
+                        enemyHealthBeforeFullRelease,
+                OnEnd = () =>
+                {
+                    BowArrowProjectile arrow =
+                        bowWeapon.LastFiredProjectile;
+                    if (arrow == null || !arrow.IsStuck)
+                    {
+                        throw new InvalidOperationException(
+                            "The full-draw arrow did not remain available for " +
+                            "crosshair accuracy validation.");
+                    }
+
+                    Vector3 toImpact =
+                        arrow.HitPoint - bowWeapon.LastAimOrigin;
+                    float alongAim = Vector3.Dot(
+                        toImpact,
+                        bowWeapon.LastAimDirection);
+                    Vector3 expectedPoint =
+                        bowWeapon.LastAimOrigin +
+                        bowWeapon.LastAimDirection * alongAim;
+                    Vector3 miss = arrow.HitPoint - expectedPoint;
+                    float lateralMiss = Mathf.Abs(Vector3.Dot(
+                        miss,
+                        bowWeapon.LastAimRight));
+                    float verticalMiss = Vector3.Dot(
+                        miss,
+                        Vector3.up);
+                    if (lateralMiss > 0.08f ||
+                        verticalMiss < -0.32f)
+                    {
+                        throw new InvalidOperationException(
+                            "The full-draw arrow diverged too far from the " +
+                            $"crosshair ray: lateral={lateralMiss:0.000}, " +
+                            $"vertical={verticalMiss:0.000} m.");
+                    }
+                    if (enemyHitReaction != null &&
+                        enemyHitReaction.HitSoundPlayCount !=
+                            swordHitSoundsBeforeFullRelease)
+                    {
+                        throw new InvalidOperationException(
+                            "Bow damage incorrectly triggered the sword-hit audio.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "bow-arrow-stuck-and-accurate",
+                        true);
+                }
+            });
             EnqueueStep(new DiagnosticStep
             {
                 Scenario = "combat",
@@ -596,17 +1217,161 @@ namespace WorldBuilder.Gameplay.Diagnostics
             bool jumpHeld = false,
             bool crouch = false,
             bool attackPressed = false,
-            bool blockHeld = false)
+            bool blockHeld = false,
+            Vector2 look = default)
         {
             return new PlayerIntent(
                 move,
-                Vector2.zero,
+                look,
                 sprint,
                 jumpPressed,
                 jumpHeld,
                 crouch,
                 attackPressed,
                 blockHeld);
+        }
+
+        private static int CountStuckArrows()
+        {
+            BowArrowProjectile[] arrows =
+                FindObjectsByType<BowArrowProjectile>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None);
+            int count = 0;
+            for (int index = 0; index < arrows.Length; index++)
+            {
+                if (arrows[index].IsStuck)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private float CameraFacingError()
+        {
+            Camera camera = Camera.main;
+            if (camera == null || motor == null)
+            {
+                return 180f;
+            }
+
+            Vector3 cameraForward = Vector3.ProjectOnPlane(
+                camera.transform.forward,
+                Vector3.up);
+            return cameraForward.sqrMagnitude > 0.001f
+                ? Vector3.Angle(
+                    motor.transform.forward,
+                    cameraForward)
+                : 180f;
+        }
+
+        private static void RequireAimFacing(
+            string label,
+            float maximumError)
+        {
+            if (maximumError > 3f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} exceeded the aim-facing lock: " +
+                    $"{maximumError:0.00} degrees.");
+            }
+        }
+
+        private void RequireSwordGuardLateral(
+            string label)
+        {
+            if (stancePresenter == null ||
+                stancePresenter.SwordShuffleWeight < 0.85f ||
+                Mathf.Abs(
+                    stancePresenter.CurrentStanceYaw) > 5f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} did not enter the aim-forward sword shuffle: " +
+                    $"shuffle={(stancePresenter != null ? stancePresenter.SwordShuffleWeight : -1f):0.000}, " +
+                    $"yaw={(stancePresenter != null ? stancePresenter.CurrentStanceYaw : -1f):0.0}.");
+            }
+        }
+
+        private void RequireSwordGuardWalk(
+            string label,
+            float expectedPlayback)
+        {
+            if (stancePresenter == null ||
+                stancePresenter.SwordShuffleWeight > 0.15f ||
+                Mathf.Abs(
+                    stancePresenter.CurrentStanceYaw) > 5f ||
+                stancePresenter.GaitPlaybackDirection *
+                    expectedPlayback < 0.8f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} did not keep aim-forward authored walking: " +
+                    $"shuffle={(stancePresenter != null ? stancePresenter.SwordShuffleWeight : -1f):0.000}, " +
+                    $"yaw={(stancePresenter != null ? stancePresenter.CurrentStanceYaw : -1f):0.0}, " +
+                    $"playback={(stancePresenter != null ? stancePresenter.GaitPlaybackDirection : 0f):0.00}.");
+            }
+        }
+
+        private void RequireBowWalk(
+            string label,
+            float minimumYaw,
+            float maximumYaw,
+            float expectedPlayback)
+        {
+            if (stancePresenter == null ||
+                stancePresenter.BowStanceWeight < 0.85f ||
+                !stancePresenter.UsesAuthoredWalk ||
+                stancePresenter.CurrentStanceYaw <
+                    minimumYaw ||
+                stancePresenter.CurrentStanceYaw >
+                    maximumYaw ||
+                stancePresenter.GaitPlaybackDirection *
+                    expectedPlayback < 0.8f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} did not use the directional bow walk: " +
+                    $"weight={(stancePresenter != null ? stancePresenter.BowStanceWeight : -1f):0.000}, " +
+                    $"yaw={(stancePresenter != null ? stancePresenter.CurrentStanceYaw : -1f):0.0}, " +
+                    $"playback={(stancePresenter != null ? stancePresenter.GaitPlaybackDirection : 0f):0.00}.");
+            }
+        }
+
+        private void RequireAimWalkSpeed(string label)
+        {
+            if (motor.TargetHorizontalSpeed >
+                    motor.WalkSpeed + 0.01f ||
+                motor.HorizontalSpeed >
+                    motor.WalkSpeed + 0.05f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} accepted sprint speed while aim-locked: " +
+                    $"target={motor.TargetHorizontalSpeed:0.00}, " +
+                    $"actual={motor.HorizontalSpeed:0.00}, " +
+                    $"walk={motor.WalkSpeed:0.00} m/s.");
+            }
+        }
+
+        private static float DistanceToSegment(
+            Vector3 point,
+            Vector3 start,
+            Vector3 end)
+        {
+            Vector3 segment = end - start;
+            float lengthSquared = segment.sqrMagnitude;
+            if (lengthSquared <= 0.000001f)
+            {
+                return Vector3.Distance(point, start);
+            }
+
+            float progress = Mathf.Clamp01(
+                Vector3.Dot(
+                    point - start,
+                    segment) /
+                lengthSquared);
+            return Vector3.Distance(
+                point,
+                start + segment * progress);
         }
 
         private void FinalizeSuite(bool completed, string reason)

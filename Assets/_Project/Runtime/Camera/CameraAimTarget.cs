@@ -1,5 +1,6 @@
 using UnityEngine;
 using WorldBuilder.Gameplay.Characters;
+using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.CameraSystem
@@ -18,6 +19,10 @@ namespace WorldBuilder.Gameplay.CameraSystem
         [SerializeField] private float initialPitch = 12f;
         [SerializeField] private Vector2 pitchLimits = new Vector2(-30f, 65f);
         [SerializeField, Min(0f)] private float rotationSmoothTime = 0.035f;
+        [Header("Bow Aim")]
+        [SerializeField] private BowWeapon bowWeapon;
+        [SerializeField, Min(0f)] private float bowAimRightOffset = 0f;
+        [SerializeField, Min(0f)] private float bowAimOffsetSmoothTime = 0.10f;
 
         private float desiredYaw;
         private float desiredPitch;
@@ -27,12 +32,25 @@ namespace WorldBuilder.Gameplay.CameraSystem
         private float pitchVelocity;
         private float currentFollowHeight;
         private float followHeightVelocity;
+        private float currentBowAimOffset;
+        private float bowAimOffsetVelocity;
+
+        public Vector3 AimDirection => transform.forward;
+        public float CurrentBowAimOffset => currentBowAimOffset;
+        public bool IsBowAiming =>
+            bowWeapon != null &&
+            bowWeapon.WeaponEquipped &&
+            input != null &&
+            input.CurrentIntent.BlockHeld;
 
         public void Configure(Transform target, PlayerInputSource intentSource)
         {
             followTarget = target;
             input = intentSource;
             motor = target != null ? target.GetComponent<ThirdPersonMotor>() : null;
+            bowWeapon = target != null
+                ? target.GetComponentInChildren<BowWeapon>()
+                : null;
             desiredYaw = target != null ? target.eulerAngles.y : 0f;
             currentYaw = desiredYaw;
             desiredPitch = initialPitch;
@@ -57,6 +75,7 @@ namespace WorldBuilder.Gameplay.CameraSystem
             {
                 motor = followTarget.GetComponent<ThirdPersonMotor>();
             }
+            bowWeapon ??= followTarget.GetComponentInChildren<BowWeapon>();
         }
 
         private void Update()
@@ -86,6 +105,16 @@ namespace WorldBuilder.Gameplay.CameraSystem
             currentFollowHeight = heightSmoothTime <= 0f
                 ? targetFollowHeight
                 : Mathf.SmoothDamp(currentFollowHeight, targetFollowHeight, ref followHeightVelocity, heightSmoothTime);
+            float targetBowAimOffset = IsBowAiming
+                ? bowAimRightOffset
+                : 0f;
+            currentBowAimOffset = bowAimOffsetSmoothTime <= 0f
+                ? targetBowAimOffset
+                : Mathf.SmoothDamp(
+                    currentBowAimOffset,
+                    targetBowAimOffset,
+                    ref bowAimOffsetVelocity,
+                    bowAimOffsetSmoothTime);
 
             SnapToTarget();
         }
@@ -115,8 +144,18 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 return;
             }
 
+            Quaternion horizontalRotation =
+                Quaternion.Euler(0f, currentYaw, 0f);
+            Vector3 horizontalOffset =
+                horizontalRotation *
+                new Vector3(
+                    followOffset.x + currentBowAimOffset,
+                    0f,
+                    followOffset.z);
             transform.SetPositionAndRotation(
-                followTarget.position + new Vector3(followOffset.x, currentFollowHeight, followOffset.z),
+                followTarget.position +
+                    horizontalOffset +
+                    Vector3.up * currentFollowHeight,
                 Quaternion.Euler(currentPitch, currentYaw, 0f));
         }
     }

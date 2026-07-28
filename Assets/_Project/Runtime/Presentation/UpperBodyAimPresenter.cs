@@ -1,15 +1,22 @@
 using UnityEngine;
 using WorldBuilder.Gameplay.Characters;
+using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Animator))]
-    public sealed class UpperBodyAimPresenter : MonoBehaviour
+    public sealed class UpperBodyAimPresenter :
+        MonoBehaviour,
+        ICharacterFacingOverride
     {
         [SerializeField] private Animator animator;
         [SerializeField] private Transform characterRoot;
         [SerializeField] private Camera aimCamera;
+        [SerializeField] private PlayerInputSource input;
+        [SerializeField] private BowWeapon bowWeapon;
+        [SerializeField] private ShortSwordBlockPresenter blockPresenter;
         [SerializeField, Range(15f, 85f)] private float maximumYaw = 68f;
         [SerializeField, Range(0.02f, 0.5f)] private float yawSmoothTime = 0.11f;
         [SerializeField, Range(0f, 1f)] private float spineShare = 0.20f;
@@ -37,8 +44,26 @@ namespace WorldBuilder.Gameplay.Presentation
         private bool hasIdleHeadRotation;
         private Quaternion lockedHeadWorldRotation;
         private bool headLockActive;
+        private AimStanceLocomotionPresenter stancePresenter;
 
         public float CurrentYaw => currentYaw;
+        public bool BowAimLocked =>
+            bowWeapon != null &&
+            bowWeapon.WeaponEquipped &&
+            input != null &&
+            input.CurrentIntent.BlockHeld;
+        public bool SwordGuardLocked =>
+            blockPresenter != null &&
+            blockPresenter.WeaponEquipped &&
+            input != null &&
+            input.CurrentIntent.BlockHeld;
+        public bool AimLocked
+        {
+            get
+            {
+                return BowAimLocked || SwordGuardLocked;
+            }
+        }
 
         public void Configure(
             Animator targetAnimator,
@@ -49,7 +74,9 @@ namespace WorldBuilder.Gameplay.Presentation
             characterRoot = root;
             aimCamera = targetCamera;
             motor = root != null ? root.GetComponent<ThirdPersonMotor>() : null;
+            ResolveCombatReferences();
             ResolveBones();
+            EnsureStancePresenter();
         }
 
         private void Awake()
@@ -60,7 +87,34 @@ namespace WorldBuilder.Gameplay.Presentation
             motor ??= characterRoot != null
                 ? characterRoot.GetComponent<ThirdPersonMotor>()
                 : null;
+            ResolveCombatReferences();
             ResolveBones();
+            EnsureStancePresenter();
+        }
+
+        public bool TryGetFacingDirection(
+            out Vector3 worldDirection)
+        {
+            worldDirection = Vector3.zero;
+            if (!AimLocked)
+            {
+                return false;
+            }
+
+            if (aimCamera == null)
+            {
+                aimCamera = Camera.main;
+            }
+
+            if (aimCamera == null)
+            {
+                return false;
+            }
+
+            worldDirection = Vector3.ProjectOnPlane(
+                aimCamera.transform.forward,
+                Vector3.up);
+            return worldDirection.sqrMagnitude > 0.001f;
         }
 
         private void LateUpdate()
@@ -132,6 +186,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
                 bool canSway =
                     hasIdleHandSeparation &&
+                    !AimLocked &&
                     motor.IsGrounded &&
                     !motor.IsCrouched &&
                     !IsAttacking() &&
@@ -168,6 +223,7 @@ namespace WorldBuilder.Gameplay.Presentation
             bool shouldLock =
                 head != null &&
                 hasIdleHeadRotation &&
+                !AimLocked &&
                 motor != null &&
                 motor.IsGrounded &&
                 !motor.IsCrouched &&
@@ -219,6 +275,34 @@ namespace WorldBuilder.Gameplay.Presentation
             head = animator.GetBoneTransform(HumanBodyBones.Head);
             leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
             rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+        }
+
+        private void ResolveCombatReferences()
+        {
+            input ??=
+                characterRoot != null
+                    ? characterRoot.GetComponent<PlayerInputSource>()
+                    : GetComponentInParent<PlayerInputSource>();
+            bowWeapon ??= GetComponent<BowWeapon>();
+            blockPresenter ??=
+                GetComponent<ShortSwordBlockPresenter>();
+        }
+
+        private void EnsureStancePresenter()
+        {
+            stancePresenter ??=
+                GetComponent<AimStanceLocomotionPresenter>();
+            if (stancePresenter == null)
+            {
+                stancePresenter =
+                    gameObject.AddComponent<
+                        AimStanceLocomotionPresenter>();
+            }
+
+            stancePresenter.Configure(
+                animator,
+                motor,
+                this);
         }
 
         private static void ApplyWorldYaw(Transform bone, float yaw, Vector3 axis)

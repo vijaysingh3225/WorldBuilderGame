@@ -29,6 +29,10 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Audio/SFX/Sword Swing.mp3";
         private const string SwordHitAudioPath =
             "Assets/_Project/Audio/SFX/Sword Hit.mp3";
+        private const string BowPullbackAudioPath =
+            "Assets/_Project/Audio/SFX/Bow Pullback.wav";
+        private const string ArrowImpactAudioPath =
+            "Assets/_Project/Audio/SFX/Arrow Impact.wav";
         private static readonly Vector3 ShortSwordGuardLocalPosition =
             new Vector3(0.035220847f, -0.066798866f, -0.038464874f);
         private static readonly Quaternion ShortSwordGuardLocalRotation =
@@ -345,6 +349,17 @@ namespace WorldBuilder.Editor
                         ShortSwordGuardLocalPosition,
                         ShortSwordGuardLocalRotation,
                         ShortSwordGuardLeftHandLocalRotation);
+                    BowWeapon bowWeapon =
+                        animator.gameObject.AddComponent<BowWeapon>();
+                    bowWeapon.Configure(
+                        player.GetComponent<PlayerInputSource>(),
+                        player.transform,
+                        bowRoot,
+                        arrowRoot,
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(
+                            BowPullbackAudioPath),
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(
+                            ArrowImpactAudioPath));
                     TwoSlotWeaponPresenter loadoutPresenter =
                         animator.gameObject.AddComponent<TwoSlotWeaponPresenter>();
                     loadoutPresenter.Configure(
@@ -356,11 +371,19 @@ namespace WorldBuilder.Editor
                         bowRoot,
                         bowBackSocket,
                         arrowRoot,
+                        bowWeapon,
                         attackPresenter,
                         blockPresenter);
                     UpperBodyAimPresenter aimPresenter =
                         animator.gameObject.AddComponent<UpperBodyAimPresenter>();
                     aimPresenter.Configure(animator, player.transform);
+                    AimStanceLocomotionPresenter stancePresenter =
+                        animator.gameObject.GetComponent<
+                            AimStanceLocomotionPresenter>();
+                    stancePresenter.Configure(
+                        animator,
+                        motor,
+                        aimPresenter);
                     LocomotionDebugOverlay diagnostics = player.GetComponent<LocomotionDebugOverlay>();
                     if (diagnostics == null)
                     {
@@ -635,11 +658,19 @@ namespace WorldBuilder.Editor
             Vector3 upperInner = new Vector3(0f, 0.13f, 0f);
             Vector3 upperPeak = new Vector3(0f, 0.27f, 0.12f);
             Vector3 upperOuter = new Vector3(0f, 0.40f, -0.03f);
-            Vector3 upperTip = new Vector3(0f, 0.52f, -0.20f);
+            Vector3 upperTip =
+                new Vector3(
+                    0f,
+                    0.52f,
+                    -TwoSlotWeaponPresenter.BowBraceHeight);
             Vector3 lowerInner = new Vector3(0f, -0.13f, 0f);
             Vector3 lowerPeak = new Vector3(0f, -0.27f, 0.12f);
             Vector3 lowerOuter = new Vector3(0f, -0.40f, -0.03f);
-            Vector3 lowerTip = new Vector3(0f, -0.52f, -0.20f);
+            Vector3 lowerTip =
+                new Vector3(
+                    0f,
+                    -0.52f,
+                    -TwoSlotWeaponPresenter.BowBraceHeight);
             CreatePolygonBeamBetween(
                 "Upper Bow Inner Limb",
                 bow.transform,
@@ -693,32 +724,32 @@ namespace WorldBuilder.Editor
                 bow.transform,
                 lowerInner,
                 new Vector3(0f, -0.035f, 0f),
-                0.075f,
-                0.080f,
+                0.036f,
+                0.045f,
                 stringMaterial);
             CreatePolygonBeamBetween(
                 "Upper Gray Bow Grip",
                 bow.transform,
                 new Vector3(0f, 0.035f, 0f),
                 upperInner,
-                0.075f,
-                0.080f,
+                0.036f,
+                0.045f,
                 stringMaterial);
             CreatePolygonBeamBetween(
                 "Upper Grip Collar",
                 bow.transform,
                 new Vector3(0f, 0.130f, 0f),
                 new Vector3(0f, 0.160f, 0f),
-                0.092f,
-                0.098f,
+                0.052f,
+                0.058f,
                 bowTrimMaterial);
             CreatePolygonBeamBetween(
                 "Lower Grip Collar",
                 bow.transform,
                 new Vector3(0f, -0.160f, 0f),
                 new Vector3(0f, -0.130f, 0f),
-                0.092f,
-                0.098f,
+                0.052f,
+                0.058f,
                 bowTrimMaterial);
             for (int wrapIndex = -2; wrapIndex <= 2; wrapIndex++)
             {
@@ -733,12 +764,16 @@ namespace WorldBuilder.Editor
                     bow.transform,
                     new Vector3(0f, wrapCenter - 0.0045f, 0f),
                     new Vector3(0f, wrapCenter + 0.0045f, 0f),
-                    0.081f,
-                    0.087f,
+                    0.044f,
+                    0.050f,
                     bowTrimMaterial);
             }
 
-            Vector3 stringNock = new Vector3(0f, 0f, -0.20f);
+            Vector3 stringNock =
+                new Vector3(
+                    0f,
+                    0f,
+                    -TwoSlotWeaponPresenter.BowBraceHeight);
             CreateCylinderBetween(
                 "Upper Bow String",
                 bow.transform,
@@ -763,7 +798,7 @@ namespace WorldBuilder.Editor
             CreateCylinderBetween(
                 "Arrow Shaft",
                 arrow.transform,
-                new Vector3(0f, 0f, -0.20f),
+                stringNock,
                 new Vector3(0f, 0f, 0.60f),
                 0.008f,
                 bowWoodMaterial);
@@ -780,7 +815,7 @@ namespace WorldBuilder.Editor
                 "Arrow Fletching Horizontal",
                 PrimitiveType.Cube,
                 arrow.transform,
-                new Vector3(0f, 0f, -0.145f),
+                stringNock + Vector3.forward * 0.055f,
                 new Vector3(0.07f, 0.012f, 0.11f),
                 fletchingMaterial);
             fletchingHorizontal.transform.localRotation =
@@ -789,7 +824,7 @@ namespace WorldBuilder.Editor
                 "Arrow Fletching Vertical",
                 PrimitiveType.Cube,
                 arrow.transform,
-                new Vector3(0f, 0f, -0.145f),
+                stringNock + Vector3.forward * 0.055f,
                 new Vector3(0.012f, 0.07f, 0.11f),
                 fletchingMaterial);
             fletchingVertical.transform.localRotation =

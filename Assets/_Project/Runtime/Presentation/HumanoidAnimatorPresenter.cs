@@ -9,6 +9,7 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string SpeedParameter = "Speed";
         public const string MoveXParameter = "MoveX";
         public const string MoveZParameter = "MoveZ";
+        public const string GaitPlaybackParameter = "GaitPlayback";
         public const string VerticalSpeedParameter = "VerticalSpeed";
         public const string GroundedParameter = "Grounded";
         public const string CrouchedParameter = "Crouched";
