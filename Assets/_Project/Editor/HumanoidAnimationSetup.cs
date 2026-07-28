@@ -13,6 +13,14 @@ namespace WorldBuilder.Editor
     {
         public const string ModelPath =
             "Assets/_Project/Art/Prototype/Humanoid/AnimationLibrary_Unity_Standard.fbx";
+        public const string LowPolyMannequinPath =
+            "Assets/_Project/Art/Prototype/Humanoid/MannequinLowPoly.fbx";
+        public const string LowPolyRuntimeMeshPath =
+            "Assets/_Project/Art/Prototype/Humanoid/MannequinLowPoly_Runtime.asset";
+        public const string SeamlessLowPolyMannequinPath =
+            "Assets/_Project/Art/Prototype/Humanoid/MannequinSeamlessLowPoly.fbx";
+        public const string SeamlessLowPolyRuntimeMeshPath =
+            "Assets/_Project/Art/Prototype/Humanoid/MannequinSeamlessLowPoly_Runtime.asset";
         public const string ControllerPath =
             "Assets/_Project/Art/Prototype/Humanoid/HumanoidLocomotion.controller";
         public const string TacticalCrouchPath =
@@ -149,6 +157,61 @@ namespace WorldBuilder.Editor
             if (avatar == null || !avatar.isValid || !avatar.isHuman)
             {
                 Debug.LogError("The prototype humanoid did not import with a valid Humanoid Avatar.");
+                return false;
+            }
+
+            ModelImporter lowPolyImporter =
+                AssetImporter.GetAtPath(LowPolyMannequinPath) as ModelImporter;
+            if (lowPolyImporter == null)
+            {
+                Debug.LogError(
+                    $"The low-poly mannequin is missing at {LowPolyMannequinPath}.");
+                return false;
+            }
+
+            if (ConfigureLowPolyMannequinImporter(lowPolyImporter))
+            {
+                lowPolyImporter.SaveAndReimport();
+            }
+
+            GameObject lowPolyModel =
+                AssetDatabase.LoadAssetAtPath<GameObject>(LowPolyMannequinPath);
+            if (lowPolyModel == null ||
+                lowPolyModel.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                    .All(renderer => renderer.name != "MannequinLowPoly_Renderer"))
+            {
+                Debug.LogError(
+                    "The low-poly mannequin did not import its skinned renderer.");
+                return false;
+            }
+
+            ModelImporter seamlessImporter =
+                AssetImporter.GetAtPath(SeamlessLowPolyMannequinPath) as ModelImporter;
+            if (seamlessImporter == null)
+            {
+                Debug.LogError(
+                    $"The seamless low-poly mannequin is missing at " +
+                    $"{SeamlessLowPolyMannequinPath}.");
+                return false;
+            }
+
+            if (ConfigureLowPolyMannequinImporter(seamlessImporter))
+            {
+                seamlessImporter.SaveAndReimport();
+            }
+
+            GameObject seamlessModel =
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    SeamlessLowPolyMannequinPath);
+            if (seamlessModel == null ||
+                seamlessModel.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                    .All(
+                        renderer =>
+                            renderer.name !=
+                            "MannequinSeamlessLowPoly_Renderer"))
+            {
+                Debug.LogError(
+                    "The seamless low-poly mannequin did not import its skinned renderer.");
                 return false;
             }
 
@@ -295,7 +358,7 @@ namespace WorldBuilder.Editor
                 controller.layers[2].avatarMask ==
                     AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordUpperBodyMaskPath) &&
                 controller.layers[2].defaultWeight == 0f &&
-                controller.layers[2].iKPass &&
+                !controller.layers[2].iKPass &&
                 blockStates.Length == 1 &&
                 blockStates[0].state.name == ShortSwordBlockStateName &&
                 !controller.layers[3].iKPass &&
@@ -356,6 +419,28 @@ namespace WorldBuilder.Editor
                 changed = true;
             }
 
+            return changed;
+        }
+
+        private static bool ConfigureLowPolyMannequinImporter(ModelImporter importer)
+        {
+            bool changed = false;
+            changed |= SetIfDifferent(importer.animationType, ModelImporterAnimationType.Generic,
+                value => importer.animationType = value);
+            changed |= SetIfDifferent(importer.bakeAxisConversion, true,
+                value => importer.bakeAxisConversion = value);
+            changed |= SetIfDifferent(importer.importAnimation, false,
+                value => importer.importAnimation = value);
+            changed |= SetIfDifferent(importer.importCameras, false,
+                value => importer.importCameras = value);
+            changed |= SetIfDifferent(importer.importLights, false,
+                value => importer.importLights = value);
+            changed |= SetIfDifferent(importer.importVisibility, false,
+                value => importer.importVisibility = value);
+            changed |= SetIfDifferent(importer.optimizeGameObjects, false,
+                value => importer.optimizeGameObjects = value);
+            changed |= SetIfDifferent(importer.materialImportMode, ModelImporterMaterialImportMode.None,
+                value => importer.materialImportMode = value);
             return changed;
         }
 
@@ -590,7 +675,7 @@ namespace WorldBuilder.Editor
                 avatarMask = shortSwordGripMask,
                 blendingMode = AnimatorLayerBlendingMode.Override,
                 defaultWeight = 1f,
-                iKPass = true,
+                iKPass = false,
                 syncedLayerIndex = -1,
                 stateMachine = swordGripStateMachine
             };
@@ -613,7 +698,7 @@ namespace WorldBuilder.Editor
                 avatarMask = shortSwordMask,
                 blendingMode = AnimatorLayerBlendingMode.Override,
                 defaultWeight = 0f,
-                iKPass = true,
+                iKPass = false,
                 syncedLayerIndex = -1,
                 stateMachine = swordBlockStateMachine
             };
@@ -1215,6 +1300,18 @@ namespace WorldBuilder.Editor
             AnimationClip source,
             AnimationClip humanoidReference)
         {
+            AnimationClip authoredClip =
+                AssetDatabase.LoadAssetAtPath<AnimationClip>(ShortSwordBlockPath);
+            if (IsAuthoredStaticGuardClip(authoredClip))
+            {
+                authoredClip.name = GeneratedSwordBlockClipName;
+                authoredClip.wrapMode = WrapMode.ClampForever;
+                SetLoopTime(authoredClip, false);
+                EditorUtility.SetDirty(authoredClip);
+                AssetDatabase.SaveAssets();
+                return;
+            }
+
             AnimationClip clip = GetOrCreateGeneratedClip(
                 ShortSwordBlockPath,
                 GeneratedSwordBlockClipName,
@@ -1264,6 +1361,33 @@ namespace WorldBuilder.Editor
             SetLoopTime(clip, false);
             EditorUtility.SetDirty(clip);
             AssetDatabase.SaveAssets();
+        }
+
+        private static bool IsAuthoredStaticGuardClip(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return false;
+            }
+
+            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
+            if (bindings.Length < 30)
+            {
+                return false;
+            }
+
+            foreach (EditorCurveBinding binding in bindings)
+            {
+                AnimationCurve curve = AnimationUtility.GetEditorCurve(clip, binding);
+                if (curve == null ||
+                    curve.length != 2 ||
+                    !Mathf.Approximately(curve[0].value, curve[1].value))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static AnimationClip GetOrCreateGeneratedClip(

@@ -20,29 +20,37 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Transform swordRoot;
         [SerializeField, Range(0f, 1f)] private float defensivePoseTime = 0.55f;
         [SerializeField, Min(0.01f)] private float blendInDuration = 0.16f;
-        [SerializeField, Min(0.01f)] private float blendOutDuration = 0.14f;
+        [SerializeField, Min(0.01f)] private float blendOutDuration = 0.16f;
         [SerializeField] private Vector3 leftHandHiltOffset =
-            new Vector3(0f, 0.15f, 0f);
-        [SerializeField, Range(0f, 0.3f)] private float guardRetraction = 0.22f;
-
+            new Vector3(0f, 0.025f, 0f);
+        [SerializeField] private Vector3 authoredGuardSwordLocalPosition;
+        [SerializeField] private Quaternion authoredGuardSwordLocalRotation =
+            Quaternion.identity;
+        [SerializeField] private Quaternion authoredGuardLeftHandLocalRotation =
+            Quaternion.identity;
         private int blockLayerIndex = -1;
         private float blockWeight;
         private bool poseRequestedLastFrame;
-        private Transform leftHand;
-        private Transform rightHand;
         private Transform leftMiddleKnuckle;
-        private Transform leftShoulder;
-        private Vector3 leftWristGripCorrection;
+        private Transform leftHand;
         private Transform leftIndexKnuckle;
         private Transform leftLittleKnuckle;
         private Transform head;
+        private Quaternion swordCarryLocalRotation;
+        private Vector3 swordCarryLocalPosition;
+        private bool hasSwordCarryTransform;
 
         public float BlockWeight => blockWeight;
         public bool IsBlocking => blockWeight > 0.01f;
         public float LeftHandHiltContactGap =>
-            leftMiddleKnuckle != null && swordRoot != null
+            leftIndexKnuckle != null &&
+            leftLittleKnuckle != null &&
+            swordRoot != null
                 ? Vector3.Distance(
-                    leftMiddleKnuckle.position,
+                    GetPalmCenter(
+                        animator.GetBoneTransform(HumanBodyBones.LeftHand),
+                        leftIndexKnuckle,
+                        leftLittleKnuckle),
                     swordRoot.TransformPoint(leftHandHiltOffset))
                 : 99f;
         public float LeftGripAxisAlignmentAngle
@@ -112,8 +120,20 @@ namespace WorldBuilder.Gameplay.Presentation
             attackPresenter = swordAttackPresenter;
             characterRoot = root;
             swordRoot = equippedSwordRoot;
+            CaptureSwordCarryTransform();
             ResolveBones();
             ResolveLayer();
+        }
+
+        public void ConfigureAuthoredGuardSwordTransform(
+            Vector3 localPosition,
+            Quaternion localRotation,
+            Quaternion leftHandLocalRotation)
+        {
+            authoredGuardSwordLocalPosition = localPosition;
+            authoredGuardSwordLocalRotation = localRotation.normalized;
+            authoredGuardLeftHandLocalRotation =
+                leftHandLocalRotation.normalized;
         }
 
         private void Awake()
@@ -123,6 +143,7 @@ namespace WorldBuilder.Gameplay.Presentation
             attackPresenter ??= GetComponent<ShortSwordAttackPresenter>();
             characterRoot ??= input != null ? input.transform : transform.root;
             swordRoot ??= transform.Find("Equipped Short Sword");
+            CaptureSwordCarryTransform();
             ResolveBones();
             ResolveLayer();
         }
@@ -131,7 +152,7 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             blockWeight = 0f;
             poseRequestedLastFrame = false;
-            leftWristGripCorrection = Vector3.zero;
+            RestoreSwordCarryTransform();
             if (animator != null && blockLayerIndex >= 0)
             {
                 animator.SetLayerWeight(blockLayerIndex, 0f);
@@ -160,7 +181,6 @@ namespace WorldBuilder.Gameplay.Presentation
                 (attackPresenter == null || !attackPresenter.IsAttacking);
             if (poseRequested && !poseRequestedLastFrame)
             {
-                leftWristGripCorrection = Vector3.zero;
                 animator.Play(
                     BlockStateHash,
                     blockLayerIndex,
@@ -179,72 +199,53 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void LateUpdate()
         {
-            if (!poseRequestedLastFrame ||
-                blockWeight < 0.5f ||
-                leftMiddleKnuckle == null ||
-                swordRoot == null)
+            if (swordRoot == null)
             {
-                if (!poseRequestedLastFrame)
-                {
-                    leftWristGripCorrection = Vector3.zero;
-                }
-
                 return;
             }
 
-            Vector3 hiltContact = swordRoot.TransformPoint(leftHandHiltOffset);
-            Vector3 contactError = hiltContact - leftMiddleKnuckle.position;
-            leftWristGripCorrection += Vector3.ClampMagnitude(contactError, 0.015f);
-            leftWristGripCorrection = Vector3.ClampMagnitude(
-                leftWristGripCorrection,
-                0.2f);
+            CaptureSwordCarryTransform();
+            bool attackActive = attackPresenter != null && attackPresenter.IsAttacking;
+            float weight = attackActive ? 0f : blockWeight;
+            if (leftHand != null && weight > 0.001f)
+            {
+                leftHand.localRotation = Quaternion.Slerp(
+                    leftHand.localRotation,
+                    authoredGuardLeftHandLocalRotation,
+                    weight);
+            }
+
+            swordRoot.localPosition = Vector3.Lerp(
+                swordCarryLocalPosition,
+                authoredGuardSwordLocalPosition,
+                weight);
+            swordRoot.localRotation = Quaternion.Slerp(
+                swordCarryLocalRotation,
+                authoredGuardSwordLocalRotation,
+                weight);
         }
 
-        private void OnAnimatorIK(int layerIndex)
+        private void CaptureSwordCarryTransform()
         {
-            if (layerIndex != blockLayerIndex ||
-                animator == null ||
-                swordRoot == null ||
-                characterRoot == null ||
-                leftHand == null ||
-                rightHand == null ||
-                leftMiddleKnuckle == null ||
-                leftShoulder == null)
+            if (swordRoot == null || hasSwordCarryTransform)
             {
                 return;
             }
 
-            float ikWeight = poseRequestedLastFrame ? blockWeight : 0f;
-            if (ikWeight <= 0.001f)
+            swordCarryLocalPosition = swordRoot.localPosition;
+            swordCarryLocalRotation = swordRoot.localRotation;
+            hasSwordCarryTransform = true;
+        }
+
+        private void RestoreSwordCarryTransform()
+        {
+            if (swordRoot == null || !hasSwordCarryTransform)
             {
-                animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, 0f);
-                animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, 0f);
-                animator.SetIKPositionWeight(AvatarIKGoal.RightHand, 0f);
-                animator.SetIKRotationWeight(AvatarIKGoal.RightHand, 0f);
-                animator.SetIKHintPositionWeight(AvatarIKHint.LeftElbow, 0f);
                 return;
             }
 
-            Vector3 guardShift = -characterRoot.forward * guardRetraction;
-            Vector3 hiltContact =
-                swordRoot.TransformPoint(leftHandHiltOffset) + guardShift;
-            Vector3 wristTarget = hiltContact + leftWristGripCorrection;
-            Vector3 elbowHint =
-                leftShoulder.position -
-                characterRoot.right * 0.28f +
-                characterRoot.forward * 0.16f -
-                characterRoot.up * 0.12f;
-
-            animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, ikWeight);
-            animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, 0f);
-            animator.SetIKPositionWeight(AvatarIKGoal.RightHand, ikWeight);
-            animator.SetIKRotationWeight(AvatarIKGoal.RightHand, 0f);
-            animator.SetIKHintPositionWeight(AvatarIKHint.LeftElbow, ikWeight);
-            animator.SetIKPosition(AvatarIKGoal.LeftHand, wristTarget);
-            animator.SetIKPosition(
-                AvatarIKGoal.RightHand,
-                rightHand.position + guardShift);
-            animator.SetIKHintPosition(AvatarIKHint.LeftElbow, elbowHint);
+            swordRoot.localPosition = swordCarryLocalPosition;
+            swordRoot.localRotation = swordCarryLocalRotation;
         }
 
         private void ResolveBones()
@@ -254,17 +255,23 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
-            rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
             leftMiddleKnuckle =
                 animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
-            leftShoulder =
-                animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
             leftIndexKnuckle =
                 animator.GetBoneTransform(HumanBodyBones.LeftIndexProximal);
             leftLittleKnuckle =
                 animator.GetBoneTransform(HumanBodyBones.LeftLittleProximal);
             head = animator.GetBoneTransform(HumanBodyBones.Head);
+        }
+
+        private static Vector3 GetPalmCenter(
+            Transform hand,
+            Transform index,
+            Transform little)
+        {
+            Vector3 knuckleCenter = (index.position + little.position) * 0.5f;
+            return Vector3.Lerp(hand.position, knuckleCenter, 0.68f);
         }
 
         private static float DistanceToSegment(

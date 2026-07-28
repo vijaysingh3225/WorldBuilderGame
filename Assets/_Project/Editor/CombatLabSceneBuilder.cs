@@ -19,7 +19,7 @@ namespace WorldBuilder.Editor
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
         public const string CheckpointMarkerName =
-            "Prototype Systems - Natural Two Handed Sword Block V36";
+            "Prototype Systems - V67 Seamless Player And Dummy";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
@@ -39,14 +39,20 @@ namespace WorldBuilder.Editor
             Material floorMaterial = GetOrCreateMaterial("Floor", new Color(0.16f, 0.19f, 0.20f));
             Material wallMaterial = GetOrCreateMaterial("Stone", new Color(0.25f, 0.28f, 0.27f));
             Material accentMaterial = GetOrCreateMaterial("MossAccent", new Color(0.30f, 0.40f, 0.27f));
-            Material playerMaterial = GetOrCreateMaterial("Player", new Color(0.18f, 0.34f, 0.46f));
-            Material playerSecondaryMaterial = GetOrCreateMaterial("PlayerSecondary", new Color(0.09f, 0.13f, 0.16f));
+            Material playerMaterial = GetOrCreateMaterial(
+                "Player",
+                new Color(0.22f, 0.22f, 0.22f),
+                0.05f,
+                0f,
+                true);
+            Material playerSecondaryMaterial = playerMaterial;
             Material enemyMaterial = GetOrCreateMaterial(
                 "TrainingDummyRed",
-                new Color(0.68f, 0.055f, 0.045f));
-            Material enemySecondaryMaterial = GetOrCreateMaterial(
-                "TrainingDummyDarkRed",
-                new Color(0.24f, 0.018f, 0.015f));
+                new Color(0.42f, 0.035f, 0.03f),
+                0.05f,
+                0f,
+                true);
+            Material enemySecondaryMaterial = enemyMaterial;
             Material bladeMaterial = GetOrCreateMaterial(
                 "ShortSwordBlade",
                 new Color(0.56f, 0.62f, 0.67f),
@@ -238,6 +244,34 @@ namespace WorldBuilder.Editor
                         animator = visual.AddComponent<Animator>();
                     }
 
+                    if (mannequin != null &&
+                        TryAttachMannequinRenderer(
+                            visual,
+                            bodyMaterial,
+                            secondaryMaterial,
+                            HumanoidAnimationSetup.LowPolyMannequinPath,
+                            "MannequinLowPoly_Renderer",
+                            HumanoidAnimationSetup.LowPolyRuntimeMeshPath,
+                            "MannequinLowPoly_Renderer",
+                            "MannequinLowPoly_Runtime",
+                            out SkinnedMeshRenderer lowPolyFallback))
+                    {
+                        mannequin.enabled = false;
+                        if (TryAttachMannequinRenderer(
+                            visual,
+                            bodyMaterial,
+                            secondaryMaterial,
+                            HumanoidAnimationSetup.SeamlessLowPolyMannequinPath,
+                            "MannequinSeamlessLowPoly_Renderer",
+                            HumanoidAnimationSetup.SeamlessLowPolyRuntimeMeshPath,
+                            "MannequinSeamlessLowPoly_Renderer",
+                            "MannequinSeamlessLowPoly_Runtime",
+                            out _))
+                        {
+                            lowPolyFallback.enabled = false;
+                        }
+                    }
+
                     animator.runtimeAnimatorController = controller;
                     animator.applyRootMotion = false;
                     animator.updateMode = AnimatorUpdateMode.Normal;
@@ -284,6 +318,118 @@ namespace WorldBuilder.Editor
 
             Debug.LogWarning("Falling back to the procedural humanoid because authored animation assets are unavailable.");
             CreateProceduralHumanoidVisual(player, motor, bodyMaterial, secondaryMaterial);
+        }
+
+        private static bool TryAttachMannequinRenderer(
+            GameObject visual,
+            Material bodyMaterial,
+            Material secondaryMaterial,
+            string sourcePath,
+            string sourceRendererName,
+            string runtimeMeshPath,
+            string rendererName,
+            string meshName,
+            out SkinnedMeshRenderer renderer)
+        {
+            renderer = null;
+            GameObject sourcePrefab =
+                AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath);
+            SkinnedMeshRenderer sourceRenderer = sourcePrefab == null
+                ? null
+                : sourcePrefab.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                    .FirstOrDefault(
+                        candidate =>
+                            candidate.name == sourceRendererName);
+            if (sourceRenderer == null || sourceRenderer.sharedMesh == null)
+            {
+                return false;
+            }
+
+            Transform[] playableTransforms =
+                visual.GetComponentsInChildren<Transform>(true);
+            Transform FindPlayableBone(string boneName)
+            {
+                return playableTransforms.FirstOrDefault(
+                    candidate => candidate.name == boneName);
+            }
+
+            Transform[] bones = new Transform[sourceRenderer.bones.Length];
+            for (int index = 0; index < sourceRenderer.bones.Length; index++)
+            {
+                bones[index] = FindPlayableBone(sourceRenderer.bones[index].name);
+                if (bones[index] == null)
+                {
+                    Debug.LogError(
+                        $"Playable rig is missing low-poly mesh bone " +
+                        $"{sourceRenderer.bones[index].name}.");
+                    return false;
+                }
+            }
+
+            Transform rootBone = sourceRenderer.rootBone == null
+                ? null
+                : FindPlayableBone(sourceRenderer.rootBone.name);
+            if (sourceRenderer.rootBone != null && rootBone == null)
+            {
+                return false;
+            }
+
+            GameObject rendererObject =
+                new GameObject(rendererName);
+            rendererObject.transform.SetParent(visual.transform, false);
+            rendererObject.transform.localPosition =
+                sourceRenderer.transform.localPosition;
+            rendererObject.transform.localRotation =
+                sourceRenderer.transform.localRotation;
+            rendererObject.transform.localScale =
+                sourceRenderer.transform.localScale;
+            SetLayerRecursively(rendererObject.transform, 2);
+
+            renderer = rendererObject.AddComponent<SkinnedMeshRenderer>();
+            renderer.bones = bones;
+            renderer.rootBone = rootBone;
+
+            Mesh generatedMesh = Object.Instantiate(sourceRenderer.sharedMesh);
+            generatedMesh.name = meshName;
+            Matrix4x4 rendererLocalToWorld =
+                rendererObject.transform.localToWorldMatrix;
+            Matrix4x4[] bindPoses = new Matrix4x4[bones.Length];
+            for (int index = 0; index < bones.Length; index++)
+            {
+                bindPoses[index] =
+                    bones[index].worldToLocalMatrix * rendererLocalToWorld;
+            }
+
+            generatedMesh.bindposes = bindPoses;
+            generatedMesh.RecalculateBounds();
+
+            Mesh runtimeMesh =
+                AssetDatabase.LoadAssetAtPath<Mesh>(runtimeMeshPath);
+            if (runtimeMesh == null)
+            {
+                AssetDatabase.CreateAsset(generatedMesh, runtimeMeshPath);
+                runtimeMesh = generatedMesh;
+            }
+            else
+            {
+                EditorUtility.CopySerialized(generatedMesh, runtimeMesh);
+                Object.DestroyImmediate(generatedMesh);
+                EditorUtility.SetDirty(runtimeMesh);
+            }
+
+            renderer.sharedMesh = runtimeMesh;
+            renderer.sharedMaterials = runtimeMesh.subMeshCount > 1
+                ? new[] { bodyMaterial, secondaryMaterial }
+                : new[] { bodyMaterial };
+            renderer.localBounds = sourceRenderer.localBounds;
+            renderer.quality = SkinQuality.Bone4;
+            renderer.updateWhenOffscreen = false;
+            renderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.On;
+            renderer.receiveShadows = true;
+            renderer.reflectionProbeUsage =
+                UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            return true;
         }
 
         private static Transform CreateShortSword(
@@ -586,6 +732,24 @@ namespace WorldBuilder.Editor
                         animator = visual.AddComponent<Animator>();
                     }
 
+                    SkinnedMeshRenderer mannequin =
+                        visual.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                            .FirstOrDefault(renderer => renderer.name == "Mannequin");
+                    if (mannequin != null &&
+                        TryAttachMannequinRenderer(
+                            visual,
+                            bodyMaterial,
+                            secondaryMaterial,
+                            HumanoidAnimationSetup.SeamlessLowPolyMannequinPath,
+                            "MannequinSeamlessLowPoly_Renderer",
+                            HumanoidAnimationSetup.SeamlessLowPolyRuntimeMeshPath,
+                            "MannequinSeamlessLowPoly_Renderer",
+                            "MannequinSeamlessLowPoly_Runtime",
+                            out _))
+                    {
+                        mannequin.enabled = false;
+                    }
+
                     animator.runtimeAnimatorController = controller;
                     animator.applyRootMotion = false;
                     animator.updateMode = AnimatorUpdateMode.Normal;
@@ -705,26 +869,42 @@ namespace WorldBuilder.Editor
             return marker;
         }
 
-        private static Material GetOrCreateMaterial(string name, Color color, float smoothness = 0.15f, float metallic = 0f)
+        private static Material GetOrCreateMaterial(
+            string name,
+            Color color,
+            float smoothness = 0.15f,
+            float metallic = 0f,
+            bool matte = false)
         {
             string path = $"{MaterialFolder}/{name}.mat";
-            Material existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null)
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
             {
-                return existing;
+                Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Standard");
+                }
+
+                material = new Material(shader) { name = name };
+                AssetDatabase.CreateAsset(material, path);
             }
 
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-            if (shader == null)
-            {
-                shader = Shader.Find("Standard");
-            }
-
-            Material material = new Material(shader) { name = name, color = color };
+            material.color = color;
             material.SetColor("_BaseColor", color);
             material.SetFloat("_Smoothness", smoothness);
             material.SetFloat("_Metallic", metallic);
-            AssetDatabase.CreateAsset(material, path);
+            if (material.HasProperty("_EnvironmentReflections"))
+            {
+                material.SetFloat("_EnvironmentReflections", matte ? 0f : 1f);
+            }
+
+            if (material.HasProperty("_SpecularHighlights"))
+            {
+                material.SetFloat("_SpecularHighlights", matte ? 0f : 1f);
+            }
+
+            EditorUtility.SetDirty(material);
             return material;
         }
 

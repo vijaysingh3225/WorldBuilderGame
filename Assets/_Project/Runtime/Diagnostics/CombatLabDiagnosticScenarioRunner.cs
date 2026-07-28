@@ -38,6 +38,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "movement/idle-jump",
             "movement/running-jump-approach",
             "movement/running-jump",
+            "combat/block-jump-ready",
+            "combat/block-jump",
+            "combat/block-toggle-stress",
+            "combat/block-entry-rest",
             "combat/block-hold",
             "combat/block-release",
             "suite/complete"
@@ -284,11 +288,47 @@ namespace WorldBuilder.Gameplay.Diagnostics
             EnqueuePlayerReset(PlayerStart, Quaternion.identity, 6);
             EnqueueFixed(
                 "combat",
-                "block-hold",
-                60,
-                Intent(Vector2.zero, blockHeld: true),
+                "block-jump-ready",
+                18,
+                Intent(Vector2.zero, blockHeld: true));
+            EnqueueJump(
+                "block-jump",
+                Vector2.zero,
+                false,
                 screenshot: true,
-                onEnd: () => recorder.MarkLastFrame("two-handed-block-held", true));
+                blockHeld: true,
+                scenario: "combat");
+
+            EnqueuePlayerReset(PlayerStart, Quaternion.identity, 6);
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "block-toggle-stress",
+                FrameCount = 72,
+                Intent = frame => Intent(
+                    Vector2.zero,
+                    blockHeld: (frame / 3) % 2 == 0),
+                OnEnd = () => recorder.MarkLastFrame("rapid-block-toggle-complete", true)
+            });
+            EnqueueFixed("combat", "block-entry-rest", 30, default);
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "block-hold",
+                FrameCount = 60,
+                Screenshot = true,
+                Intent = _ => Intent(Vector2.zero, blockHeld: true),
+                BeforeFrame = frame =>
+                {
+                    if (frame == 3 || frame == 6 || frame == 9 || frame == 12)
+                    {
+                        recorder.MarkLastFrame(
+                            "block-entry-" + frame.ToString("00"),
+                            true);
+                    }
+                },
+                OnEnd = () => recorder.MarkLastFrame("two-handed-block-held", true)
+            });
             EnqueueFixed(
                 "combat",
                 "block-release",
@@ -342,7 +382,13 @@ namespace WorldBuilder.Gameplay.Diagnostics
             });
         }
 
-        private void EnqueueJump(string phase, Vector2 move, bool sprint, bool screenshot)
+        private void EnqueueJump(
+            string phase,
+            Vector2 move,
+            bool sprint,
+            bool screenshot,
+            bool blockHeld = false,
+            string scenario = "movement")
         {
             bool leftGround = false;
             bool markedAirborne = false;
@@ -350,7 +396,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             float previousVerticalVelocity = 0f;
             EnqueueStep(new DiagnosticStep
             {
-                Scenario = "movement",
+                Scenario = scenario,
                 Phase = phase,
                 FrameCount = 192,
                 Screenshot = screenshot,
@@ -362,10 +408,19 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     previousVerticalVelocity = motor.VerticalVelocity;
                 },
                 Intent = frame => frame == 0
-                    ? Intent(move, sprint, jumpPressed: true, jumpHeld: true)
+                    ? Intent(
+                        move,
+                        sprint,
+                        jumpPressed: true,
+                        jumpHeld: true,
+                        blockHeld: blockHeld)
                     : frame <= 11
-                        ? Intent(move, sprint, jumpHeld: true)
-                        : Intent(move, sprint),
+                        ? Intent(
+                            move,
+                            sprint,
+                            jumpHeld: true,
+                            blockHeld: blockHeld)
+                        : Intent(move, sprint, blockHeld: blockHeld),
                 BeforeFrame = frame =>
                 {
                     if (frame > 0 && !motor.IsGrounded)

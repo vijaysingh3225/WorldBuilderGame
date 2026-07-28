@@ -383,10 +383,6 @@ namespace WorldBuilder.Editor
             {
                 EditorApplication.Exit(failed ? 1 : 0);
             }
-            else
-            {
-                CombatLabDiagnosticsWindow.Open();
-            }
         }
 
         private static string CaptureSourceRevision()

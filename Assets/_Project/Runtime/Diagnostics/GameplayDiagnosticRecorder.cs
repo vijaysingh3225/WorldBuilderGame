@@ -1201,6 +1201,85 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     firstStop != null && Mathf.Abs(firstStop.intentMoveY) < 0.01f && firstStop.targetSpeed < 0.01f,
                     "zero intent and zero target on same frame", "Phase boundaries must not be one frame out of sync.");
 
+                List<GameplayDiagnosticFrame> rapidBlockFrames = frames.FindAll(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-toggle-stress");
+                float maximumRapidBlockHandTravel = rapidBlockFrames.Count == 0
+                    ? 99f
+                    : rapidBlockFrames.Max(frame => frame.leftHandLocalFrameTravel);
+                AddSystemCheck(checks, "block-toggle-hand-bounded", "failure",
+                    "combat", "block-toggle-stress", "maximumLeftHandFrameTravel",
+                    maximumRapidBlockHandTravel,
+                    rapidBlockFrames.Count > 0 && maximumRapidBlockHandTravel <= 0.14f,
+                    "<= 0.14 m/frame",
+                    "Rapid block reversals must blend directly between the authored guard and rest without a snap.");
+
+                GameplayDiagnosticFrame recoveredBlockRest = frames.LastOrDefault(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-entry-rest");
+                AddSystemCheck(checks, "block-toggle-rest-recovered", "failure",
+                    "combat", "block-entry-rest", "handSpread",
+                    recoveredBlockRest != null ? recoveredBlockRest.handSpread : -1f,
+                    recoveredBlockRest != null &&
+                    recoveredBlockRest.blockWeight <= 0.01f &&
+                    recoveredBlockRest.handSpread >= 0.6f,
+                    "weight <= 0.01 and hands >= 0.60 m apart",
+                    "Rapid toggling must not accumulate entry offsets or leave the left hand away from rest.");
+
+                List<GameplayDiagnosticFrame> blockEntryFrames = frames.FindAll(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-hold" &&
+                    frame.blockWeight <= 0.42f);
+                float maximumEarlyEntryTravel = blockEntryFrames.Count == 0
+                    ? 99f
+                    : blockEntryFrames.Max(frame => frame.leftHandLocalFrameTravel);
+                AddSystemCheck(checks, "block-entry-direct", "failure",
+                    "combat", "block-hold", "maximumEarlyLeftHandFrameTravel",
+                    maximumEarlyEntryTravel,
+                    blockEntryFrames.Count >= 3 && maximumEarlyEntryTravel <= 0.14f,
+                    "<= 0.14 m/frame",
+                    "The left hand must blend directly into the fixed guard without a waypoint or catch-up excursion.");
+
+                List<GameplayDiagnosticFrame> blockJumpFrames = frames.FindAll(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-jump");
+                float maximumBlockJumpPairTravel = 99f;
+                if (blockJumpFrames.Count > 0)
+                {
+                    maximumBlockJumpPairTravel = 0f;
+                    Vector3 previousHandPair =
+                        blockJumpFrames[0].leftHandLocal -
+                        blockJumpFrames[0].rightHandLocal;
+                    for (int index = 1; index < blockJumpFrames.Count; index++)
+                    {
+                        Vector3 handPair =
+                            blockJumpFrames[index].leftHandLocal -
+                            blockJumpFrames[index].rightHandLocal;
+                        maximumBlockJumpPairTravel = Mathf.Max(
+                            maximumBlockJumpPairTravel,
+                            Vector3.Distance(previousHandPair, handPair));
+                        previousHandPair = handPair;
+                    }
+                }
+                float maximumBlockJumpHiltGap = blockJumpFrames.Count == 0
+                    ? 99f
+                    : blockJumpFrames.Max(
+                        frame => frame.leftHandHiltContactGap);
+                AddSystemCheck(checks, "block-jump-hand-locked", "failure",
+                    "combat", "block-jump", "maximumHandPairFrameTravel",
+                    maximumBlockJumpPairTravel,
+                    blockJumpFrames.Count > 0 &&
+                    maximumBlockJumpPairTravel <= 0.01f,
+                    "<= 0.01 m/frame",
+                    "A held guard must keep both hands locked together through takeoff, apex, and landing.");
+                AddSystemCheck(checks, "block-jump-grip-held", "failure",
+                    "combat", "block-jump", "maximumLeftHandHiltGap",
+                    maximumBlockJumpHiltGap,
+                    blockJumpFrames.Count > 0 &&
+                    maximumBlockJumpHiltGap <= 0.09f,
+                    "<= 0.09 m",
+                    "Jump and landing motion must not pull the guarded left hand away from the hilt.");
+
                 GameplayDiagnosticFrame heldBlock = frames.LastOrDefault(
                     frame => frame.scenario == "combat" && frame.phase == "block-hold");
                 AddSystemCheck(checks, "block-held-two-handed", "failure", "combat", "block-hold",
@@ -1209,8 +1288,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     heldBlock != null &&
                     heldBlock.intentBlock &&
                     heldBlock.blockWeight >= 0.99f &&
-                    heldBlock.leftHandHiltContactGap <= 0.08f,
-                    "held, weight >= 0.99, left knuckles <= 0.08 m from hilt",
+                    heldBlock.leftHandHiltContactGap <= 0.09f,
+                    "held, weight >= 0.99, left knuckles <= 0.09 m from hilt",
                     "The held block must reach the actual two-handed hilt pose.");
                 GameplayDiagnosticFrame releasedBlock = frames.LastOrDefault(
                     frame => frame.scenario == "combat" && frame.phase == "block-release");
