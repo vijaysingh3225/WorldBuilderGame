@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using WorldBuilder.Gameplay.CameraSystem;
+using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Input;
 
@@ -19,6 +20,7 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField] private AudioSource bowAudioSource;
         [SerializeField, Range(0f, 1f)] private float pullbackVolume = 0.30f;
         [SerializeField] private CameraAimTarget aimTarget;
+        [SerializeField] private CharacterAimSource characterAimSource;
         [SerializeField] private LayerMask aimCollisionMask = ~(1 << 2);
         [SerializeField, Min(10f)] private float maximumAimDistance = 150f;
         [SerializeField, Min(0.05f)] private float minimumHoldDuration = 0.18f;
@@ -117,6 +119,10 @@ namespace WorldBuilder.Gameplay.Combat
             input ??= GetComponentInParent<PlayerInputSource>();
             characterRoot ??=
                 input != null ? input.transform : transform.root;
+            characterAimSource ??=
+                characterRoot != null
+                    ? characterRoot.GetComponent<CharacterAimSource>()
+                    : GetComponentInParent<CharacterAimSource>();
             aimTarget ??= FindFirstObjectByType<CameraAimTarget>();
             ConfigureAudio();
         }
@@ -339,7 +345,25 @@ namespace WorldBuilder.Gameplay.Combat
 
         private Ray ResolveAimRay()
         {
+            characterAimSource ??=
+                characterRoot != null
+                    ? characterRoot.GetComponent<CharacterAimSource>()
+                    : GetComponentInParent<CharacterAimSource>();
+            if (characterAimSource != null &&
+                characterAimSource.TryGetRay(out Ray characterAimRay))
+            {
+                return characterAimRay;
+            }
+
             aimTarget ??= FindFirstObjectByType<CameraAimTarget>();
+            if (aimTarget != null &&
+                aimTarget.InspectionOrbitActive)
+            {
+                return new Ray(
+                    aimTarget.InspectionAimOrigin,
+                    aimTarget.AimDirection);
+            }
+
             Camera aimCamera = Camera.main;
             if (aimCamera != null)
             {

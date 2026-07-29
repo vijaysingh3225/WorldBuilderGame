@@ -122,3 +122,94 @@ The analytic elbow solve no longer mirrors its guided bend direction to agree wi
 The wrist lock now has one deliberately narrow exception at the socket. It remains exact through the first 80 percent of the shared track; over the final 20 percent, only wrist rotation eases from the locked forearm-relative pose into the socket's required hand rotation. Hand position and sword-to-hilt ownership remain rigid, so the blade smoothly clears the torso and reaches the actual back pose without an attachment snap. Drawing evaluates the same release factor in reverse, smoothly returning to the locked resting wrist as the sword leaves the back.
 
 Each of the four shared-track legs now runs in 0.55 seconds instead of 0.78 seconds, a roughly 30 percent reduction. The geometric path, easing ratios, wrist-release fraction, torso frame, and ownership-transfer order are unchanged.
+
+## 2026-07-29 progressive bow-draw torso turn
+
+The bow aim lock still keeps the player root and shot direction aligned with the
+camera. As the string is drawn, the spine, chest, and upper chest now ease from
+the initial forward-facing pose into the existing 78-degree right-facing archer
+stance. This matches the hips at full draw and moves the right shoulder behind
+the arrow line, giving the drawing arm room to extend naturally. The head
+counter-rotates by the same bow-specific yaw so the character continues looking
+down the arrow toward the crosshair.
+
+The torso turn is driven by normalized draw progress rather than elapsed aim
+time, so partial draws produce partial rotation and full draw reaches the
+side-facing endpoint. Releasing or cancelling the draw smoothly returns the
+upper body without changing lower-body directional walking, shot ballistics, or
+the sword guard. Run `20260729-163325-884-deterministic-full-suite` completed
+2,542 samples with zero functional failures. Its bow checks require a
+progressive partial-draw turn, at least 70 degrees of full-draw torso yaw,
+stable yaw/pitch aiming, outside elbow clearance, stable aimed movement, and
+accurate release. All 21 EditMode regression tests passed. No diagnostic
+baseline was promoted.
+
+## 2026-07-29 runtime model-inspection orbit
+
+While the Combat Lab is running, hold the middle mouse button and move the
+mouse to orbit the camera around the player. The inspection pitch range is
+widened to -75 through +80 degrees so the model can be checked from above,
+below, front, rear, and both sides. The HUD includes the inspection control,
+and a middle click relocks the cursor if focus was released.
+
+Inspection captures the character's facing direction, current aim direction,
+camera-space shot origin, and presented-arrow direction when the button is
+pressed. While it is held, only the camera orbit changes: locomotion cannot
+turn the model toward the inspection camera, the upper-body bow pose does not
+follow it, and firing cannot redirect the arrow toward the temporary view.
+Releasing the button restores the pre-inspection camera target and lets the
+normal Cinemachine damping settle back onto it.
+
+Run `20260729-173001-174-deterministic-full-suite` completed 2,617 samples with
+zero functional failures and 49 known presentation warnings. Its dedicated
+inspection phase moved the camera by more than 30 degrees while requiring no
+more than 1 degree of character-facing drift, 0.1 degree of frozen-aim drift,
+and 2 degrees of presented-arrow drift. A following restoration phase verifies
+that inspection is inactive and the camera and character settle back onto the
+saved aim before normal bow yaw, pitch, locomotion, release, and impact tests
+continue. All 21 EditMode regression tests passed. No diagnostic baseline was
+promoted.
+
+## 2026-07-29 rigid bow-hand ownership
+
+The equipped bow remains parented to the left hand, but its calibrated local
+grip position and rotation are now immutable. The presenter no longer solves
+the left arm and then independently overwrites the bow in world space, which
+previously changed the hand-to-handle offset every frame and produced visible
+drift followed by catch-up while walking or drawing.
+
+The left hand keeps its captured rig-neutral rotation relative to the forearm
+at rest, throughout the lift, and at full draw. Bow orientation is supplied by
+the forearm and upper-arm solve, not by bending the wrist. The right drawing
+hand also uses its explicit stable forearm-relative rotation rather than
+recapturing an animation-contaminated wrist rotation each frame. The bow,
+left hand, and arm therefore move as one assembly while the ready pose eases
+from the accepted resting placement into the vertical firing placement.
+
+Run `20260729-174424-541-deterministic-full-suite` completed 2,617 samples with
+zero functional failures and 49 known presentation warnings. New checks at
+rest, partial draw, full draw, and moving aim require no more than one degree
+of left-wrist deviation, 0.1 mm of grip-position deviation, and 0.1 degree of
+grip-rotation deviation. Existing palm-left drawing-hand, elbow/head
+clearance, inspection orbit, aim movement, release, ballistics, impact, and
+sword regression checks also pass. All 21 EditMode regression tests passed.
+No diagnostic baseline was promoted.
+
+The drawing hand no longer receives an independent world rotation, which bent
+the wrist to force the palm direction. It is locked to the rig's pre-animation
+neutral local rotation for the entire pull. Palm adjustment is applied only as
+pronation around the forearm's own length, so measured wrist deviation remains
+exactly zero. The full-draw elbow guide now travels mostly rearward and stays
+slightly below shoulder height on the upper-chest plane; the undrawn elbow uses
+a tighter guide beside the right torso rather than the previous wide lateral
+guide. The existing fingertip contact iteration still places the drawing hand
+at the nock.
+
+The rig-neutral anatomy finishes within 17.87 degrees of the requested
+palm-left direction at full draw. Forcing the remaining offset would require
+bending the hand bone again, so the neutral wrist takes priority. Run
+`20260729-171216-922-deterministic-full-suite` completed 2,542 samples with zero
+functional failures. It verifies zero wrist deviation at partial and full draw,
+a bounded stable resting elbow, full-draw palm alignment, outside elbow/head
+clearance, aimed locomotion stability, and accurate release. No diagnostic
+baseline was promoted.

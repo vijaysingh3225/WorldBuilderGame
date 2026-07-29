@@ -10,6 +10,7 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField, Min(1f)] private float maximum = 100f;
         [SerializeField] private float current = 100f;
         [SerializeField, Min(0f)] private float minimum;
+        private CombatGuard combatGuard;
 
         public event Action<float, float> Changed;
         public event Action<DamageRequest> Damaged;
@@ -44,14 +45,26 @@ namespace WorldBuilder.Gameplay.Combat
                 return;
             }
 
-            current = Mathf.Max(minimum, current - request.Amount);
+            combatGuard ??= GetComponent<CombatGuard>();
+            float appliedAmount =
+                request.Amount *
+                (combatGuard != null
+                    ? combatGuard.GetDamageMultiplier(request.SourceId)
+                    : 1f);
+            DamageRequest appliedRequest = new DamageRequest(
+                request.Instigator,
+                appliedAmount,
+                request.HitPoint,
+                request.Direction,
+                request.SourceId);
+            current = Mathf.Max(minimum, current - appliedAmount);
             Changed?.Invoke(current, maximum);
-            Damaged?.Invoke(request);
+            Damaged?.Invoke(appliedRequest);
 
             if (current <= 0f)
             {
                 GameplayEventLog.Publish("death", gameObject, request.SourceId);
-                Died?.Invoke(request);
+                Died?.Invoke(appliedRequest);
             }
         }
     }

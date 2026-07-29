@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
@@ -23,6 +24,9 @@ namespace WorldBuilder.Gameplay.CameraSystem
         [SerializeField] private BowWeapon bowWeapon;
         [SerializeField, Min(0f)] private float bowAimRightOffset = 0f;
         [SerializeField, Min(0f)] private float bowAimOffsetSmoothTime = 0.10f;
+        [Header("Model Inspection")]
+        [SerializeField] private Vector2 inspectionPitchLimits =
+            new Vector2(-75f, 80f);
 
         private float desiredYaw;
         private float desiredPitch;
@@ -34,14 +38,57 @@ namespace WorldBuilder.Gameplay.CameraSystem
         private float followHeightVelocity;
         private float currentBowAimOffset;
         private float bowAimOffsetVelocity;
+        private bool inspectionOrbitActive;
+        private float inspectionYaw;
+        private float inspectionPitch;
+        private float resumeDesiredYaw;
+        private float resumeDesiredPitch;
+        private float resumeCurrentYaw;
+        private float resumeCurrentPitch;
+        private Vector3 inspectionAimDirection;
+        private Vector3 inspectionAimOrigin;
+        private Vector3 inspectionFacingDirection;
+        private bool inspectionDiagnosticOverride;
+        private bool inspectionDiagnosticHeld;
+        private Vector2 inspectionDiagnosticLook;
 
-        public Vector3 AimDirection => transform.forward;
+        public Vector3 AimDirection =>
+            inspectionOrbitActive
+                ? inspectionAimDirection
+                : transform.forward;
+        public bool InspectionOrbitActive =>
+            inspectionOrbitActive;
+        public Vector3 InspectionFacingDirection =>
+            inspectionFacingDirection;
+        public Vector3 InspectionAimOrigin =>
+            inspectionAimOrigin;
         public float CurrentBowAimOffset => currentBowAimOffset;
         public bool IsBowAiming =>
             bowWeapon != null &&
             bowWeapon.WeaponEquipped &&
             input != null &&
             input.CurrentIntent.BlockHeld;
+
+        public void SetInspectionDiagnosticOverride(
+            bool held,
+            Vector2 look)
+        {
+            inspectionDiagnosticOverride = true;
+            inspectionDiagnosticHeld = held;
+            inspectionDiagnosticLook = look;
+        }
+
+        public void ClearInspectionDiagnosticOverride()
+        {
+            inspectionDiagnosticOverride = false;
+            inspectionDiagnosticHeld = false;
+            inspectionDiagnosticLook = Vector2.zero;
+            if (inspectionOrbitActive)
+            {
+                EndInspectionOrbit();
+                SnapToTarget();
+            }
+        }
 
         public void Configure(Transform target, PlayerInputSource intentSource)
         {
@@ -85,19 +132,65 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 return;
             }
 
-            Vector2 look = input.CurrentIntent.Look;
-            desiredYaw += look.x;
-            desiredPitch = Mathf.Clamp(desiredPitch - look.y, pitchLimits.x, pitchLimits.y);
-
-            if (rotationSmoothTime <= 0f)
+            Vector2 look =
+                inspectionDiagnosticOverride
+                    ? inspectionDiagnosticLook
+                    : input.CurrentIntent.Look;
+            bool inspectionRequested =
+                inspectionDiagnosticOverride
+                    ? inspectionDiagnosticHeld
+                    : !input.DiagnosticOverrideActive &&
+                        Mouse.current != null &&
+                        Mouse.current.middleButton.isPressed;
+            bool inspectionEndedThisFrame = false;
+            if (inspectionRequested &&
+                !inspectionOrbitActive)
             {
-                currentYaw = desiredYaw;
-                currentPitch = desiredPitch;
+                BeginInspectionOrbit();
             }
-            else
+            else if (!inspectionRequested &&
+                inspectionOrbitActive)
             {
-                currentYaw = Mathf.SmoothDampAngle(currentYaw, desiredYaw, ref yawVelocity, rotationSmoothTime);
-                currentPitch = Mathf.SmoothDampAngle(currentPitch, desiredPitch, ref pitchVelocity, rotationSmoothTime);
+                EndInspectionOrbit();
+                inspectionEndedThisFrame = true;
+            }
+
+            if (inspectionOrbitActive)
+            {
+                inspectionYaw += look.x;
+                inspectionPitch = Mathf.Clamp(
+                    inspectionPitch - look.y,
+                    inspectionPitchLimits.x,
+                    inspectionPitchLimits.y);
+                currentYaw = inspectionYaw;
+                currentPitch = inspectionPitch;
+            }
+            else if (!inspectionEndedThisFrame)
+            {
+                desiredYaw += look.x;
+                desiredPitch = Mathf.Clamp(
+                    desiredPitch - look.y,
+                    pitchLimits.x,
+                    pitchLimits.y);
+
+                if (rotationSmoothTime <= 0f)
+                {
+                    currentYaw = desiredYaw;
+                    currentPitch = desiredPitch;
+                }
+                else
+                {
+                    currentYaw = Mathf.SmoothDampAngle(
+                        currentYaw,
+                        desiredYaw,
+                        ref yawVelocity,
+                        rotationSmoothTime);
+                    currentPitch = Mathf.SmoothDampAngle(
+                        currentPitch,
+                        desiredPitch,
+                        ref pitchVelocity,
+                        rotationSmoothTime);
+                }
             }
 
             float targetFollowHeight = followOffset.y - (motor != null ? motor.CrouchAmount * crouchCameraDrop : 0f);
@@ -117,6 +210,62 @@ namespace WorldBuilder.Gameplay.CameraSystem
                     bowAimOffsetSmoothTime);
 
             SnapToTarget();
+        }
+
+        private void OnDisable()
+        {
+            inspectionOrbitActive = false;
+            inspectionDiagnosticOverride = false;
+            inspectionDiagnosticHeld = false;
+            inspectionDiagnosticLook = Vector2.zero;
+        }
+
+        private void BeginInspectionOrbit()
+        {
+            inspectionOrbitActive = true;
+            inspectionYaw = currentYaw;
+            inspectionPitch = currentPitch;
+            resumeDesiredYaw = desiredYaw;
+            resumeDesiredPitch = desiredPitch;
+            resumeCurrentYaw = currentYaw;
+            resumeCurrentPitch = currentPitch;
+            Camera activeCamera = Camera.main;
+            inspectionAimOrigin =
+                activeCamera != null
+                    ? activeCamera.transform.position
+                    : transform.position;
+            Vector3 activeAimDirection =
+                activeCamera != null
+                    ? activeCamera.transform.forward
+                    : transform.forward;
+            inspectionAimDirection =
+                activeAimDirection.sqrMagnitude > 0.001f
+                    ? activeAimDirection.normalized
+                    : followTarget.forward;
+            inspectionFacingDirection =
+                Vector3.ProjectOnPlane(
+                    followTarget.forward,
+                    Vector3.up).normalized;
+            if (inspectionFacingDirection.sqrMagnitude <
+                0.001f)
+            {
+                inspectionFacingDirection =
+                    Vector3.forward;
+            }
+
+            yawVelocity = 0f;
+            pitchVelocity = 0f;
+        }
+
+        private void EndInspectionOrbit()
+        {
+            inspectionOrbitActive = false;
+            desiredYaw = resumeDesiredYaw;
+            desiredPitch = resumeDesiredPitch;
+            currentYaw = resumeCurrentYaw;
+            currentPitch = resumeCurrentPitch;
+            yawVelocity = 0f;
+            pitchVelocity = 0f;
         }
 
         private float ResolveHeightUnderCeiling(float desiredHeight)

@@ -19,7 +19,7 @@ namespace WorldBuilder.Editor
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
         public const string CheckpointMarkerName =
-            "Prototype Systems - V67 Seamless Player And Dummy";
+            "Prototype Systems - V73 Tactical Guard Spacing";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
@@ -58,7 +58,7 @@ namespace WorldBuilder.Editor
         private static readonly Vector3 ShortSwordCarryLocalScale =
             new Vector3(0.9090908f, 0.9090911f, 0.90909094f);
 
-        [MenuItem("WorldBuilder/Build Combat Lab")]
+        [MenuItem("WorldBuilder/Build Combat Lab %#g")]
         public static void Build()
         {
             EnsureProjectFolders();
@@ -115,6 +115,9 @@ namespace WorldBuilder.Editor
                 new Vector3(0f, 1f, 5f),
                 enemyMaterial,
                 enemySecondaryMaterial,
+                bladeMaterial,
+                guardMaterial,
+                gripMaterial,
                 out Health enemyHealth);
             CreateCamera(player.transform, playerInput);
 
@@ -130,6 +133,96 @@ namespace WorldBuilder.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log($"WorldBuilder Combat Lab generated at {ScenePath}");
+        }
+
+        [MenuItem("WorldBuilder/Activate Dummy AI %#t")]
+        public static void ActivateDummyAi()
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                return;
+            }
+
+            EnemyBrain brain =
+                Object.FindFirstObjectByType<EnemyBrain>();
+            brain?.ActivateForDiagnostics();
+        }
+
+        [MenuItem("WorldBuilder/Test Dummy Melee %#m")]
+        public static void TestDummyMelee()
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                return;
+            }
+
+            EnemyBrain brain =
+                Object.FindFirstObjectByType<EnemyBrain>();
+            GameObject player =
+                GameObject.FindGameObjectWithTag("Player");
+            if (brain == null || player == null)
+            {
+                return;
+            }
+
+            CharacterController controller =
+                brain.GetComponent<CharacterController>();
+            bool controllerWasEnabled =
+                controller != null && controller.enabled;
+            if (controller != null)
+            {
+                controller.enabled = false;
+            }
+
+            Vector3 forward = Vector3.ProjectOnPlane(
+                player.transform.forward,
+                Vector3.up).normalized;
+            brain.transform.position =
+                player.transform.position +
+                forward * 1.05f;
+            brain.transform.rotation =
+                Quaternion.LookRotation(-forward, Vector3.up);
+            if (controller != null)
+            {
+                controller.enabled = controllerWasEnabled;
+            }
+
+            brain.Configure(player.transform);
+        }
+
+        [MenuItem("WorldBuilder/Test Dummy Walk %#w")]
+        public static void TestDummyWalk()
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                return;
+            }
+
+            EnemyBrain brain =
+                Object.FindFirstObjectByType<EnemyBrain>();
+            GameObject player =
+                GameObject.FindGameObjectWithTag("Player");
+            if (brain == null || player == null)
+            {
+                return;
+            }
+
+            CharacterController controller =
+                brain.GetComponent<CharacterController>();
+            if (controller != null)
+            {
+                controller.enabled = false;
+            }
+
+            Vector3 forward = Vector3.ProjectOnPlane(
+                player.transform.forward,
+                Vector3.up).normalized;
+            brain.transform.position =
+                player.transform.position +
+                forward * 4f;
+            brain.transform.rotation =
+                Quaternion.LookRotation(-forward, Vector3.up);
+            brain.Configure(player.transform);
         }
 
         public static void BuildFromCommandLine()
@@ -213,6 +306,7 @@ namespace WorldBuilder.Editor
             health = player.AddComponent<Health>();
             health.Configure(100f);
             input = player.AddComponent<PlayerInputSource>();
+            player.AddComponent<CharacterAimSource>();
             ThirdPersonMotor motor = player.AddComponent<ThirdPersonMotor>();
             player.AddComponent<MeleeWeapon>();
             CreateHumanoidVisual(
@@ -223,6 +317,18 @@ namespace WorldBuilder.Editor
                 bladeMaterial,
                 guardMaterial,
                 gripMaterial);
+            Animator playerAnimator =
+                player.GetComponentInChildren<Animator>(true);
+            HitReactionPresenter hitReaction =
+                player.AddComponent<HitReactionPresenter>();
+            hitReaction.Configure(
+                health,
+                playerAnimator != null
+                    ? playerAnimator.transform
+                    : player.transform,
+                AssetDatabase.LoadAssetAtPath<AudioClip>(
+                    SwordHitAudioPath),
+                0.138f);
             return player;
         }
 
@@ -349,6 +455,10 @@ namespace WorldBuilder.Editor
                         ShortSwordGuardLocalPosition,
                         ShortSwordGuardLocalRotation,
                         ShortSwordGuardLeftHandLocalRotation);
+                    CombatGuard combatGuard =
+                        player.GetComponent<CombatGuard>() ??
+                        player.AddComponent<CombatGuard>();
+                    combatGuard.Configure(blockPresenter);
                     BowWeapon bowWeapon =
                         animator.gameObject.AddComponent<BowWeapon>();
                     bowWeapon.Configure(
@@ -377,6 +487,10 @@ namespace WorldBuilder.Editor
                     UpperBodyAimPresenter aimPresenter =
                         animator.gameObject.AddComponent<UpperBodyAimPresenter>();
                     aimPresenter.Configure(animator, player.transform);
+                    HumanoidRagdoll ragdoll =
+                        player.GetComponent<HumanoidRagdoll>() ??
+                        player.AddComponent<HumanoidRagdoll>();
+                    ragdoll.Configure(animator);
                     AimStanceLocomotionPresenter stancePresenter =
                         animator.gameObject.GetComponent<
                             AimStanceLocomotionPresenter>();
@@ -1112,6 +1226,9 @@ namespace WorldBuilder.Editor
             Vector3 position,
             Material bodyMaterial,
             Material secondaryMaterial,
+            Material bladeMaterial,
+            Material guardMaterial,
+            Material gripMaterial,
             out Health health)
         {
             GameObject enemy = new GameObject("Raider Prototype");
@@ -1119,14 +1236,9 @@ namespace WorldBuilder.Editor
             enemy.transform.position = position;
             enemy.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
 
-            Transform visual = CreateTrainingDummyVisual(
-                enemy.transform,
-                bodyMaterial,
-                secondaryMaterial);
-
             CharacterController controller = enemy.AddComponent<CharacterController>();
             controller.height = 2f;
-            controller.radius = 0.45f;
+            controller.radius = 0.24f;
             controller.center = Vector3.zero;
             controller.skinWidth = 0.05f;
 
@@ -1134,6 +1246,21 @@ namespace WorldBuilder.Editor
             stableId.EnsureAssigned();
             health = enemy.AddComponent<Health>();
             health.ConfigureWithFloor(88f, 1f);
+            enemy.AddComponent<PlayerInputSource>();
+            enemy.AddComponent<CharacterAimSource>();
+            ThirdPersonMotor motor =
+                enemy.AddComponent<ThirdPersonMotor>();
+            enemy.AddComponent<MeleeWeapon>();
+            CreateHumanoidVisual(
+                enemy,
+                motor,
+                bodyMaterial,
+                secondaryMaterial,
+                bladeMaterial,
+                guardMaterial,
+                gripMaterial);
+            Transform visual =
+                enemy.GetComponentInChildren<Animator>(true).transform;
             EnemyBrain brain = enemy.AddComponent<EnemyBrain>();
             brain.ConfigureAsTrainingDummy();
             HitReactionPresenter hitReaction = enemy.AddComponent<HitReactionPresenter>();

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using WorldBuilder.Gameplay.CameraSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
@@ -53,6 +54,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
             "combat/bow-partial-draw",
             "combat/bow-partial-release",
             "combat/bow-full-draw",
+            "combat/model-inspection-orbit",
+            "combat/model-inspection-restore",
             "combat/bow-aim-yaw-sweep",
             "combat/bow-aim-pitch-sweep",
             "combat/bow-aim-strafe",
@@ -75,6 +78,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private CharacterController enemyController;
         private TwoSlotWeaponPresenter weaponSlots;
         private BowWeapon bowWeapon;
+        private CameraAimTarget cameraAimTarget;
+        private UpperBodyAimPresenter aimPresenter;
         private AimStanceLocomotionPresenter stancePresenter;
         private DiagnosticStep currentStep;
         private int currentStepFrame;
@@ -122,7 +127,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
             if (recorder == null ||
                 motor == null ||
                 input == null ||
-                bowWeapon == null)
+                bowWeapon == null ||
+                cameraAimTarget == null ||
+                aimPresenter == null)
             {
                 throw new InvalidOperationException(
                     "The Combat Lab diagnostic suite could not find every required production component.");
@@ -274,6 +281,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
             weaponSlots =
                 FindFirstObjectByType<TwoSlotWeaponPresenter>();
             bowWeapon = FindFirstObjectByType<BowWeapon>();
+            cameraAimTarget =
+                FindFirstObjectByType<CameraAimTarget>();
+            aimPresenter =
+                FindFirstObjectByType<UpperBodyAimPresenter>();
             stancePresenter =
                 FindFirstObjectByType<
                     AimStanceLocomotionPresenter>();
@@ -483,14 +494,74 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 OnEnd = () =>
                     recorder.MarkLastFrame("sword-sheathed-on-back", true)
             });
-            EnqueueFixed(
-                "combat",
-                "bow-slot",
-                30,
-                default,
-                screenshot: true,
-                onEnd: () =>
-                    recorder.MarkLastFrame("slot-two-bow-equipped", true));
+            Vector3 previousRestingBowElbow = Vector3.zero;
+            bool hasRestingBowElbow = false;
+            float minimumRestingBowElbowSide =
+                float.PositiveInfinity;
+            float maximumRestingBowElbowSide =
+                float.NegativeInfinity;
+            float maximumRestingBowElbowStep = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-slot",
+                FrameCount = 30,
+                Screenshot = true,
+                Intent = _ => default,
+                OnStart = () =>
+                {
+                    previousRestingBowElbow = Vector3.zero;
+                    hasRestingBowElbow = false;
+                    minimumRestingBowElbowSide =
+                        float.PositiveInfinity;
+                    maximumRestingBowElbowSide =
+                        float.NegativeInfinity;
+                    maximumRestingBowElbowStep = 0f;
+                },
+                BeforeFrame = _ =>
+                {
+                    Vector3 localElbow =
+                        motor.transform.InverseTransformPoint(
+                            weaponSlots.PresentedRightElbowPosition);
+                    minimumRestingBowElbowSide = Mathf.Min(
+                        minimumRestingBowElbowSide,
+                        localElbow.x);
+                    maximumRestingBowElbowSide = Mathf.Max(
+                        maximumRestingBowElbowSide,
+                        localElbow.x);
+                    if (hasRestingBowElbow)
+                    {
+                        maximumRestingBowElbowStep = Mathf.Max(
+                            maximumRestingBowElbowStep,
+                            Vector3.Distance(
+                                localElbow,
+                                previousRestingBowElbow));
+                    }
+
+                    previousRestingBowElbow = localElbow;
+                    hasRestingBowElbow = true;
+                },
+                OnEnd = () =>
+                {
+                    if (!hasRestingBowElbow ||
+                        minimumRestingBowElbowSide < 0.10f ||
+                        maximumRestingBowElbowSide > 0.55f ||
+                        maximumRestingBowElbowStep > 0.035f)
+                    {
+                        throw new InvalidOperationException(
+                            "The undrawn bow elbow did not remain quietly " +
+                            "beside the right torso: " +
+                            $"side={minimumRestingBowElbowSide:0.000}-" +
+                            $"{maximumRestingBowElbowSide:0.000}, " +
+                            $"step={maximumRestingBowElbowStep:0.000} m/frame.");
+                    }
+
+                    RequireRigidBowGrip("resting bow");
+                    recorder.MarkLastFrame(
+                        "slot-two-bow-equipped",
+                        true);
+                }
+            });
             int arrowsBeforeGrace = 0;
             EnqueueStep(new DiagnosticStep
             {
@@ -521,7 +592,24 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 Intent(Vector2.zero, blockHeld: true),
                 screenshot: true,
                 onEnd: () =>
-                    recorder.MarkLastFrame("bow-partially-drawn", true));
+                {
+                    if (aimPresenter.BowDrawTorsoYaw < 10f ||
+                        aimPresenter.BowDrawTorsoYaw > 55f)
+                    {
+                        throw new InvalidOperationException(
+                            "The partial bow draw did not progressively turn " +
+                            "the torso into the archer stance: " +
+                            $"yaw={aimPresenter.BowDrawTorsoYaw:0.0} degrees.");
+                    }
+
+                    RequireBowDrawHandOrientation(
+                        "partial bow draw",
+                        60f);
+                    RequireRigidBowGrip("partial bow draw");
+                    recorder.MarkLastFrame(
+                        "bow-partially-drawn",
+                        true);
+                });
             int arrowsBeforePartialRelease = 0;
             EnqueueStep(new DiagnosticStep
             {
@@ -561,7 +649,155 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 Intent(Vector2.zero, blockHeld: true),
                 screenshot: true,
                 onEnd: () =>
-                    recorder.MarkLastFrame("bow-fully-drawn", true));
+                {
+                    if (aimPresenter.BowDrawTorsoYaw < 70f)
+                    {
+                        throw new InvalidOperationException(
+                            "The full bow draw did not finish in the " +
+                            "side-facing archer stance: " +
+                            $"yaw={aimPresenter.BowDrawTorsoYaw:0.0} degrees.");
+                    }
+
+                    RequireBowDrawHandOrientation(
+                        "full bow draw",
+                        20f);
+                    RequireRigidBowGrip("full bow draw");
+                    recorder.MarkLastFrame(
+                        "bow-fully-drawn",
+                        true);
+                });
+            Vector3 inspectionFacingStart = Vector3.forward;
+            Vector3 inspectionAimStart = Vector3.forward;
+            Vector3 inspectionCameraStart = Vector3.forward;
+            Vector3 inspectionArrowStart = Vector3.forward;
+            float maximumInspectionFacingDrift = 0f;
+            float maximumInspectionAimDrift = 0f;
+            float maximumInspectionArrowDrift = 0f;
+            float maximumInspectionCameraOrbit = 0f;
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "model-inspection-orbit",
+                FrameCount = 45,
+                Screenshot = true,
+                OnStart = () =>
+                {
+                    inspectionFacingStart =
+                        motor.transform.forward;
+                    inspectionAimStart =
+                        cameraAimTarget.AimDirection;
+                    Camera activeCamera = Camera.main;
+                    inspectionCameraStart =
+                        activeCamera != null
+                            ? activeCamera.transform.forward
+                            : inspectionAimStart;
+                    inspectionArrowStart =
+                        bowWeapon.PresentedArrowDirection;
+                    maximumInspectionFacingDrift = 0f;
+                    maximumInspectionAimDrift = 0f;
+                    maximumInspectionArrowDrift = 0f;
+                    maximumInspectionCameraOrbit = 0f;
+                    cameraAimTarget.SetInspectionDiagnosticOverride(
+                        true,
+                        new Vector2(1.4f, 0.35f));
+                },
+                Intent = _ => Intent(
+                    Vector2.zero,
+                    blockHeld: true),
+                BeforeFrame = _ =>
+                {
+                    maximumInspectionFacingDrift = Mathf.Max(
+                        maximumInspectionFacingDrift,
+                        Vector3.Angle(
+                            inspectionFacingStart,
+                            motor.transform.forward));
+                    maximumInspectionAimDrift = Mathf.Max(
+                        maximumInspectionAimDrift,
+                        Vector3.Angle(
+                            inspectionAimStart,
+                            cameraAimTarget.AimDirection));
+                    maximumInspectionArrowDrift = Mathf.Max(
+                        maximumInspectionArrowDrift,
+                        Vector3.Angle(
+                            inspectionArrowStart,
+                            bowWeapon.PresentedArrowDirection));
+                    Camera activeCamera = Camera.main;
+                    if (activeCamera != null)
+                    {
+                        maximumInspectionCameraOrbit = Mathf.Max(
+                            maximumInspectionCameraOrbit,
+                            Vector3.Angle(
+                                inspectionCameraStart,
+                                activeCamera.transform.forward));
+                    }
+                },
+                OnEnd = () =>
+                {
+                    bool orbitActive =
+                        cameraAimTarget.InspectionOrbitActive;
+                    cameraAimTarget
+                        .ClearInspectionDiagnosticOverride();
+                    if (!orbitActive ||
+                        maximumInspectionCameraOrbit < 30f ||
+                        maximumInspectionFacingDrift > 1f ||
+                        maximumInspectionAimDrift > 0.1f ||
+                        maximumInspectionArrowDrift > 2f)
+                    {
+                        throw new InvalidOperationException(
+                            "The middle-mouse model inspection orbit did " +
+                            "not preserve the model direction: " +
+                            $"active={orbitActive}, " +
+                            $"cameraOrbit={maximumInspectionCameraOrbit:0.00}, " +
+                            $"facingDrift={maximumInspectionFacingDrift:0.00}, " +
+                            $"aimDrift={maximumInspectionAimDrift:0.00}, " +
+                            $"arrowDrift={maximumInspectionArrowDrift:0.00} degrees.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "model-inspection-orbit-stable",
+                        true);
+                }
+            });
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "model-inspection-restore",
+                FrameCount = 30,
+                Intent = _ => Intent(
+                    Vector2.zero,
+                    blockHeld: true),
+                OnEnd = () =>
+                {
+                    Camera activeCamera = Camera.main;
+                    float cameraRestoreError =
+                        activeCamera != null
+                            ? Vector3.Angle(
+                                inspectionAimStart,
+                                activeCamera.transform.forward)
+                            : 180f;
+                    float facingRestoreError =
+                        Vector3.Angle(
+                            Vector3.ProjectOnPlane(
+                                inspectionAimStart,
+                                Vector3.up),
+                            motor.transform.forward);
+                    if (cameraAimTarget.InspectionOrbitActive ||
+                        cameraRestoreError > 2f ||
+                        facingRestoreError > 6f)
+                    {
+                        throw new InvalidOperationException(
+                            "The camera did not settle back onto the " +
+                            "pre-inspection aim after releasing middle mouse: " +
+                            $"active={cameraAimTarget.InspectionOrbitActive}, " +
+                            $"cameraError={cameraRestoreError:0.00}, " +
+                            $"facingError={facingRestoreError:0.00} degrees.");
+                    }
+
+                    recorder.MarkLastFrame(
+                        "model-inspection-view-restored",
+                        false);
+                }
+            });
             float maximumBowSweepFacingError = 0f;
             float minimumBowSweepElbowSide = float.PositiveInfinity;
             float minimumBowSweepHeadClearance = float.PositiveInfinity;
@@ -844,6 +1080,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                         65f,
                         85f,
                         -1f);
+                    RequireRigidBowGrip("moving bow aim");
                     recorder.MarkLastFrame(
                         "bow-aim-archer-stance-held",
                         true);
@@ -975,6 +1212,39 @@ namespace WorldBuilder.Gameplay.Diagnostics
                         throw new InvalidOperationException(
                             "The full-draw arrow did not remain available for " +
                             "crosshair accuracy validation.");
+                    }
+
+                    float stuckAngleError = Vector3.Angle(
+                        arrow.ImpactDirection,
+                        arrow.transform.forward);
+                    float stuckScaleError = Vector3.Distance(
+                        arrow.LaunchWorldScale,
+                        arrow.transform.lossyScale);
+                    Vector3 rootToSurface =
+                        arrow.HitPoint -
+                        arrow.transform.position;
+                    float surfaceDepth = Vector3.Dot(
+                        rootToSurface,
+                        arrow.transform.forward);
+                    float surfaceLateralError =
+                        Vector3.ProjectOnPlane(
+                            rootToSurface,
+                            arrow.transform.forward).magnitude;
+                    if (stuckAngleError > 0.1f ||
+                        stuckScaleError > 0.0001f ||
+                        Mathf.Abs(
+                            surfaceDepth -
+                            arrow.SurfaceIntersectionDistance) > 0.005f ||
+                        surfaceLateralError > 0.005f)
+                    {
+                        throw new InvalidOperationException(
+                            "The stuck arrow did not preserve its incoming " +
+                            "transform and embedded arrowhead placement: " +
+                            $"angle={stuckAngleError:0.000} degrees, " +
+                            $"scale={stuckScaleError:0.00000}, " +
+                            $"depth={surfaceDepth:0.000}, " +
+                            $"expected={arrow.SurfaceIntersectionDistance:0.000}, " +
+                            $"lateral={surfaceLateralError:0.000} m.");
                     }
 
                     Vector3 toImpact =
@@ -1276,6 +1546,75 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 throw new InvalidOperationException(
                     $"{label} exceeded the aim-facing lock: " +
                     $"{maximumError:0.00} degrees.");
+            }
+        }
+
+        private void RequireBowDrawHandOrientation(
+            string label,
+            float maximumPalmError)
+        {
+            Vector3 palmDirection =
+                weaponSlots != null
+                    ? weaponSlots.PresentedDrawPalmDirection
+                    : Vector3.zero;
+            Vector3 fingerDirection =
+                weaponSlots != null
+                    ? weaponSlots.PresentedDrawFingerDirection
+                    : Vector3.zero;
+            float palmError =
+                motor != null &&
+                palmDirection.sqrMagnitude > 0.5f
+                    ? Vector3.Angle(
+                        palmDirection,
+                        -motor.transform.right)
+                    : 180f;
+            float fingerError =
+                motor != null &&
+                fingerDirection.sqrMagnitude > 0.5f
+                    ? Vector3.Angle(
+                        fingerDirection,
+                        -motor.transform.up)
+                    : 180f;
+            float wristDeviation =
+                weaponSlots != null
+                    ? weaponSlots.PresentedDrawWristDeviation
+                    : 180f;
+            if (palmError > maximumPalmError ||
+                wristDeviation > 1f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} did not retain the neutral palm-left " +
+                    "drawing-hand frame: " +
+                    $"palmError={palmError:0.00}, " +
+                    $"fingerError={fingerError:0.00}, " +
+                    $"wrist={wristDeviation:0.00} degrees.");
+            }
+        }
+
+        private void RequireRigidBowGrip(string label)
+        {
+            float wristDeviation =
+                weaponSlots != null
+                    ? weaponSlots.PresentedBowWristDeviation
+                    : 180f;
+            float gripPositionDeviation =
+                weaponSlots != null
+                    ? weaponSlots.PresentedBowGripPositionDeviation
+                    : 99f;
+            float gripRotationDeviation =
+                weaponSlots != null
+                    ? weaponSlots.PresentedBowGripRotationDeviation
+                    : 180f;
+            if (wristDeviation > 1f ||
+                gripPositionDeviation > 0.0001f ||
+                gripRotationDeviation > 0.1f)
+            {
+                throw new InvalidOperationException(
+                    $"{label} did not retain the rigid neutral-wrist " +
+                    "bow grip: " +
+                    $"wrist={wristDeviation:0.00} degrees, " +
+                    $"position={gripPositionDeviation:0.00000} m, " +
+                    $"rotation={gripRotationDeviation:0.00} degrees.");
             }
         }
 

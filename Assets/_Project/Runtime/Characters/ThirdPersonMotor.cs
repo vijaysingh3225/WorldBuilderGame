@@ -404,19 +404,30 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 worldCenter = transform.TransformPoint(controller.center);
             Vector3 controllerBottom = worldCenter - Vector3.up * (controller.height * 0.5f);
             Vector3 probeOrigin = controllerBottom + Vector3.up * (groundProbeRadius + 0.05f);
-            if (!Physics.SphereCast(
-                    probeOrigin,
-                    groundProbeRadius,
-                    Vector3.down,
-                    out RaycastHit hit,
-                    groundProbeDistance,
-                    groundSupportMask,
-                    QueryTriggerInteraction.Ignore))
+            RaycastHit[] hits = Physics.SphereCastAll(
+                probeOrigin,
+                groundProbeRadius,
+                Vector3.down,
+                groundProbeDistance,
+                groundSupportMask,
+                QueryTriggerInteraction.Ignore);
+            float closestDistance = float.PositiveInfinity;
+            bool supported = false;
+            for (int index = 0; index < hits.Length; index++)
             {
-                return false;
+                Collider hitCollider = hits[index].collider;
+                if (hitCollider == null ||
+                    hitCollider.transform.IsChildOf(transform) ||
+                    hits[index].distance >= closestDistance)
+                {
+                    continue;
+                }
+
+                closestDistance = hits[index].distance;
+                supported = hits[index].normal.y >= 0.55f;
             }
 
-            return hit.normal.y >= 0.55f;
+            return supported;
         }
     }
 }

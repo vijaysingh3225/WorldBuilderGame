@@ -8,10 +8,17 @@ namespace WorldBuilder.Gameplay.Combat
     {
         private const float FlyingLifetime = 20f;
         private const float StuckLifetime = 45f;
+        private const float SurfaceIntersectionLocalZ = 0.605f;
 
         private GameObject owner;
         private Rigidbody body;
         private CapsuleCollider arrowCollider;
+        private Transform stuckTo;
+        private Vector3 stuckLocalPosition;
+        private Vector3 stuckLocalHitPoint;
+        private Quaternion stuckLocalRotation;
+        private Vector3 launchWorldScale;
+        private Quaternion lastFlightRotation;
         private float damage;
         private AudioClip impactClip;
         private float launchedAt;
@@ -19,6 +26,9 @@ namespace WorldBuilder.Gameplay.Combat
 
         public bool IsStuck => stuck;
         public Vector3 HitPoint { get; private set; }
+        public Vector3 ImpactDirection { get; private set; }
+        public Vector3 LaunchWorldScale => launchWorldScale;
+        public float SurfaceIntersectionDistance { get; private set; }
 
         public void Launch(
             GameObject instigator,
@@ -30,6 +40,12 @@ namespace WorldBuilder.Gameplay.Combat
             damage = Mathf.Max(0f, shotDamage);
             impactClip = hitClip;
             launchedAt = Time.time;
+            launchWorldScale = transform.lossyScale;
+            lastFlightRotation = transform.rotation;
+            ImpactDirection =
+                velocity.sqrMagnitude > 0.0001f
+                    ? velocity.normalized
+                    : transform.forward;
 
             arrowCollider = gameObject.AddComponent<CapsuleCollider>();
             arrowCollider.direction = 2;
@@ -76,12 +92,29 @@ namespace WorldBuilder.Gameplay.Combat
                 transform.rotation = Quaternion.LookRotation(
                     velocity.normalized,
                     transform.up);
+                lastFlightRotation = transform.rotation;
+                ImpactDirection = velocity.normalized;
             }
 
             if (Time.time - launchedAt >= FlyingLifetime)
             {
                 Destroy(gameObject);
             }
+        }
+
+        private void LateUpdate()
+        {
+            if (!stuck || stuckTo == null)
+            {
+                return;
+            }
+
+            transform.SetPositionAndRotation(
+                stuckTo.TransformPoint(stuckLocalPosition),
+                stuckTo.rotation * stuckLocalRotation);
+            transform.localScale = launchWorldScale;
+            HitPoint =
+                stuckTo.TransformPoint(stuckLocalHitPoint);
         }
 
         private void OnCollisionEnter(Collision collision)
@@ -101,16 +134,21 @@ namespace WorldBuilder.Gameplay.Combat
                 ? contact.point
                 : transform.position + transform.forward * 0.60f;
             HitPoint = hitPoint;
+            ImpactDirection =
+                lastFlightRotation * Vector3.forward;
             DamageService.TryApply(
                 collision.collider,
                 new DamageRequest(
                     owner,
                     damage,
                     hitPoint,
-                    transform.forward,
+                    ImpactDirection,
                     "prototype-bow"));
             PlayImpactAudio();
-            StickTo(collision.collider.transform);
+            StickTo(
+                collision.collider.transform,
+                hitPoint,
+                lastFlightRotation);
         }
 
         private void PlayImpactAudio()
@@ -133,7 +171,10 @@ namespace WorldBuilder.Gameplay.Combat
             source.PlayOneShot(impactClip, 0.88f);
         }
 
-        private void StickTo(Transform hitTransform)
+        private void StickTo(
+            Transform hitTransform,
+            Vector3 hitPoint,
+            Quaternion impactRotation)
         {
             stuck = true;
             if (body != null)
@@ -149,7 +190,32 @@ namespace WorldBuilder.Gameplay.Combat
                 arrowCollider.enabled = false;
             }
 
-            transform.SetParent(hitTransform, true);
+            SurfaceIntersectionDistance =
+                SurfaceIntersectionLocalZ *
+                Mathf.Abs(launchWorldScale.z);
+            Vector3 impactForward =
+                impactRotation * Vector3.forward;
+            Vector3 embeddedRootPosition =
+                hitPoint -
+                impactForward * SurfaceIntersectionDistance;
+            transform.SetParent(null, true);
+            transform.SetPositionAndRotation(
+                embeddedRootPosition,
+                impactRotation);
+            transform.localScale = launchWorldScale;
+            stuckTo = hitTransform;
+            if (stuckTo != null)
+            {
+                stuckLocalPosition =
+                    stuckTo.InverseTransformPoint(
+                        embeddedRootPosition);
+                stuckLocalHitPoint =
+                    stuckTo.InverseTransformPoint(hitPoint);
+                stuckLocalRotation =
+                    Quaternion.Inverse(stuckTo.rotation) *
+                    impactRotation;
+            }
+
             GameplayEventLog.Publish(
                 "bow-arrow-stuck",
                 owner,

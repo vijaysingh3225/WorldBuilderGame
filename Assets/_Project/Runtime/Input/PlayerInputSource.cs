@@ -58,13 +58,17 @@ namespace WorldBuilder.Gameplay.Input
                 mouse != null && mouse.leftButton.wasPressedThisFrame;
             bool secondaryClickPressed =
                 mouse != null && mouse.rightButton.wasPressedThisFrame;
+            bool inspectionClickPressed =
+                mouse != null && mouse.middleButton.wasPressedThisFrame;
 
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
-            else if ((primaryClickPressed || secondaryClickPressed) &&
+            else if ((primaryClickPressed ||
+                    secondaryClickPressed ||
+                    inspectionClickPressed) &&
                 Cursor.lockState != CursorLockMode.Locked)
             {
                 LockCursor();

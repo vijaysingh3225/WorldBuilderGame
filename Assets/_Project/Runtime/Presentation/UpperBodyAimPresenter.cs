@@ -1,4 +1,5 @@
 using UnityEngine;
+using WorldBuilder.Gameplay.CameraSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
@@ -14,6 +15,8 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Animator animator;
         [SerializeField] private Transform characterRoot;
         [SerializeField] private Camera aimCamera;
+        [SerializeField] private CameraAimTarget aimTarget;
+        [SerializeField] private CharacterAimSource characterAimSource;
         [SerializeField] private PlayerInputSource input;
         [SerializeField] private BowWeapon bowWeapon;
         [SerializeField] private ShortSwordBlockPresenter blockPresenter;
@@ -22,6 +25,12 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField, Range(0f, 1f)] private float spineShare = 0.20f;
         [SerializeField, Range(0f, 1f)] private float chestShare = 0.34f;
         [SerializeField, Range(0f, 1f)] private float upperChestShare = 0.46f;
+        [SerializeField, Range(45f, 90f)]
+        private float fullDrawTorsoYaw = 78f;
+        [SerializeField, Range(0.02f, 0.3f)]
+        private float bowTorsoYawSmoothTime = 0.08f;
+        [SerializeField, Range(0f, 1f)]
+        private float bowHeadCounterRotation = 1f;
         [SerializeField, Range(0f, 20f)] private float walkTorsoYaw = 12f;
         [SerializeField, Range(0f, 24f)] private float runTorsoYaw = 18f;
         [SerializeField, Range(0f, 1f)] private float locomotionHeadLock = 1f;
@@ -38,6 +47,8 @@ namespace WorldBuilder.Gameplay.Presentation
         private float yawVelocity;
         private float locomotionYaw;
         private float locomotionYawVelocity;
+        private float bowDrawTorsoYaw;
+        private float bowDrawTorsoYawVelocity;
         private float idleHandSeparation;
         private bool hasIdleHandSeparation;
         private Quaternion idleHeadRootRotation;
@@ -47,6 +58,66 @@ namespace WorldBuilder.Gameplay.Presentation
         private AimStanceLocomotionPresenter stancePresenter;
 
         public float CurrentYaw => currentYaw;
+        public float BowDrawTorsoYaw => bowDrawTorsoYaw;
+
+        public Vector3 PredictFullDrawHeadPosition()
+        {
+            if (head == null || characterRoot == null)
+            {
+                return head != null
+                    ? head.position
+                    : transform.position;
+            }
+
+            Quaternion spineRotation =
+                spine != null
+                    ? spine.rotation
+                    : Quaternion.identity;
+            Quaternion chestRotation =
+                chest != null
+                    ? chest.rotation
+                    : Quaternion.identity;
+            Quaternion upperChestRotation =
+                upperChest != null
+                    ? upperChest.rotation
+                    : Quaternion.identity;
+            Quaternion headRotation = head.rotation;
+            float remainingBowYaw =
+                fullDrawTorsoYaw - bowDrawTorsoYaw;
+            Vector3 up = characterRoot.up;
+            ApplyWorldYaw(
+                spine,
+                remainingBowYaw * spineShare,
+                up);
+            ApplyWorldYaw(
+                chest,
+                remainingBowYaw * chestShare,
+                up);
+            ApplyWorldYaw(
+                upperChest,
+                remainingBowYaw * upperChestShare,
+                up);
+            Vector3 predictedPosition = head.position;
+
+            if (spine != null)
+            {
+                spine.rotation = spineRotation;
+            }
+
+            if (chest != null)
+            {
+                chest.rotation = chestRotation;
+            }
+
+            if (upperChest != null)
+            {
+                upperChest.rotation = upperChestRotation;
+            }
+
+            head.rotation = headRotation;
+            return predictedPosition;
+        }
+
         public bool BowAimLocked =>
             bowWeapon != null &&
             bowWeapon.WeaponEquipped &&
@@ -72,7 +143,13 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             animator = targetAnimator;
             characterRoot = root;
+            characterAimSource =
+                root != null
+                    ? root.GetComponent<CharacterAimSource>()
+                    : null;
             aimCamera = targetCamera;
+            aimTarget ??=
+                FindFirstObjectByType<CameraAimTarget>();
             motor = root != null ? root.GetComponent<ThirdPersonMotor>() : null;
             ResolveCombatReferences();
             ResolveBones();
@@ -82,8 +159,14 @@ namespace WorldBuilder.Gameplay.Presentation
         private void Awake()
         {
             animator ??= GetComponent<Animator>();
+            aimTarget ??=
+                FindFirstObjectByType<CameraAimTarget>();
             characterRoot ??= GetComponentInParent<WorldBuilder.Gameplay.Characters.ThirdPersonMotor>()
                 ?.transform;
+            characterAimSource ??=
+                characterRoot != null
+                    ? characterRoot.GetComponent<CharacterAimSource>()
+                    : GetComponentInParent<CharacterAimSource>();
             motor ??= characterRoot != null
                 ? characterRoot.GetComponent<ThirdPersonMotor>()
                 : null;
@@ -96,6 +179,29 @@ namespace WorldBuilder.Gameplay.Presentation
             out Vector3 worldDirection)
         {
             worldDirection = Vector3.zero;
+            if (characterAimSource != null &&
+                characterAimSource.OverrideActive)
+            {
+                worldDirection = Vector3.ProjectOnPlane(
+                    characterAimSource.Direction,
+                    Vector3.up);
+                return worldDirection.sqrMagnitude > 0.001f;
+            }
+
+            if (characterAimSource != null &&
+                !characterAimSource.CameraFallbackAllowed)
+            {
+                return false;
+            }
+
+            if (aimTarget != null &&
+                aimTarget.InspectionOrbitActive)
+            {
+                worldDirection =
+                    aimTarget.InspectionFacingDirection;
+                return worldDirection.sqrMagnitude > 0.001f;
+            }
+
             if (!AimLocked)
             {
                 return false;
@@ -124,12 +230,29 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            if (aimCamera == null)
+            if (characterAimSource != null &&
+                !characterAimSource.OverrideActive &&
+                !characterAimSource.CameraFallbackAllowed)
+            {
+                currentYaw = 0f;
+                yawVelocity = 0f;
+                locomotionYaw = 0f;
+                locomotionYawVelocity = 0f;
+                bowDrawTorsoYaw = 0f;
+                bowDrawTorsoYawVelocity = 0f;
+                return;
+            }
+
+            if ((characterAimSource == null ||
+                 !characterAimSource.OverrideActive) &&
+                aimCamera == null)
             {
                 aimCamera = Camera.main;
             }
 
-            if (aimCamera == null)
+            if ((characterAimSource == null ||
+                 !characterAimSource.OverrideActive) &&
+                aimCamera == null)
             {
                 return;
             }
@@ -137,8 +260,18 @@ namespace WorldBuilder.Gameplay.Presentation
             Vector3 up = characterRoot.up;
             Vector3 rootForward =
                 Vector3.ProjectOnPlane(characterRoot.forward, up).normalized;
+            Vector3 aimDirection =
+                characterAimSource != null &&
+                characterAimSource.OverrideActive
+                    ? characterAimSource.Direction
+                    : aimTarget != null &&
+                      aimTarget.InspectionOrbitActive
+                        ? aimTarget.AimDirection
+                        : aimCamera.transform.forward;
             Vector3 aimForward =
-                Vector3.ProjectOnPlane(aimCamera.transform.forward, up).normalized;
+                Vector3.ProjectOnPlane(
+                    aimDirection,
+                    up).normalized;
             if (rootForward.sqrMagnitude < 0.9f || aimForward.sqrMagnitude < 0.9f)
             {
                 return;
@@ -155,10 +288,41 @@ namespace WorldBuilder.Gameplay.Presentation
                 yawSmoothTime);
 
             UpdateLocomotionYaw(rootForward);
-            ApplyWorldYaw(spine, (currentYaw + locomotionYaw) * spineShare, up);
-            ApplyWorldYaw(chest, (currentYaw + locomotionYaw) * chestShare, up);
-            ApplyWorldYaw(upperChest, (currentYaw + locomotionYaw) * upperChestShare, up);
+            UpdateBowDrawTorsoYaw();
+            float sharedYaw =
+                currentYaw +
+                locomotionYaw +
+                bowDrawTorsoYaw;
+            ApplyWorldYaw(spine, sharedYaw * spineShare, up);
+            ApplyWorldYaw(chest, sharedYaw * chestShare, up);
+            ApplyWorldYaw(
+                upperChest,
+                sharedYaw * upperChestShare,
+                up);
+            ApplyWorldYaw(
+                head,
+                -bowDrawTorsoYaw * bowHeadCounterRotation,
+                up);
             StabilizeHeadRotation(up);
+        }
+
+        private void UpdateBowDrawTorsoYaw()
+        {
+            float drawProgress =
+                BowAimLocked && bowWeapon != null
+                    ? bowWeapon.DrawNormalized
+                    : 0f;
+            float easedDraw =
+                drawProgress *
+                drawProgress *
+                (3f - 2f * drawProgress);
+            float targetYaw =
+                fullDrawTorsoYaw * easedDraw;
+            bowDrawTorsoYaw = Mathf.SmoothDampAngle(
+                bowDrawTorsoYaw,
+                targetYaw,
+                ref bowDrawTorsoYawVelocity,
+                bowTorsoYawSmoothTime);
         }
 
         private void UpdateLocomotionYaw(Vector3 rootForward)

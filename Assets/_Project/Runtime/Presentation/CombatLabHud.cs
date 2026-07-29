@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
+using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 
 namespace WorldBuilder.Gameplay.Presentation
@@ -22,6 +23,7 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Health enemyHealth;
         [SerializeField] private TwoSlotWeaponPresenter weaponSlots;
         [SerializeField] private BowWeapon bowWeapon;
+        [SerializeField] private EnemyBrain enemyBrain;
 
         private readonly List<DamagePopup> damagePopups = new List<DamagePopup>();
         private GUIStyle titleStyle;
@@ -31,6 +33,7 @@ namespace WorldBuilder.Gameplay.Presentation
         private GUIStyle damageShadowStyle;
         private Texture2D whiteTexture;
         private Texture2D bowCrosshairTexture;
+        private Texture2D bowCrosshairDotTexture;
         private Health subscribedEnemy;
         private int damagePopupSequence;
 
@@ -38,6 +41,19 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             playerHealth = player;
             enemyHealth = enemy;
+            weaponSlots =
+                player != null
+                    ? player.GetComponentInChildren<
+                        TwoSlotWeaponPresenter>(true)
+                    : null;
+            bowWeapon =
+                player != null
+                    ? player.GetComponentInChildren<BowWeapon>(true)
+                    : null;
+            enemyBrain =
+                enemy != null
+                    ? enemy.GetComponent<EnemyBrain>()
+                    : null;
             SubscribeToEnemyDamage();
         }
 
@@ -71,7 +87,7 @@ namespace WorldBuilder.Gameplay.Presentation
             bowWeapon ??=
                 Object.FindFirstObjectByType<BowWeapon>();
             GUI.Label(new Rect(24f, 20f, 580f, 30f), "MOVEMENT LAB  /  GAIT TUNING CHECKPOINT", titleStyle);
-            GUI.Label(new Rect(24f, 54f, 1100f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   LMB sword attack   RMB sword block / hold bow draw and release   1/2 or wheel switch   R restart", textStyle);
+            GUI.Label(new Rect(24f, 54f, 1500f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   Hold MMB + drag inspect model   LMB sword attack   RMB sword block / bow draw   1/2 switch   T activate dummy AI   R restart", textStyle);
 
             DrawHealthBar(new Rect(24f, 88f, 260f, 18f), playerHealth, new Color(0.25f, 0.68f, 0.45f), "PLAYER");
             string slotLabel = weaponSlots == null ||
@@ -90,7 +106,15 @@ namespace WorldBuilder.Gameplay.Presentation
                     DrawBowCrosshair();
                 }
             }
-            DrawHealthBar(new Rect(Screen.width - 284f, 24f, 260f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), "TARGET DUMMY");
+            enemyBrain ??=
+                enemyHealth != null
+                    ? enemyHealth.GetComponent<EnemyBrain>()
+                    : null;
+            string enemyLabel =
+                enemyBrain != null && enemyBrain.IsActivated
+                    ? "AI COMBATANT"
+                    : "TARGET DUMMY  /  T TO ACTIVATE";
+            DrawHealthBar(new Rect(Screen.width - 344f, 24f, 320f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), enemyLabel);
             DrawDamagePopups();
 
             if (playerHealth != null && !playerHealth.IsAlive)
@@ -226,18 +250,49 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void DrawBowCrosshair()
         {
-            const float size = 18f;
+            const float size = 23f;
+            const float shadowSize = 25f;
+            const float centerRingSize = 5.5f;
+            const float centerDotSize = 2.5f;
+            float centerX = Screen.width * 0.5f;
+            float centerY = Screen.height * 0.5f;
             Color previous = GUI.color;
-            GUI.color = bowWeapon.CanFire
-                ? new Color(1f, 0.92f, 0.70f, 0.95f)
-                : new Color(0.84f, 0.86f, 0.88f, 0.78f);
+            GUI.color = new Color(0.02f, 0.025f, 0.03f, 0.28f);
             GUI.DrawTexture(
                 new Rect(
-                    (Screen.width - size) * 0.5f,
-                    (Screen.height - size) * 0.5f,
+                    centerX - shadowSize * 0.5f,
+                    centerY - shadowSize * 0.5f,
+                    shadowSize,
+                    shadowSize),
+                bowCrosshairTexture);
+            GUI.color = bowWeapon.CanFire
+                ? new Color(1f, 0.92f, 0.70f, 0.66f)
+                : new Color(0.84f, 0.86f, 0.88f, 0.52f);
+            GUI.DrawTexture(
+                new Rect(
+                    centerX - size * 0.5f,
+                    centerY - size * 0.5f,
                     size,
                     size),
                 bowCrosshairTexture);
+            GUI.color = new Color(0.04f, 0.05f, 0.06f, 0.68f);
+            GUI.DrawTexture(
+                new Rect(
+                    centerX - centerRingSize * 0.5f,
+                    centerY - centerRingSize * 0.5f,
+                    centerRingSize,
+                    centerRingSize),
+                bowCrosshairDotTexture);
+            GUI.color = bowWeapon.CanFire
+                ? new Color(0.90f, 0.64f, 0.20f, 0.84f)
+                : new Color(0.72f, 0.74f, 0.76f, 0.68f);
+            GUI.DrawTexture(
+                new Rect(
+                    centerX - centerDotSize * 0.5f,
+                    centerY - centerDotSize * 0.5f,
+                    centerDotSize,
+                    centerDotSize),
+                bowCrosshairDotTexture);
             GUI.color = previous;
         }
 
@@ -249,7 +304,8 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             whiteTexture = Texture2D.whiteTexture;
-            bowCrosshairTexture = CreateCrosshairTexture(32);
+            bowCrosshairTexture = CreateCrosshairTexture(128);
+            bowCrosshairDotTexture = CreateCircleTexture(24);
             titleStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = 16,
@@ -294,8 +350,82 @@ namespace WorldBuilder.Gameplay.Presentation
             };
             Color[] pixels = new Color[size * size];
             float center = (size - 1) * 0.5f;
-            float radius = size * 0.34f;
-            float thickness = size * 0.075f;
+            float halfSize = size * 0.5f;
+            float antialias = 1.5f / halfSize;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float normalizedX =
+                        (x - center) / halfSize;
+                    float normalizedY =
+                        (y - center) / halfSize;
+                    float absoluteX = Mathf.Abs(normalizedX);
+                    float absoluteY = Mathf.Abs(normalizedY);
+                    float verticalProgress =
+                        absoluteY / 0.88f;
+                    float horizontalProgress =
+                        absoluteX / 0.88f;
+                    float verticalWidth =
+                        CrosshairArmWidth(verticalProgress);
+                    float horizontalWidth =
+                        CrosshairArmWidth(horizontalProgress);
+                    float verticalAlpha =
+                        absoluteY <= 0.88f
+                            ? 1f - Smooth01(
+                                Mathf.InverseLerp(
+                                    verticalWidth,
+                                    verticalWidth + antialias,
+                                    absoluteX))
+                            : 0f;
+                    float horizontalAlpha =
+                        absoluteX <= 0.88f
+                            ? 1f - Smooth01(
+                                Mathf.InverseLerp(
+                                    horizontalWidth,
+                                    horizontalWidth + antialias,
+                                    absoluteY))
+                            : 0f;
+                    float centerDistance = Mathf.Sqrt(
+                        normalizedX * normalizedX +
+                        normalizedY * normalizedY);
+                    float centerCutout = Smooth01(
+                        Mathf.InverseLerp(
+                            0.10f,
+                            0.13f,
+                            centerDistance));
+                    float alpha =
+                        Mathf.Max(
+                            verticalAlpha,
+                            horizontalAlpha) *
+                        centerCutout;
+                    pixels[y * size + x] =
+                        new Color(1f, 1f, 1f, alpha);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D CreateCircleTexture(int size)
+        {
+            Texture2D texture = new Texture2D(
+                size,
+                size,
+                TextureFormat.RGBA32,
+                false)
+            {
+                name = "Bow Crosshair Center Dot",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            Color[] pixels = new Color[size * size];
+            float center = (size - 1) * 0.5f;
+            float radius = size * 0.42f;
+            float antialias = size * 0.08f;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
@@ -303,18 +433,43 @@ namespace WorldBuilder.Gameplay.Presentation
                     float distance = Vector2.Distance(
                         new Vector2(x, y),
                         new Vector2(center, center));
-                    float ring = 1f - Mathf.Clamp01(
-                        Mathf.Abs(distance - radius) / thickness);
-                    float dot = 1f - Mathf.Clamp01(
-                        distance / (size * 0.055f));
+                    float alpha = 1f - Smooth01(
+                        Mathf.InverseLerp(
+                            radius - antialias,
+                            radius,
+                            distance));
                     pixels[y * size + x] =
-                        new Color(1f, 1f, 1f, Mathf.Max(ring, dot));
+                        new Color(1f, 1f, 1f, alpha);
                 }
             }
 
             texture.SetPixels(pixels);
             texture.Apply(false, true);
             return texture;
+        }
+
+        private static float Smooth01(float value)
+        {
+            value = Mathf.Clamp01(value);
+            return value * value * (3f - 2f * value);
+        }
+
+        private static float CrosshairArmWidth(float progress)
+        {
+            progress = Mathf.Clamp01(progress);
+            if (progress <= 0.42f)
+            {
+                return Mathf.Lerp(
+                    0.10f,
+                    0.072f,
+                    progress / 0.42f);
+            }
+
+            return 0.072f *
+                (1f - Mathf.InverseLerp(
+                    0.42f,
+                    1f,
+                    progress));
         }
     }
 }
