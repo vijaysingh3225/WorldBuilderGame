@@ -1,7 +1,7 @@
 """Reopen and validate the WorldBuilder direct authoring workspace.
 
 Usage:
-    blender ShortSword_DirectAuthoring.blend --background \
+    blender ShortSword_StationaryAttack_IK.blend --background \
         --python validate_direct_authoring_workspace.py -- output_directory
 """
 
