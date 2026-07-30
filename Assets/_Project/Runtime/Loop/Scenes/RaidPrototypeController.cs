@@ -26,6 +26,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private GameplayLoopBootstrap bootstrap;
         private GameSession session;
         private WeaponGridSandboxToolkit gridToolkit;
+        private BowWeapon bowWeapon;
         private Transform playerRoot;
         private bool initialized;
         private bool playerDeathSubscribed;
@@ -133,57 +134,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void OnGUI()
         {
-            Rect panel = new Rect(
-                22f,
-                22f,
-                Mathf.Min(390f, Screen.width - 44f),
-                200f);
-            LoopSceneGui.DrawPanel(
-                panel,
-                new Color(0.68f, 0.32f, 0.20f));
-
-            float x = panel.x + 22f;
-            float width = panel.width - 44f;
-            float y = panel.y + 18f;
-            GUI.Label(
-                new Rect(x, y, width, 28f),
-                "RAID PROTOTYPE",
-                LoopSceneGui.Heading);
-            y += 30f;
-
-            if (session != null &&
-                session.ActiveRaid != null)
+            DrawHealthBar(new Rect(24f, 40f, 300f, 18f));
+            bowWeapon ??= FindFirstObjectByType<BowWeapon>();
+            if (bowWeapon != null &&
+                (bowWeapon.IsDrawing ||
+                 bowWeapon.DrawNormalized > 0f))
             {
-                GUI.Label(
-                    new Rect(x, y, width, 22f),
-                    $"Seed  {session.ActiveRaid.LaunchRequest.Seed}" +
-                    $"    /    Mode  {session.LaunchContext.Mode}",
-                    LoopSceneGui.Muted);
+                DrawBowCharge(new Rect(24f, 70f, 300f, 12f));
             }
-            else
-            {
-                GUI.Label(
-                    new Rect(x, y, width, 22f),
-                    "Preparing raid session…",
-                    LoopSceneGui.Muted);
-            }
-
-            y += 26f;
-            DrawHealthBar(
-                new Rect(x, y, width, 18f));
-            y += 30f;
-            GUI.Label(
-                new Rect(x, y, width, 22f),
-                $"Enemies alive  {CountLivingEnemies()}" +
-                $"    /    Defeated  {DefeatedCount}" +
-                $"    /    Loot  {lootCollected}",
-                LoopSceneGui.Body);
-            y += 28f;
-            GUI.Label(
-                new Rect(x, y, width, 46f),
-                statusMessage +
-                "\n[Tab] weapon grid    [H] abandon and return home",
-                LoopSceneGui.Muted);
 
             if (completionPending)
             {
@@ -539,6 +497,26 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                       $" / {Mathf.CeilToInt(playerHealth.Maximum)}"
                     : "HEALTH  —",
                 LoopSceneGui.Muted);
+        }
+
+        private void DrawBowCharge(Rect rect)
+        {
+            Color previous = GUI.color;
+            GUI.color =
+                new Color(0.02f, 0.025f, 0.03f, 0.9f);
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = bowWeapon.CanFire
+                ? new Color(0.90f, 0.64f, 0.20f)
+                : new Color(0.42f, 0.43f, 0.45f);
+            GUI.DrawTexture(
+                new Rect(
+                    rect.x + 2f,
+                    rect.y + 2f,
+                    (rect.width - 4f) *
+                        bowWeapon.DrawNormalized,
+                    rect.height - 4f),
+                Texture2D.whiteTexture);
+            GUI.color = previous;
         }
     }
 }

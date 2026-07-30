@@ -9,6 +9,34 @@ namespace WorldBuilder.Tests.EditMode
 {
     public sealed class GameplayLoopTests
     {
+        [Test]
+        public void InventoryMarksStoredItemsWithinFourBySixCapacity()
+        {
+            PlayerProfile profile =
+                PlayerProfile.CreateNew("inventory-test");
+            for (int index = 0;
+                 index < PlayerProfile.InventoryCapacity + 1;
+                 index++)
+            {
+                StorageEntry entry =
+                    StorageEntry.Create($"artifact-{index}");
+                profile.AddToStorage(entry);
+                bool moved =
+                    profile.TryMoveToInventory(entry.EntryId);
+                Assert.That(
+                    moved,
+                    Is.EqualTo(
+                        index < PlayerProfile.InventoryCapacity));
+            }
+
+            Assert.That(
+                profile.InventoryEntryIds,
+                Has.Count.EqualTo(24));
+            string firstId = profile.InventoryEntryIds[0];
+            Assert.That(profile.MoveToStorage(firstId), Is.True);
+            Assert.That(profile.IsInInventory(firstId), Is.False);
+        }
+
         private string temporaryDirectory;
 
         [SetUp]

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Loop.Scenes;
 
 namespace WorldBuilder.Gameplay.WeaponGrid
 {
@@ -77,6 +78,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         private void Update()
         {
             if (toggleWithTab &&
+                !SceneNavigationMenu.IsAnyOpen &&
                 Keyboard.current != null &&
                 Keyboard.current.tabKey.wasPressedThisFrame)
             {
@@ -147,6 +149,11 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                     inputSource.UserInterfaceCaptureActive;
                 inputSource.SetUserInterfaceCapture(true);
             }
+        }
+
+        public void SetToggleWithTab(bool enabled)
+        {
+            toggleWithTab = enabled;
         }
 
         public void Toggle()

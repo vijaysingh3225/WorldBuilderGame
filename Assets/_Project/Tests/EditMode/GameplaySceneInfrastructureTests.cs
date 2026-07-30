@@ -77,6 +77,23 @@ namespace WorldBuilder.Tests.EditMode
                 serialized.FindProperty("playerInput")
                     .objectReferenceValue,
                 Is.SameAs(player.GetComponent<PlayerInputSource>()));
+            Assert.That(
+                Object.FindFirstObjectByType<HomeInventoryController>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null);
+            Assert.That(
+                Object.FindObjectsByType<HomeStorageChest>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None),
+                Has.Length.EqualTo(4));
+            Assert.That(
+                Object.FindFirstObjectByType<HomeRaidDoor>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null);
+            Assert.That(
+                Object.FindFirstObjectByType<SceneNavigationMenu>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null);
             AssertSharedGrid();
             AssertDirectMode(GameLaunchMode.HomeSandbox);
         }
@@ -135,6 +152,10 @@ namespace WorldBuilder.Tests.EditMode
                 crosshair.BowWeapon,
                 Is.SameAs(
                     player.GetComponentInChildren<BowWeapon>(true)));
+            Assert.That(
+                Object.FindFirstObjectByType<SceneNavigationMenu>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null);
             AssertSharedGrid();
             AssertDirectMode(GameLaunchMode.RaidSandbox);
         }
@@ -146,6 +167,10 @@ namespace WorldBuilder.Tests.EditMode
 
             Assert.That(
                 GameObject.FindGameObjectWithTag("Player"),
+                Is.Not.Null);
+            Assert.That(
+                Object.FindFirstObjectByType<SceneNavigationMenu>(
+                    FindObjectsInactive.Include),
                 Is.Not.Null);
             AssertSharedGrid();
             AssertDirectMode(GameLaunchMode.CombatLab);

@@ -159,7 +159,8 @@ namespace WorldBuilder.Gameplay.Loop
     [Serializable]
     public sealed class PlayerProfile
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
+        public const int InventoryCapacity = 24;
 
         [SerializeField] private int schemaVersion = CurrentSchemaVersion;
         [SerializeField] private string profileId;
@@ -167,6 +168,8 @@ namespace WorldBuilder.Gameplay.Loop
         [SerializeField] private string createdUtc;
         [SerializeField] private string lastSavedUtc;
         [SerializeField] private List<StorageEntry> storage = new List<StorageEntry>();
+        [SerializeField] private List<string> inventoryEntryIds =
+            new List<string>();
         [SerializeField] private WeaponInstanceRecord weaponOne;
         [SerializeField] private WeaponInstanceRecord weaponTwo;
 
@@ -176,6 +179,8 @@ namespace WorldBuilder.Gameplay.Loop
         public string CreatedUtc => createdUtc;
         public string LastSavedUtc => lastSavedUtc;
         public IReadOnlyList<StorageEntry> Storage => storage;
+        public IReadOnlyList<string> InventoryEntryIds =>
+            inventoryEntryIds;
         public WeaponInstanceRecord WeaponOne => weaponOne;
         public WeaponInstanceRecord WeaponTwo => weaponTwo;
 
@@ -262,7 +267,64 @@ namespace WorldBuilder.Gameplay.Loop
             }
 
             storage.RemoveAt(index);
+            inventoryEntryIds.RemoveAll(id =>
+                string.Equals(id, entryId, StringComparison.Ordinal));
             return true;
+        }
+
+        public StorageEntry FindStorageEntry(string entryId)
+        {
+            if (string.IsNullOrWhiteSpace(entryId))
+            {
+                return null;
+            }
+
+            return storage.Find(entry =>
+                string.Equals(
+                    entry.EntryId,
+                    entryId,
+                    StringComparison.Ordinal));
+        }
+
+        public bool IsInInventory(string entryId)
+        {
+            return !string.IsNullOrWhiteSpace(entryId) &&
+                inventoryEntryIds.Exists(id =>
+                    string.Equals(
+                        id,
+                        entryId,
+                        StringComparison.Ordinal));
+        }
+
+        public bool TryMoveToInventory(string entryId)
+        {
+            if (inventoryEntryIds.Count >= InventoryCapacity ||
+                FindStorageEntry(entryId) == null)
+            {
+                return false;
+            }
+
+            if (IsInInventory(entryId))
+            {
+                return true;
+            }
+
+            inventoryEntryIds.Add(entryId);
+            return true;
+        }
+
+        public bool MoveToStorage(string entryId)
+        {
+            if (string.IsNullOrWhiteSpace(entryId))
+            {
+                return false;
+            }
+
+            return inventoryEntryIds.RemoveAll(id =>
+                string.Equals(
+                    id,
+                    entryId,
+                    StringComparison.Ordinal)) > 0;
         }
 
         public void Rename(string value)
@@ -283,6 +345,8 @@ namespace WorldBuilder.Gameplay.Loop
                 createdUtc = createdUtc,
                 lastSavedUtc = lastSavedUtc,
                 storage = new List<StorageEntry>(storage.Count),
+                inventoryEntryIds =
+                    new List<string>(inventoryEntryIds),
                 weaponOne = weaponOne?.Clone(),
                 weaponTwo = weaponTwo?.Clone(),
             };
@@ -315,6 +379,33 @@ namespace WorldBuilder.Gameplay.Loop
                 entry.Normalize();
             }
 
+            inventoryEntryIds ??= new List<string>();
+            var validEntryIds = new HashSet<string>(
+                StringComparer.Ordinal);
+            for (int index = 0; index < storage.Count; index++)
+            {
+                validEntryIds.Add(storage[index].EntryId);
+            }
+
+            var normalizedInventoryIds = new List<string>(
+                Mathf.Min(
+                    InventoryCapacity,
+                    inventoryEntryIds.Count));
+            for (int index = 0;
+                 index < inventoryEntryIds.Count &&
+                 normalizedInventoryIds.Count < InventoryCapacity;
+                 index++)
+            {
+                string entryId = inventoryEntryIds[index];
+                if (!string.IsNullOrWhiteSpace(entryId) &&
+                    validEntryIds.Contains(entryId) &&
+                    !normalizedInventoryIds.Contains(entryId))
+                {
+                    normalizedInventoryIds.Add(entryId);
+                }
+            }
+
+            inventoryEntryIds = normalizedInventoryIds;
             weaponOne ??= WeaponInstanceRecord.Create("short-sword", "Short Sword");
             weaponTwo ??= WeaponInstanceRecord.Create("hunting-bow", "Hunting Bow");
             weaponOne.Normalize("short-sword", "Short Sword");
@@ -346,6 +437,10 @@ namespace WorldBuilder.Gameplay.Loop
             {
                 storage.Add(entry.Clone());
             }
+
+            inventoryEntryIds ??= new List<string>();
+            inventoryEntryIds.Clear();
+            inventoryEntryIds.AddRange(snapshot.inventoryEntryIds);
 
             if (weaponOne == null)
             {

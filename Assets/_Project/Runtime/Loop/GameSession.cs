@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace WorldBuilder.Gameplay.Loop
 {
@@ -52,7 +53,7 @@ namespace WorldBuilder.Gameplay.Loop
 
         public RaidLaunchRequest CreateRaidLaunchRequest(
             int? seedOverride = null,
-            string[] carriedStorageEntryIds = null)
+            IEnumerable<string> carriedStorageEntryIds = null)
         {
             return RaidLaunchRequest.Create(
                 LaunchContext,
@@ -89,7 +90,7 @@ namespace WorldBuilder.Gameplay.Loop
 
         public RaidSession BeginRaid(
             int? seedOverride = null,
-            string[] carriedStorageEntryIds = null)
+            IEnumerable<string> carriedStorageEntryIds = null)
         {
             return BeginRaid(
                 CreateRaidLaunchRequest(seedOverride, carriedStorageEntryIds));

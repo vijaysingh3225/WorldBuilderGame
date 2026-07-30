@@ -1,43 +1,23 @@
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
-using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
     public sealed class CombatLabHud : MonoBehaviour
     {
-        private sealed class DamagePopup
-        {
-            public float Amount;
-            public Vector3 WorldPosition;
-            public float CreatedAt;
-            public float HorizontalOffset;
-        }
-
-        private const float DamagePopupDuration = 1.05f;
-
         [SerializeField] private Health playerHealth;
         [SerializeField] private Health enemyHealth;
         [SerializeField] private TwoSlotWeaponPresenter weaponSlots;
         [SerializeField] private BowWeapon bowWeapon;
         [SerializeField] private EnemyBrain enemyBrain;
-        [SerializeField] private WeaponGridSandboxToolkit gridToolkit;
 
-        private readonly List<DamagePopup> damagePopups = new List<DamagePopup>();
         private GUIStyle titleStyle;
         private GUIStyle textStyle;
         private GUIStyle centeredStyle;
-        private GUIStyle damageStyle;
-        private GUIStyle damageShadowStyle;
         private Texture2D whiteTexture;
         private Texture2D bowCrosshairTexture;
         private Texture2D bowCrosshairDotTexture;
-        private Health subscribedEnemy;
-        private int damagePopupSequence;
 
         public void Configure(Health player, Health enemy)
         {
@@ -56,37 +36,6 @@ namespace WorldBuilder.Gameplay.Presentation
                 enemy != null
                     ? enemy.GetComponent<EnemyBrain>()
                     : null;
-            SubscribeToEnemyDamage();
-        }
-
-        private void OnEnable()
-        {
-            SubscribeToEnemyDamage();
-        }
-
-        private void OnDisable()
-        {
-            if (subscribedEnemy != null)
-            {
-                subscribedEnemy.Damaged -= HandleEnemyDamaged;
-                subscribedEnemy = null;
-            }
-        }
-
-        private void Update()
-        {
-            gridToolkit ??=
-                Object.FindFirstObjectByType<
-                    WeaponGridSandboxToolkit>();
-            if (gridToolkit != null && gridToolkit.IsOpen)
-            {
-                return;
-            }
-
-            if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
-            {
-                SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-            }
         }
 
         private void OnGUI()
@@ -96,21 +45,17 @@ namespace WorldBuilder.Gameplay.Presentation
                 Object.FindFirstObjectByType<TwoSlotWeaponPresenter>();
             bowWeapon ??=
                 Object.FindFirstObjectByType<BowWeapon>();
-            GUI.Label(new Rect(24f, 20f, 580f, 30f), "MOVEMENT LAB  /  GAIT TUNING CHECKPOINT", titleStyle);
-            GUI.Label(new Rect(24f, 54f, 1500f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   Hold MMB + drag inspect model   LMB attack   RMB guard / bow draw   1/2 switch   Tab weapon grid   T activate AI   R restart", textStyle);
-
-            DrawHealthBar(new Rect(24f, 88f, 260f, 18f), playerHealth, new Color(0.25f, 0.68f, 0.45f), "PLAYER");
-            string slotLabel = weaponSlots == null ||
-                weaponSlots.ActiveSlot == TwoSlotWeaponPresenter.PrimarySlot
-                    ? "1  SHORT SWORD"
-                    : "2  BOW";
-            GUI.Label(new Rect(24f, 116f, 260f, 22f), slotLabel, titleStyle);
+            DrawHealthBar(
+                new Rect(24f, 40f, 260f, 18f),
+                playerHealth,
+                new Color(0.25f, 0.68f, 0.45f),
+                "PLAYER");
             if (weaponSlots != null &&
                 weaponSlots.ActiveSlot ==
                     TwoSlotWeaponPresenter.SecondarySlot &&
                 bowWeapon != null)
             {
-                DrawBowCharge(new Rect(24f, 142f, 260f, 12f));
+                DrawBowCharge(new Rect(24f, 70f, 260f, 12f));
                 if (bowWeapon.IsDrawing)
                 {
                     DrawBowCrosshair();
@@ -123,97 +68,16 @@ namespace WorldBuilder.Gameplay.Presentation
             string enemyLabel =
                 enemyBrain != null && enemyBrain.IsActivated
                     ? "AI COMBATANT"
-                    : "TARGET DUMMY  /  T TO ACTIVATE";
+                    : "TARGET DUMMY";
             DrawHealthBar(new Rect(Screen.width - 344f, 24f, 320f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), enemyLabel);
-            DrawDamagePopups();
 
             if (playerHealth != null && !playerHealth.IsAlive)
             {
-                DrawCenterMessage("YOU DIED  /  PRESS R TO RESET");
+                DrawCenterMessage("YOU DIED");
             }
             else if (enemyHealth != null && !enemyHealth.IsAlive)
             {
-                DrawCenterMessage("DUMMY BROKEN  /  PRESS R TO RESET");
-            }
-        }
-
-        private void SubscribeToEnemyDamage()
-        {
-            if (ReferenceEquals(subscribedEnemy, enemyHealth))
-            {
-                return;
-            }
-
-            if (subscribedEnemy != null)
-            {
-                subscribedEnemy.Damaged -= HandleEnemyDamaged;
-            }
-
-            subscribedEnemy = enemyHealth;
-            if (subscribedEnemy != null)
-            {
-                subscribedEnemy.Damaged += HandleEnemyDamaged;
-            }
-        }
-
-        private void HandleEnemyDamaged(DamageRequest request)
-        {
-            Vector3 position = request.HitPoint;
-            if (position == Vector3.zero && enemyHealth != null)
-            {
-                position = enemyHealth.transform.position + Vector3.up;
-            }
-
-            float horizontalOffset = (damagePopupSequence % 3 - 1) * 18f;
-            damagePopupSequence++;
-            damagePopups.Add(new DamagePopup
-            {
-                Amount = request.Amount,
-                WorldPosition = position + Vector3.up * 0.35f,
-                CreatedAt = Time.time,
-                HorizontalOffset = horizontalOffset
-            });
-        }
-
-        private void DrawDamagePopups()
-        {
-            Camera worldCamera = Camera.main;
-            if (worldCamera == null)
-            {
-                return;
-            }
-
-            for (int index = damagePopups.Count - 1; index >= 0; index--)
-            {
-                DamagePopup popup = damagePopups[index];
-                float age = Time.time - popup.CreatedAt;
-                if (age >= DamagePopupDuration)
-                {
-                    damagePopups.RemoveAt(index);
-                    continue;
-                }
-
-                float progress = age / DamagePopupDuration;
-                Vector3 worldPosition = popup.WorldPosition + Vector3.up * (0.35f + progress * 0.9f);
-                Vector3 screenPosition = worldCamera.WorldToScreenPoint(worldPosition);
-                if (screenPosition.z <= 0f)
-                {
-                    continue;
-                }
-
-                float alpha = 1f - Mathf.SmoothStep(0.6f, 1f, progress);
-                float x = screenPosition.x - 55f + popup.HorizontalOffset;
-                float y = Screen.height - screenPosition.y - 20f;
-                Rect shadowRect = new Rect(x + 2f, y + 2f, 110f, 40f);
-                Rect textRect = new Rect(x, y, 110f, 40f);
-                string amount = Mathf.CeilToInt(popup.Amount).ToString();
-
-                Color previous = GUI.color;
-                GUI.color = new Color(0f, 0f, 0f, alpha * 0.8f);
-                GUI.Label(shadowRect, amount, damageShadowStyle);
-                GUI.color = new Color(1f, 0.77f, 0.28f, alpha);
-                GUI.Label(textRect, amount, damageStyle);
-                GUI.color = previous;
+                DrawCenterMessage("DUMMY DEFEATED");
             }
         }
 
@@ -331,17 +195,6 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 24
-            };
-            damageStyle = new GUIStyle(titleStyle)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = 24,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
-            damageShadowStyle = new GUIStyle(damageStyle)
-            {
-                normal = { textColor = Color.white }
             };
         }
 

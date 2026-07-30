@@ -143,6 +143,16 @@ namespace WorldBuilder.Editor
             return runtime;
         }
 
+        internal static SceneNavigationMenu AttachSceneNavigation(
+            GameObject systems,
+            PlayerInputSource playerInput)
+        {
+            SceneNavigationMenu menu =
+                systems.AddComponent<SceneNavigationMenu>();
+            menu.Configure(playerInput);
+            return menu;
+        }
+
         private static void BuildAllWithoutPrompt()
         {
             EnsureSceneFolder();
@@ -259,14 +269,18 @@ namespace WorldBuilder.Editor
                 wall,
                 environment.transform);
 
+            GameObject[] storageChests = new GameObject[4];
             for (int index = 0; index < 4; index++)
             {
-                CombatLabSceneBuilder.CreateStandardBlock(
+                GameObject crate =
+                    CombatLabSceneBuilder.CreateStandardBlock(
                     $"Storage Crate {index + 1}",
                     new Vector3(-10.5f + index * 2.1f, 0.65f, 8.5f),
                     new Vector3(1.6f, 1.3f, 1.6f),
                     wood,
                     environment.transform);
+                crate.name = $"Interactive Storage Chest {index + 1}";
+                storageChests[index] = crate;
             }
 
             CombatLabSceneBuilder.CreateStandardBlock(
@@ -309,6 +323,47 @@ namespace WorldBuilder.Editor
                 systems.AddComponent<HomeBaseController>();
             homeBase.Configure(input);
             AttachWeaponGrid(systems, player, input);
+            WeaponGridSandboxToolkit toolkit =
+                systems.GetComponent<WeaponGridSandboxToolkit>();
+            toolkit.SetToggleWithTab(false);
+            HomeInventoryController inventory =
+                systems.AddComponent<HomeInventoryController>();
+            inventory.Configure(homeBase, input, toolkit);
+            AttachSceneNavigation(systems, input);
+
+            for (int index = 0;
+                 index < storageChests.Length;
+                 index++)
+            {
+                GameObject chestInteraction =
+                    new GameObject(
+                        $"Chest Interaction {index + 1}");
+                chestInteraction.transform.SetParent(
+                    storageChests[index].transform,
+                    false);
+                chestInteraction.transform.localPosition =
+                    new Vector3(0f, 0.35f, -0.65f);
+                BoxCollider chestTrigger =
+                    chestInteraction.AddComponent<BoxCollider>();
+                chestTrigger.size =
+                    new Vector3(2.4f, 2.4f, 2.8f);
+                HomeStorageChest chest =
+                    chestInteraction.AddComponent<HomeStorageChest>();
+                chest.Configure(inventory);
+            }
+
+            GameObject raidDoorInteraction =
+                new GameObject("Raid Door Interaction");
+            raidDoorInteraction.transform.SetParent(
+                environment.transform);
+            raidDoorInteraction.transform.position =
+                new Vector3(0f, 1.6f, 10.3f);
+            BoxCollider raidDoorTrigger =
+                raidDoorInteraction.AddComponent<BoxCollider>();
+            raidDoorTrigger.size = new Vector3(5f, 3.2f, 2.6f);
+            HomeRaidDoor raidDoor =
+                raidDoorInteraction.AddComponent<HomeRaidDoor>();
+            raidDoor.Configure(homeBase);
             SaveScene(scene, GameplaySceneRegistry.HomeBaseScenePath);
         }
 
@@ -436,6 +491,7 @@ namespace WorldBuilder.Editor
             crosshair.Configure(
                 player.GetComponentInChildren<BowWeapon>(true));
             AttachWeaponGrid(systems, player, input);
+            AttachSceneNavigation(systems, input);
 
             CreatePickup(
                 "Keen Shard Pickup",

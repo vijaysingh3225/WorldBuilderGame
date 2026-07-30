@@ -133,6 +133,9 @@ namespace WorldBuilder.Editor
                 systems,
                 player,
                 playerInput);
+            GameplayLoopSceneBuilder.AttachSceneNavigation(
+                systems,
+                playerInput);
 
             Selection.activeGameObject = player;
             EditorSceneManager.MarkSceneDirty(scene);
