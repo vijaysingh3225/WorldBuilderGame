@@ -12,7 +12,7 @@ The prototype supports two workflows through the same runtime contracts:
 | --- | --- |
 | `Bootstrap` | Starts a fresh or continued persistent profile, or launches a sandbox. |
 | `HomeBase` | Displays storage and weapons, exposes the Weapon Grid, and launches raids. |
-| `RaidPrototype` | Minimal terrain, enemies, loot, extraction, death, and return flow. |
+| `RaidPrototype` | Minimal forest terrain, hard-cover trees, enemies, loot, extraction, death, and return flow. |
 | `CombatLab` | Dedicated combat/animation test scene with the same Weapon Grid toolkit. |
 
 Use `WorldBuilder > Build Gameplay Loop` to regenerate all four scenes. For
@@ -65,13 +65,16 @@ can be tested immediately, but it is not yet constrained by extracted storage.
   `L` Combat Lab.
 - Home Base: `Tab` Weapon Grid, `Enter` or `R` begin raid, `M` menu.
 - Raid: normal combat controls, `Tab` Weapon Grid, `E` extract while inside the
-  extraction marker, `H` abandon to Home Base.
+  extraction marker, `H` abandon to Home Base. Drawing the bow displays the
+  same centered crosshair used by Combat Lab.
 - Combat Lab: existing combat controls plus `Tab` for the shared Weapon Grid.
 
 ## Next extension points
 
 - Replace primitive raid terrain behind a raid-definition/world-generation
   service without changing `GameSession`.
+- Replace the generated faceted cover-tree meshes with final authored foliage
+  without changing the Raid scene's hard-cover layout contract.
 - Replace IMGUI with production UI while keeping `WeaponGridRuntime`.
 - Add carried-storage selection to `RaidLaunchRequest`.
 - Constrain the artifact palette to owned storage outside developer mode.

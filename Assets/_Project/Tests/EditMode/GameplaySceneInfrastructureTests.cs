@@ -6,9 +6,11 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using WorldBuilder.Editor;
 using WorldBuilder.Gameplay.Characters;
+using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Loop;
 using WorldBuilder.Gameplay.Loop.Scenes;
+using WorldBuilder.Gameplay.Presentation;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Tests.EditMode
@@ -121,6 +123,18 @@ namespace WorldBuilder.Tests.EditMode
 
             AssertExactHillCollision("West Hill");
             AssertExactHillCollision("East Hill");
+            AssertRaidTreeCover();
+            BowAimCrosshairPresenter crosshair =
+                Object.FindFirstObjectByType<BowAimCrosshairPresenter>(
+                    FindObjectsInactive.Include);
+            Assert.That(
+                crosshair,
+                Is.Not.Null,
+                "Raid bow aiming should use the shared crosshair presenter.");
+            Assert.That(
+                crosshair.BowWeapon,
+                Is.SameAs(
+                    player.GetComponentInChildren<BowWeapon>(true)));
             AssertSharedGrid();
             AssertDirectMode(GameLaunchMode.RaidSandbox);
         }
@@ -186,6 +200,56 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(filter, Is.Not.Null);
             Assert.That(collider.sharedMesh, Is.SameAs(filter.sharedMesh));
             Assert.That(collider.convex, Is.False);
+        }
+
+        private static void AssertRaidTreeCover()
+        {
+            Transform[] coverTrees =
+                Object.FindObjectsByType<Transform>(
+                        FindObjectsInactive.Include,
+                        FindObjectsSortMode.None)
+                    .Where(transform =>
+                        transform.name.StartsWith("Cover Tree "))
+                    .ToArray();
+            Assert.That(
+                coverTrees,
+                Has.Length.GreaterThanOrEqualTo(24),
+                "The raid route needs frequent hard cover against ranged AI.");
+
+            for (int index = 0; index < coverTrees.Length; index++)
+            {
+                Transform trunk =
+                    coverTrees[index].Find("Trunk");
+                Assert.That(
+                    trunk,
+                    Is.Not.Null,
+                    $"{coverTrees[index].name} is missing its cover trunk.");
+                MeshFilter filter =
+                    trunk.GetComponent<MeshFilter>();
+                MeshCollider collider =
+                    trunk.GetComponent<MeshCollider>();
+                MeshRenderer renderer =
+                    trunk.GetComponent<MeshRenderer>();
+                Assert.That(filter, Is.Not.Null);
+                Assert.That(collider, Is.Not.Null);
+                Assert.That(renderer, Is.Not.Null);
+                Assert.That(
+                    collider.sharedMesh,
+                    Is.SameAs(filter.sharedMesh));
+                Assert.That(
+                    filter.sharedMesh.vertexCount,
+                    Is.LessThanOrEqualTo(120),
+                    "Tree trunks should keep a clearly faceted low-poly mesh.");
+                Assert.That(
+                    renderer.bounds.size.y,
+                    Is.GreaterThanOrEqualTo(7f));
+                Assert.That(
+                    Mathf.Min(
+                        renderer.bounds.size.x,
+                        renderer.bounds.size.z),
+                    Is.GreaterThanOrEqualTo(2.2f),
+                    "Tree trunks must be wide enough to function as cover.");
+            }
         }
 
         private static Scene Open(string path)

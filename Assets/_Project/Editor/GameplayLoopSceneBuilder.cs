@@ -8,6 +8,7 @@ using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Loop;
 using WorldBuilder.Gameplay.Loop.Scenes;
+using WorldBuilder.Gameplay.Presentation;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Editor
@@ -17,6 +18,12 @@ namespace WorldBuilder.Editor
         // Keeps scene generation deterministic across modular rebuilds.
         public const string InfrastructureMarkerName =
             "Gameplay Loop Infrastructure - V1";
+        private const string EnvironmentMeshFolder =
+            "Assets/_Project/Art/Prototype/Environment";
+        private const string RaidTreeTrunkMeshPath =
+            EnvironmentMeshFolder + "/RaidTreeTrunk.asset";
+        private const string RaidTreeCanopyMeshPath =
+            EnvironmentMeshFolder + "/RaidTreeCanopy.asset";
 
         [MenuItem("WorldBuilder/Build Gameplay Loop")]
         public static void BuildAll()
@@ -355,21 +362,41 @@ namespace WorldBuilder.Editor
 
             Vector3[] treePositions =
             {
-                new Vector3(-18f, 0f, -15f),
-                new Vector3(-23f, 0f, 2f),
-                new Vector3(20f, 0f, -4f),
-                new Vector3(24f, 0f, 12f),
-                new Vector3(-19f, 0f, 25f),
-                new Vector3(18f, 0f, 34f)
+                new Vector3(-27f, 0f, -19f),
+                new Vector3(-17f, 0f, -16f),
+                new Vector3(-7f, 0f, -12f),
+                new Vector3(7f, 0f, -11f),
+                new Vector3(18f, 0f, -15f),
+                new Vector3(29f, 0f, -10f),
+                new Vector3(-25f, 0f, -5f),
+                new Vector3(-12f, 0f, -3f),
+                new Vector3(9f, 0f, -2f),
+                new Vector3(22f, 0f, 2f),
+                new Vector3(-29f, 0f, 10f),
+                new Vector3(-16f, 0f, 8f),
+                new Vector3(14f, 0f, 10f),
+                new Vector3(28f, 0f, 15f),
+                new Vector3(-24f, 0f, 20f),
+                new Vector3(-11f, 0f, 21f),
+                new Vector3(18f, 0f, 22f),
+                new Vector3(-29f, 0f, 34f),
+                new Vector3(-16f, 0f, 33f),
+                new Vector3(11f, 0f, 34f),
+                new Vector3(25f, 0f, 31f),
+                new Vector3(-21f, 0f, 45f),
+                new Vector3(-9f, 0f, 42f),
+                new Vector3(12f, 0f, 45f),
+                new Vector3(27f, 0f, 43f)
             };
             for (int index = 0; index < treePositions.Length; index++)
             {
                 CreateTree(
-                    $"Tree {index + 1}",
+                    $"Cover Tree {index + 1:00}",
                     treePositions[index],
                     bark,
                     leaves,
-                    environment.transform);
+                    environment.transform,
+                    index);
             }
 
             GameObject player =
@@ -404,6 +431,10 @@ namespace WorldBuilder.Editor
             GameObject systems =
                 new GameObject(InfrastructureMarkerName);
             systems.AddComponent<RaidPrototypeController>();
+            BowAimCrosshairPresenter crosshair =
+                systems.AddComponent<BowAimCrosshairPresenter>();
+            crosshair.Configure(
+                player.GetComponentInChildren<BowWeapon>(true));
             AttachWeaponGrid(systems, player, input);
 
             CreatePickup(
@@ -459,28 +490,303 @@ namespace WorldBuilder.Editor
             Vector3 position,
             Material bark,
             Material leaves,
-            Transform parent)
+            Transform parent,
+            int variant)
         {
             GameObject root = new GameObject(name);
             root.transform.SetParent(parent);
             root.transform.position = position;
+            root.transform.rotation = Quaternion.Euler(
+                0f,
+                (variant * 47f + 13f) % 360f,
+                0f);
 
-            GameObject trunk =
-                GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            trunk.name = "Trunk";
+            float trunkRadius =
+                1.15f + variant % 4 * 0.13f;
+            float trunkHeight =
+                7.4f + variant % 5 * 0.55f;
+            float canopyRadius =
+                3.15f + variant % 3 * 0.28f;
+            float canopyHeight =
+                3.35f + (variant + 1) % 4 * 0.24f;
+            Mesh trunkMesh = GetOrCreateRaidTreeTrunkMesh();
+            Mesh canopyMesh = GetOrCreateRaidTreeCanopyMesh();
+
+            GameObject trunk = new GameObject("Trunk");
             trunk.transform.SetParent(root.transform, false);
-            trunk.transform.localPosition = new Vector3(0f, 1.5f, 0f);
-            trunk.transform.localScale = new Vector3(0.35f, 1.5f, 0.35f);
-            trunk.GetComponent<Renderer>().sharedMaterial = bark;
+            trunk.transform.localScale = new Vector3(
+                trunkRadius,
+                trunkHeight,
+                trunkRadius);
+            MeshFilter trunkFilter = trunk.AddComponent<MeshFilter>();
+            trunkFilter.sharedMesh = trunkMesh;
+            MeshRenderer trunkRenderer =
+                trunk.AddComponent<MeshRenderer>();
+            trunkRenderer.sharedMaterial = bark;
+            MeshCollider trunkCollider =
+                trunk.AddComponent<MeshCollider>();
+            trunkCollider.sharedMesh = trunkMesh;
+            GameObjectUtility.SetStaticEditorFlags(
+                trunk,
+                StaticEditorFlags.BatchingStatic |
+                StaticEditorFlags.OccluderStatic |
+                StaticEditorFlags.OccludeeStatic);
 
-            GameObject crown =
-                GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            crown.name = "Canopy";
-            crown.transform.SetParent(root.transform, false);
-            crown.transform.localPosition = new Vector3(0f, 4.1f, 0f);
-            crown.transform.localScale = new Vector3(2.4f, 2.8f, 2.4f);
-            crown.GetComponent<Renderer>().sharedMaterial = leaves;
-            Object.DestroyImmediate(crown.GetComponent<Collider>());
+            CreateTreeCanopy(
+                "Lower Canopy",
+                root.transform,
+                canopyMesh,
+                leaves,
+                new Vector3(0f, trunkHeight - 0.1f, 0f),
+                new Vector3(
+                    canopyRadius,
+                    canopyHeight,
+                    canopyRadius));
+            CreateTreeCanopy(
+                "Upper Canopy",
+                root.transform,
+                canopyMesh,
+                leaves,
+                new Vector3(
+                    Mathf.Lerp(-0.55f, 0.55f, variant % 3 * 0.5f),
+                    trunkHeight + canopyHeight * 0.72f,
+                    Mathf.Lerp(0.45f, -0.45f, variant % 2)),
+                new Vector3(
+                    canopyRadius * 0.72f,
+                    canopyHeight * 0.78f,
+                    canopyRadius * 0.72f));
+        }
+
+        private static void CreateTreeCanopy(
+            string name,
+            Transform parent,
+            Mesh mesh,
+            Material material,
+            Vector3 localPosition,
+            Vector3 localScale)
+        {
+            GameObject canopy = new GameObject(name);
+            canopy.transform.SetParent(parent, false);
+            canopy.transform.localPosition = localPosition;
+            canopy.transform.localScale = localScale;
+            MeshFilter filter = canopy.AddComponent<MeshFilter>();
+            filter.sharedMesh = mesh;
+            MeshRenderer renderer =
+                canopy.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            GameObjectUtility.SetStaticEditorFlags(
+                canopy,
+                StaticEditorFlags.BatchingStatic |
+                StaticEditorFlags.OccludeeStatic);
+        }
+
+        private static Mesh GetOrCreateRaidTreeTrunkMesh()
+        {
+            return GetOrUpdateEnvironmentMesh(
+                RaidTreeTrunkMeshPath,
+                BuildRaidTreeTrunkMesh);
+        }
+
+        private static Mesh GetOrCreateRaidTreeCanopyMesh()
+        {
+            return GetOrUpdateEnvironmentMesh(
+                RaidTreeCanopyMeshPath,
+                BuildRaidTreeCanopyMesh);
+        }
+
+        private static Mesh GetOrUpdateEnvironmentMesh(
+            string assetPath,
+            System.Func<Mesh> factory)
+        {
+            EnsureEnvironmentMeshFolder();
+            Mesh generated = factory();
+            Mesh existing =
+                AssetDatabase.LoadAssetAtPath<Mesh>(assetPath);
+            if (existing == null)
+            {
+                AssetDatabase.CreateAsset(generated, assetPath);
+                return generated;
+            }
+
+            EditorUtility.CopySerialized(generated, existing);
+            Object.DestroyImmediate(generated);
+            EditorUtility.SetDirty(existing);
+            return existing;
+        }
+
+        private static Mesh BuildRaidTreeTrunkMesh()
+        {
+            const int sides = 9;
+            var vertices = new System.Collections.Generic.List<Vector3>();
+            var triangles = new System.Collections.Generic.List<int>();
+            for (int side = 0; side < sides; side++)
+            {
+                float angleA = side * Mathf.PI * 2f / sides;
+                float angleB = (side + 1) * Mathf.PI * 2f / sides;
+                Vector3 bottomA =
+                    new Vector3(Mathf.Cos(angleA), 0f, Mathf.Sin(angleA));
+                Vector3 bottomB =
+                    new Vector3(Mathf.Cos(angleB), 0f, Mathf.Sin(angleB));
+                Vector3 topA =
+                    new Vector3(
+                        Mathf.Cos(angleA) * 0.72f,
+                        1f,
+                        Mathf.Sin(angleA) * 0.72f);
+                Vector3 topB =
+                    new Vector3(
+                        Mathf.Cos(angleB) * 0.72f,
+                        1f,
+                        Mathf.Sin(angleB) * 0.72f);
+                AddQuad(
+                    vertices,
+                    triangles,
+                    bottomA,
+                    topA,
+                    topB,
+                    bottomB);
+                AddTriangle(
+                    vertices,
+                    triangles,
+                    Vector3.zero,
+                    bottomA,
+                    bottomB);
+                AddTriangle(
+                    vertices,
+                    triangles,
+                    Vector3.up,
+                    topB,
+                    topA);
+            }
+
+            return CreateFacetedMesh(
+                "Raid Tree Trunk",
+                vertices,
+                triangles);
+        }
+
+        private static Mesh BuildRaidTreeCanopyMesh()
+        {
+            const int sides = 8;
+            var vertices = new System.Collections.Generic.List<Vector3>();
+            var triangles = new System.Collections.Generic.List<int>();
+            Vector3 top = new Vector3(0f, 1.3f, 0f);
+            Vector3 bottom = new Vector3(0f, -1.15f, 0f);
+            for (int side = 0; side < sides; side++)
+            {
+                float angleA = side * Mathf.PI * 2f / sides;
+                float angleB = (side + 1) * Mathf.PI * 2f / sides;
+                Vector3 upperA = new Vector3(
+                    Mathf.Cos(angleA) * 0.76f,
+                    0.52f,
+                    Mathf.Sin(angleA) * 0.76f);
+                Vector3 upperB = new Vector3(
+                    Mathf.Cos(angleB) * 0.76f,
+                    0.52f,
+                    Mathf.Sin(angleB) * 0.76f);
+                Vector3 lowerA = new Vector3(
+                    Mathf.Cos(angleA),
+                    -0.18f,
+                    Mathf.Sin(angleA));
+                Vector3 lowerB = new Vector3(
+                    Mathf.Cos(angleB),
+                    -0.18f,
+                    Mathf.Sin(angleB));
+                AddTriangle(
+                    vertices,
+                    triangles,
+                    top,
+                    upperB,
+                    upperA);
+                AddQuad(
+                    vertices,
+                    triangles,
+                    upperA,
+                    upperB,
+                    lowerB,
+                    lowerA);
+                AddTriangle(
+                    vertices,
+                    triangles,
+                    bottom,
+                    lowerA,
+                    lowerB);
+            }
+
+            return CreateFacetedMesh(
+                "Raid Tree Canopy",
+                vertices,
+                triangles);
+        }
+
+        private static Mesh CreateFacetedMesh(
+            string name,
+            System.Collections.Generic.List<Vector3> vertices,
+            System.Collections.Generic.List<int> triangles)
+        {
+            Mesh mesh = new Mesh
+            {
+                name = name
+            };
+            mesh.SetVertices(vertices);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        private static void AddQuad(
+            System.Collections.Generic.List<Vector3> vertices,
+            System.Collections.Generic.List<int> triangles,
+            Vector3 a,
+            Vector3 b,
+            Vector3 c,
+            Vector3 d)
+        {
+            AddTriangle(vertices, triangles, a, b, c);
+            AddTriangle(vertices, triangles, a, c, d);
+        }
+
+        private static void AddTriangle(
+            System.Collections.Generic.List<Vector3> vertices,
+            System.Collections.Generic.List<int> triangles,
+            Vector3 a,
+            Vector3 b,
+            Vector3 c)
+        {
+            int first = vertices.Count;
+            vertices.Add(a);
+            vertices.Add(b);
+            vertices.Add(c);
+            triangles.Add(first);
+            triangles.Add(first + 1);
+            triangles.Add(first + 2);
+        }
+
+        private static void EnsureEnvironmentMeshFolder()
+        {
+            const string artFolder = "Assets/_Project/Art";
+            const string prototypeFolder =
+                "Assets/_Project/Art/Prototype";
+            if (!AssetDatabase.IsValidFolder(artFolder))
+            {
+                AssetDatabase.CreateFolder(
+                    "Assets/_Project",
+                    "Art");
+            }
+
+            if (!AssetDatabase.IsValidFolder(prototypeFolder))
+            {
+                AssetDatabase.CreateFolder(
+                    artFolder,
+                    "Prototype");
+            }
+
+            if (!AssetDatabase.IsValidFolder(EnvironmentMeshFolder))
+            {
+                AssetDatabase.CreateFolder(
+                    prototypeFolder,
+                    "Environment");
+            }
         }
 
         private static void CreatePickup(
