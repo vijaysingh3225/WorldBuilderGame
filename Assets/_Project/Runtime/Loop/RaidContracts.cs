@@ -315,6 +315,15 @@ namespace WorldBuilder.Gameplay.Loop
                 throw new ArgumentNullException(nameof(entry));
             }
 
+            int occupiedSlots =
+                launchRequest.CarriedStorageEntryIds.Count +
+                collectedStorageEntries.Count;
+            if (occupiedSlots >= PlayerProfile.InventoryCapacity)
+            {
+                throw new InvalidOperationException(
+                    "The player inventory is full.");
+            }
+
             StorageEntry copy = entry.Clone();
             copy.Normalize();
             collectedStorageEntries.Add(copy);

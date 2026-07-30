@@ -121,6 +121,11 @@ namespace WorldBuilder.Gameplay.Combat
             runtimeDamageBonus = bonus;
         }
 
+        public void AbortDraw()
+        {
+            CancelDraw(false);
+        }
+
         private void Awake()
         {
             input ??= GetComponentInParent<PlayerInputSource>();

@@ -209,11 +209,42 @@ namespace WorldBuilder.Tests.EditMode
                     entry => entry.EntryId == artifact.EntryId),
                 Is.True);
             Assert.That(
+                session.ActiveProfile.IsInInventory(
+                    artifact.EntryId),
+                Is.True);
+            Assert.That(
                 session.ActiveProfile.WeaponOne.Experience,
                 Is.EqualTo(initialWeaponOneExperience + 7));
             Assert.That(
                 session.ActiveProfile.WeaponTwo.Experience,
                 Is.EqualTo(initialWeaponTwoExperience + 4));
+        }
+
+        [Test]
+        public void RaidLootCannotExceedRemainingPlayerInventorySlots()
+        {
+            GameSession session = CreateRaidSandboxSession();
+            for (int index = 0;
+                 index < PlayerProfile.InventoryCapacity - 1;
+                 index++)
+            {
+                StorageEntry carried =
+                    StorageEntry.Create($"carried-{index}");
+                session.ActiveProfile.AddToStorage(carried);
+                Assert.That(
+                    session.ActiveProfile.TryMoveToInventory(
+                        carried.EntryId),
+                    Is.True);
+            }
+
+            RaidSession raid = session.BeginRaid(
+                carriedStorageEntryIds:
+                    session.ActiveProfile.InventoryEntryIds);
+            raid.RecordLoot(StorageEntry.Create("last-open-slot"));
+
+            Assert.Throws<InvalidOperationException>(() =>
+                raid.RecordLoot(
+                    StorageEntry.Create("inventory-overflow")));
         }
 
         [Test]

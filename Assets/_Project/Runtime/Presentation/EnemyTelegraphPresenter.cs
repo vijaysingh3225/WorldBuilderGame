@@ -72,6 +72,10 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 switch (brain.CurrentState)
                 {
+                    case EnemyBrain.EnemyState.Alerted:
+                        color = windupColor;
+                        break;
+                    case EnemyBrain.EnemyState.Investigating:
                     case EnemyBrain.EnemyState.Pursuing:
                         color = pursuitColor;
                         break;

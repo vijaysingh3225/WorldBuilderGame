@@ -15,6 +15,8 @@ namespace WorldBuilder.Gameplay.Characters
         public enum EnemyState
         {
             Idle,
+            Alerted,
+            Investigating,
             Pursuing,
             Windup,
             Recovering,
@@ -37,6 +39,19 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.5f)] private float minimumGuardDistance = 1.25f;
         [SerializeField, Min(0.1f)] private float minimumBowHold = 1.14f;
         [SerializeField, Min(0.1f)] private float maximumBowHold = 1.24f;
+        [SerializeField, Min(0.1f)] private float minimumBowRecovery = 1.35f;
+        [SerializeField, Min(0.1f)] private float maximumBowRecovery = 2.25f;
+        [Header("Perception")]
+        [SerializeField, Min(1f)] private float passiveSightRange = 24f;
+        [SerializeField, Min(1f)] private float alertedSightRange = 46f;
+        [SerializeField, Range(10f, 360f)] private float passiveViewAngle = 120f;
+        [SerializeField, Range(10f, 360f)] private float alertedViewAngle = 220f;
+        [SerializeField, Min(0.1f)] private float investigationDuration = 9f;
+        [SerializeField, Min(0.1f)] private float investigationGuessDistance = 10f;
+        [SerializeField, Min(0.1f)] private float investigationStopDistance = 1.25f;
+        [SerializeField, Min(0.1f)] private float bowOcclusionHoldDuration = 2.4f;
+        [SerializeField, Min(0.1f)] private float searchAimInterval = 0.8f;
+        [SerializeField] private LayerMask sightMask = ~(1 << 2);
 
         private CharacterController controller;
         private Health health;
@@ -63,31 +78,49 @@ namespace WorldBuilder.Gameplay.Characters
         private MeleePhase meleePhase;
         private bool swordModeActive;
         private bool drawingBow;
+        private bool alerted;
+        private bool hasVisualContact;
         private bool loggedFirstArrow;
         private bool loggedFirstArrowHit;
         private bool loggedFirstSwordHit;
         private Vector3 heldAimPoint;
+        private Vector3 lastKnownPosition;
+        private float investigationTimer;
+        private float searchAimTimer;
+        private float bowOcclusionTimer;
+        private float searchSide = 1f;
 
         public event Action<EnemyState> StateChanged;
 
         public EnemyState CurrentState => state;
         public bool IsActivated => !trainingDummy;
+        public bool IsAlerted => alerted;
+        public bool HasVisualContact => hasVisualContact;
+        public Vector3 LastKnownPosition => lastKnownPosition;
 
         public void Configure(Transform pursuitTarget)
         {
             target = pursuitTarget;
-            ActivateCombat();
+            ActivateCombat(
+                preserveCurrentHealth: false,
+                beginAlerted: false);
         }
 
         public void ActivateForDiagnostics()
         {
-            ActivateCombat();
+            ActivateCombat(
+                preserveCurrentHealth: false,
+                beginAlerted: true);
         }
 
         public void ConfigureAsTrainingDummy()
         {
             target = null;
             trainingDummy = true;
+            alerted = false;
+            hasVisualContact = false;
+            drawingBow = false;
+            investigationTimer = 0f;
             ResolveReferences();
             if (input != null)
             {
@@ -109,6 +142,7 @@ namespace WorldBuilder.Gameplay.Characters
         private void Awake()
         {
             ResolveReferences();
+            health.Damaged += HandleDamaged;
             health.Died += HandleDeath;
             if (trainingDummy)
             {
@@ -120,6 +154,7 @@ namespace WorldBuilder.Gameplay.Characters
         {
             if (health != null)
             {
+                health.Damaged -= HandleDamaged;
                 health.Died -= HandleDeath;
             }
 
@@ -152,7 +187,9 @@ namespace WorldBuilder.Gameplay.Characters
                 if (Keyboard.current != null &&
                     Keyboard.current.tKey.wasPressedThisFrame)
                 {
-                    ActivateCombat();
+                    ActivateCombat(
+                        preserveCurrentHealth: false,
+                        beginAlerted: true);
                 }
                 return;
             }
@@ -177,6 +214,27 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             Vector3 chestPoint = ResolveTargetChestPoint();
+            UpdatePerception(chestPoint);
+            if (!alerted)
+            {
+                aimSource?.ClearOverride();
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Idle);
+                return;
+            }
+
+            if (drawingBow)
+            {
+                UpdateBowDraw(hasVisualContact);
+                return;
+            }
+
+            if (!hasVisualContact)
+            {
+                UpdateInvestigation();
+                return;
+            }
+
             Vector3 toTarget = Vector3.ProjectOnPlane(
                 target.position - transform.position,
                 Vector3.up);
@@ -184,12 +242,6 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 direction = distance > 0.001f
                 ? toTarget / distance
                 : transform.forward;
-
-            if (drawingBow)
-            {
-                UpdateBowDraw();
-                return;
-            }
 
             if (distance > bowRange)
             {
@@ -207,7 +259,9 @@ namespace WorldBuilder.Gameplay.Characters
             }
         }
 
-        private void ActivateCombat()
+        private void ActivateCombat(
+            bool preserveCurrentHealth,
+            bool beginAlerted)
         {
             if (!trainingDummy)
             {
@@ -216,7 +270,10 @@ namespace WorldBuilder.Gameplay.Characters
 
             ResolveReferences();
             trainingDummy = false;
-            health.ConfigureWithFloor(88f, 0f);
+            if (!preserveCurrentHealth)
+            {
+                health.ConfigureWithFloor(88f, 0f);
+            }
             if (animator != null)
             {
                 animator.speed = 1f;
@@ -248,7 +305,14 @@ namespace WorldBuilder.Gameplay.Characters
 
             input?.SetDiagnosticOverride(default);
             actionTimer = 0.35f;
-            ChangeState(EnemyState.Pursuing);
+            if (beginAlerted && target != null)
+            {
+                AlertAt(target.position, "activation");
+            }
+            else
+            {
+                ChangeState(EnemyState.Idle);
+            }
             GameplayEventLog.Publish(
                 "enemy-activated",
                 gameObject,
@@ -289,6 +353,7 @@ namespace WorldBuilder.Gameplay.Characters
             heldAimPoint = ResolvePerfectAimPoint();
             SetAim(heldAimPoint);
             drawingBow = true;
+            bowOcclusionTimer = bowOcclusionHoldDuration;
             actionTimer = UnityEngine.Random.Range(
                 minimumBowHold,
                 maximumBowHold);
@@ -296,8 +361,30 @@ namespace WorldBuilder.Gameplay.Characters
             ChangeState(EnemyState.Windup);
         }
 
-        private void UpdateBowDraw()
+        private void UpdateBowDraw(bool targetVisible)
         {
+            if (!targetVisible)
+            {
+                bowOcclusionTimer -= Time.deltaTime;
+                SetAim(heldAimPoint);
+                if (bowOcclusionTimer > 0f)
+                {
+                    SetIntent(Vector2.zero, false, true);
+                    ChangeState(EnemyState.Windup);
+                    return;
+                }
+
+                bowWeapon?.AbortDraw();
+                SetIntent(Vector2.zero, false, false);
+                drawingBow = false;
+                actionTimer = UnityEngine.Random.Range(
+                    minimumBowRecovery,
+                    maximumBowRecovery);
+                ChangeState(EnemyState.Investigating);
+                return;
+            }
+
+            bowOcclusionTimer = bowOcclusionHoldDuration;
             heldAimPoint = ResolvePerfectAimPoint();
             SetAim(heldAimPoint);
             actionTimer -= Time.deltaTime;
@@ -309,8 +396,216 @@ namespace WorldBuilder.Gameplay.Characters
 
             SetIntent(Vector2.zero, false, false);
             drawingBow = false;
-            actionTimer = UnityEngine.Random.Range(0.85f, 1.35f);
+            actionTimer = UnityEngine.Random.Range(
+                minimumBowRecovery,
+                maximumBowRecovery);
             ChangeState(EnemyState.Recovering);
+        }
+
+        private void UpdatePerception(Vector3 targetChest)
+        {
+            hasVisualContact = CanSeeTarget(targetChest);
+            if (!hasVisualContact)
+            {
+                return;
+            }
+
+            alerted = true;
+            lastKnownPosition = target.position;
+            investigationTimer = investigationDuration;
+            searchAimTimer = searchAimInterval;
+        }
+
+        private bool CanSeeTarget(Vector3 targetChest)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            Vector3 origin = ResolveSightOrigin();
+            Vector3 toTarget = targetChest - origin;
+            float distance = toTarget.magnitude;
+            float maximumDistance =
+                alerted ? alertedSightRange : passiveSightRange;
+            if (distance <= 0.001f ||
+                distance > maximumDistance)
+            {
+                return false;
+            }
+
+            Vector3 planarDirection = Vector3.ProjectOnPlane(
+                toTarget,
+                Vector3.up);
+            float viewAngle =
+                alerted ? alertedViewAngle : passiveViewAngle;
+            if (planarDirection.sqrMagnitude > 0.001f &&
+                Vector3.Angle(
+                    transform.forward,
+                    planarDirection) >
+                viewAngle * 0.5f)
+            {
+                return false;
+            }
+
+            RaycastHit[] hits = Physics.RaycastAll(
+                origin,
+                toTarget / distance,
+                distance + 0.15f,
+                sightMask,
+                QueryTriggerInteraction.Ignore);
+            float closestDistance = float.PositiveInfinity;
+            Transform closestTransform = null;
+            for (int index = 0; index < hits.Length; index++)
+            {
+                Transform hitTransform =
+                    hits[index].collider != null
+                        ? hits[index].collider.transform
+                        : null;
+                if (hitTransform == null ||
+                    hitTransform.IsChildOf(transform))
+                {
+                    continue;
+                }
+
+                if (hits[index].distance < closestDistance)
+                {
+                    closestDistance = hits[index].distance;
+                    closestTransform = hitTransform;
+                }
+            }
+
+            return closestTransform != null &&
+                (closestTransform == target ||
+                 closestTransform.IsChildOf(target));
+        }
+
+        private void UpdateInvestigation()
+        {
+            investigationTimer -= Time.deltaTime;
+            Vector3 toLastKnown = Vector3.ProjectOnPlane(
+                lastKnownPosition - transform.position,
+                Vector3.up);
+            float distance = toLastKnown.magnitude;
+            Vector3 direction = distance > 0.001f
+                ? toLastKnown / distance
+                : transform.forward;
+            if (weaponSlots != null)
+            {
+                int desiredSlot =
+                    distance > bowRange
+                        ? TwoSlotWeaponPresenter.SecondarySlot
+                        : TwoSlotWeaponPresenter.PrimarySlot;
+                if (weaponSlots.ActiveSlot != desiredSlot &&
+                    !weaponSlots.IsTransitioning)
+                {
+                    weaponSlots.RequestSlot(desiredSlot);
+                }
+            }
+
+            searchAimTimer -= Time.deltaTime;
+            if (searchAimTimer <= 0f)
+            {
+                searchSide *= -1f;
+                searchAimTimer = searchAimInterval;
+            }
+
+            Vector3 searchRight = Vector3.Cross(
+                Vector3.up,
+                direction);
+            Vector3 searchPoint =
+                lastKnownPosition +
+                Vector3.up * 0.65f +
+                searchRight * (searchSide * 1.4f);
+            SetAim(searchPoint);
+
+            if (investigationTimer <= 0f)
+            {
+                SetIntent(Vector2.zero, false, false);
+                alerted = false;
+                hasVisualContact = false;
+                aimSource?.ClearOverride();
+                ChangeState(EnemyState.Idle);
+                return;
+            }
+
+            if (distance > investigationStopDistance)
+            {
+                Vector3 movement =
+                    ResolveObstacleAwareDirection(direction);
+                SetIntent(
+                    WorldDirectionToInput(movement),
+                    false,
+                    false);
+                ChangeState(EnemyState.Investigating);
+                return;
+            }
+
+            SetIntent(Vector2.zero, false, false);
+            ChangeState(EnemyState.Alerted);
+        }
+
+        private Vector3 ResolveObstacleAwareDirection(
+            Vector3 desiredDirection)
+        {
+            Vector3 origin =
+                transform.position +
+                Vector3.up * 0.65f +
+                desiredDirection * 0.38f;
+            if (!Physics.SphereCast(
+                    origin,
+                    0.20f,
+                    desiredDirection,
+                    out RaycastHit hit,
+                    1.1f,
+                    sightMask,
+                    QueryTriggerInteraction.Ignore) ||
+                hit.collider == null ||
+                hit.collider.transform.IsChildOf(transform) ||
+                (target != null &&
+                    (hit.collider.transform == target ||
+                     hit.collider.transform.IsChildOf(target))))
+            {
+                return desiredDirection;
+            }
+
+            Vector3 tangent = Vector3.Cross(
+                Vector3.up,
+                desiredDirection) * orbitDirection;
+            return (
+                tangent * 0.85f +
+                desiredDirection * 0.35f).normalized;
+        }
+
+        private Vector3 ResolveSightOrigin()
+        {
+            Transform head = animator != null &&
+                animator.isHuman
+                    ? animator.GetBoneTransform(
+                        HumanBodyBones.Head)
+                    : null;
+            return head != null
+                ? head.position
+                : transform.position + Vector3.up * 0.75f;
+        }
+
+        private void AlertAt(
+            Vector3 believedSourcePosition,
+            string reason)
+        {
+            alerted = true;
+            hasVisualContact = false;
+            lastKnownPosition = believedSourcePosition;
+            investigationTimer = investigationDuration;
+            searchAimTimer = searchAimInterval;
+            actionTimer = 0f;
+            swordModeActive = false;
+            EnterGuardPhase();
+            ChangeState(EnemyState.Alerted);
+            GameplayEventLog.Publish(
+                "enemy-alerted",
+                gameObject,
+                reason);
         }
 
         private void UpdateSwordCombat(
@@ -751,8 +1046,77 @@ namespace WorldBuilder.Gameplay.Characters
                 state.ToString());
         }
 
+        private void HandleDamaged(DamageRequest request)
+        {
+            if (state == EnemyState.Dead ||
+                request.Instigator == gameObject)
+            {
+                return;
+            }
+
+            if (request.Instigator != null)
+            {
+                target = request.Instigator.transform;
+            }
+
+            if (trainingDummy)
+            {
+                enabled = true;
+                ActivateCombat(
+                    preserveCurrentHealth: true,
+                    beginAlerted: false);
+            }
+            else if (!enabled)
+            {
+                enabled = true;
+            }
+
+            Vector3 incomingDirection = Vector3.ProjectOnPlane(
+                request.Direction,
+                Vector3.up);
+            Vector3 believedSource;
+            if (incomingDirection.sqrMagnitude > 0.001f)
+            {
+                believedSource =
+                    request.HitPoint -
+                    incomingDirection.normalized *
+                    investigationGuessDistance;
+            }
+            else if (request.Instigator != null)
+            {
+                Vector3 towardInstigator =
+                    request.Instigator.transform.position -
+                    transform.position;
+                believedSource =
+                    transform.position +
+                    Vector3.ClampMagnitude(
+                        Vector3.ProjectOnPlane(
+                            towardInstigator,
+                            Vector3.up),
+                        investigationGuessDistance);
+            }
+            else
+            {
+                believedSource =
+                    transform.position -
+                    transform.forward *
+                    investigationGuessDistance;
+            }
+
+            believedSource.y = transform.position.y;
+            AlertAt(
+                believedSource,
+                string.IsNullOrWhiteSpace(request.SourceId)
+                    ? "damage"
+                    : request.SourceId);
+        }
+
         private void HandleDeath(DamageRequest request)
         {
+            alerted = false;
+            hasVisualContact = false;
+            drawingBow = false;
+            bowWeapon?.AbortDraw();
             SetIntent(Vector2.zero, false, false);
             ChangeState(EnemyState.Dead);
         }
