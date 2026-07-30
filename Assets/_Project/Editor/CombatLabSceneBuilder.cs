@@ -11,6 +11,7 @@ using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Diagnostics;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Loop;
 using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Editor
@@ -19,7 +20,7 @@ namespace WorldBuilder.Editor
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
         public const string CheckpointMarkerName =
-            "Prototype Systems - V73 Tactical Guard Spacing";
+            "Prototype Systems - V74 Weapon Grid Toolkit";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
@@ -99,6 +100,9 @@ namespace WorldBuilder.Editor
                 0.22f);
 
             CreateLighting();
+            GameplayLoopSceneBuilder.CreateSceneBootstrap(
+                GameLaunchMode.CombatLab,
+                initializeOnAwake: true);
             GameObject environment = new GameObject("Environment");
             CreateArena(environment.transform, floorMaterial, wallMaterial, accentMaterial);
 
@@ -125,11 +129,15 @@ namespace WorldBuilder.Editor
             CombatLabHud hud = systems.AddComponent<CombatLabHud>();
             hud.Configure(playerHealth, enemyHealth);
             systems.AddComponent<GameplayDiagnosticRecorder>();
+            GameplayLoopSceneBuilder.AttachWeaponGrid(
+                systems,
+                player,
+                playerInput);
 
             Selection.activeGameObject = player;
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            GameplaySceneRegistry.ApplyExistingScenesToBuildSettings();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log($"WorldBuilder Combat Lab generated at {ScenePath}");
@@ -228,6 +236,125 @@ namespace WorldBuilder.Editor
         public static void BuildFromCommandLine()
         {
             Build();
+        }
+
+        internal static GameObject CreateStandardPlayer(
+            Vector3 position,
+            out Health health,
+            out PlayerInputSource input)
+        {
+            Material body = GetOrCreateMaterial(
+                "Player",
+                new Color(0.22f, 0.22f, 0.22f),
+                0.05f,
+                0f,
+                true);
+            return CreatePlayer(
+                position,
+                body,
+                body,
+                GetOrCreateMaterial(
+                    "ShortSwordBlade",
+                    new Color(0.56f, 0.62f, 0.67f),
+                    0.72f,
+                    0.82f),
+                GetOrCreateMaterial(
+                    "ShortSwordGuard",
+                    new Color(0.15f, 0.17f, 0.18f),
+                    0.4f,
+                    0.75f),
+                GetOrCreateMaterial(
+                    "ShortSwordGrip",
+                    new Color(0.21f, 0.105f, 0.045f),
+                    0.22f),
+                out health,
+                out input);
+        }
+
+        internal static GameObject CreateStandardEnemy(
+            Vector3 position,
+            out Health health)
+        {
+            Material body = GetOrCreateMaterial(
+                "TrainingDummyRed",
+                new Color(0.42f, 0.035f, 0.03f),
+                0.05f,
+                0f,
+                true);
+            return CreateEnemy(
+                position,
+                body,
+                body,
+                GetOrCreateMaterial(
+                    "ShortSwordBlade",
+                    new Color(0.56f, 0.62f, 0.67f),
+                    0.72f,
+                    0.82f),
+                GetOrCreateMaterial(
+                    "ShortSwordGuard",
+                    new Color(0.15f, 0.17f, 0.18f),
+                    0.4f,
+                    0.75f),
+                GetOrCreateMaterial(
+                    "ShortSwordGrip",
+                    new Color(0.21f, 0.105f, 0.045f),
+                    0.22f),
+                out health);
+        }
+
+        internal static void CreateStandardCamera(
+            Transform target,
+            PlayerInputSource input)
+        {
+            CreateCamera(target, input);
+        }
+
+        internal static void CreateStandardLighting()
+        {
+            CreateLighting();
+        }
+
+        internal static GameObject CreateStandardBlock(
+            string name,
+            Vector3 position,
+            Vector3 scale,
+            Material material,
+            Transform parent = null)
+        {
+            return CreateBlock(
+                name,
+                position,
+                scale,
+                material,
+                parent);
+        }
+
+        internal static GameObject CreateStandardMarker(
+            string name,
+            Vector3 position,
+            Vector3 scale,
+            Material material,
+            Transform parent = null)
+        {
+            return CreateMarker(
+                name,
+                position,
+                scale,
+                material,
+                parent);
+        }
+
+        internal static Material GetStandardMaterial(
+            string name,
+            Color color,
+            float smoothness = 0.2f,
+            float metallic = 0f)
+        {
+            return GetOrCreateMaterial(
+                name,
+                color,
+                smoothness,
+                metallic);
         }
 
         private static void ConfigureProjectSettings()

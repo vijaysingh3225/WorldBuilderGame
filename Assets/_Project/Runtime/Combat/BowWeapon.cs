@@ -39,6 +39,7 @@ namespace WorldBuilder.Gameplay.Combat
         private float heldDuration;
         private float reloadRemaining;
         private float readyWeight;
+        private float runtimeDamageBonus;
         private int firedArrowCount;
         private float lastShotCharge;
 
@@ -84,6 +85,7 @@ namespace WorldBuilder.Gameplay.Combat
         public float PullbackVolume => pullbackVolume;
         public float FullDrawDuration => fullDrawDuration;
         public float MaximumArrowSpeed => maximumArrowSpeed;
+        public float RuntimeDamageBonus => runtimeDamageBonus;
         public float PartialVelocityExponent =>
             partialVelocityExponent;
 
@@ -114,6 +116,11 @@ namespace WorldBuilder.Gameplay.Combat
             SetNockedArrowVisible(equipped);
         }
 
+        public void SetRuntimeDamageBonus(float bonus)
+        {
+            runtimeDamageBonus = bonus;
+        }
+
         private void Awake()
         {
             input ??= GetComponentInParent<PlayerInputSource>();
@@ -134,6 +141,15 @@ namespace WorldBuilder.Gameplay.Combat
 
         private void Update()
         {
+            // UI capture is cancellation, not a physical release of the string.
+            // The grid toolkit runs between PlayerInputSource and BowWeapon, so
+            // this branch is reached on the same frame that Tab opens.
+            if (input != null && input.UserInterfaceCaptureActive)
+            {
+                CancelDraw(false);
+                return;
+            }
+
             bool drawHeld =
                 weaponEquipped &&
                 input != null &&
@@ -266,7 +282,8 @@ namespace WorldBuilder.Gameplay.Combat
                 Mathf.Lerp(
                     minimumDamage,
                     maximumDamage,
-                    ballisticPower),
+                    ballisticPower) +
+                    runtimeDamageBonus,
                 arrowImpactClip);
 
             firedArrowCount++;

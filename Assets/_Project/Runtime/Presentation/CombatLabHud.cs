@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
@@ -24,6 +25,7 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private TwoSlotWeaponPresenter weaponSlots;
         [SerializeField] private BowWeapon bowWeapon;
         [SerializeField] private EnemyBrain enemyBrain;
+        [SerializeField] private WeaponGridSandboxToolkit gridToolkit;
 
         private readonly List<DamagePopup> damagePopups = new List<DamagePopup>();
         private GUIStyle titleStyle;
@@ -73,6 +75,14 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void Update()
         {
+            gridToolkit ??=
+                Object.FindFirstObjectByType<
+                    WeaponGridSandboxToolkit>();
+            if (gridToolkit != null && gridToolkit.IsOpen)
+            {
+                return;
+            }
+
             if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
             {
                 SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
@@ -87,7 +97,7 @@ namespace WorldBuilder.Gameplay.Presentation
             bowWeapon ??=
                 Object.FindFirstObjectByType<BowWeapon>();
             GUI.Label(new Rect(24f, 20f, 580f, 30f), "MOVEMENT LAB  /  GAIT TUNING CHECKPOINT", titleStyle);
-            GUI.Label(new Rect(24f, 54f, 1500f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   Hold MMB + drag inspect model   LMB sword attack   RMB sword block / bow draw   1/2 switch   T activate dummy AI   R restart", textStyle);
+            GUI.Label(new Rect(24f, 54f, 1500f, 24f), "WASD move   Shift sprint   Space jump   Ctrl/C crouch   Mouse look   Hold MMB + drag inspect model   LMB attack   RMB guard / bow draw   1/2 switch   Tab weapon grid   T activate AI   R restart", textStyle);
 
             DrawHealthBar(new Rect(24f, 88f, 260f, 18f), playerHealth, new Color(0.25f, 0.68f, 0.45f), "PLAYER");
             string slotLabel = weaponSlots == null ||

@@ -162,9 +162,11 @@ namespace WorldBuilder.Tests.EditMode
                 Is.False,
                 "Arrow damage must not trigger the sword-hit clip.");
 
-            Transform sword = Object.FindObjectsByType<Transform>(
-                    FindObjectsInactive.Include,
-                    FindObjectsSortMode.None)
+            GameObject player =
+                GameObject.FindGameObjectWithTag("Player");
+            Assert.That(player, Is.Not.Null);
+            Transform sword = player
+                .GetComponentsInChildren<Transform>(true)
                 .Single(transform => transform.name == "Equipped Short Sword");
             Animator animator = sword.GetComponentInParent<Animator>();
             Assert.That(animator, Is.Not.Null);

@@ -54,12 +54,14 @@ namespace WorldBuilder.Gameplay.Characters
         private bool hasGroundControl;
         private Vector3 desiredWorldDirection;
         private float targetHorizontalSpeed;
+        private float runtimeSpeedBonus;
         private MonoBehaviour[] facingOverrideBehaviours;
 
         public Vector3 HorizontalVelocity => horizontalVelocity;
         public Vector3 LocalHorizontalVelocity => transform.InverseTransformDirection(horizontalVelocity);
         public float HorizontalSpeed => horizontalVelocity.magnitude;
-        public float MaximumSpeed => sprintSpeed;
+        public float MaximumSpeed =>
+            sprintSpeed + runtimeSpeedBonus;
         public float VerticalVelocity => verticalVelocity;
         public float CrouchAmount => controller == null || Mathf.Approximately(standingHeight, crouchingHeight)
             ? 0f
@@ -74,14 +76,26 @@ namespace WorldBuilder.Gameplay.Characters
         public float AccelerationRate => acceleration;
         public float AirAccelerationRate => airAcceleration;
         public float TurnSpeed => turnSpeed;
-        public float WalkSpeed => walkSpeed;
-        public float SprintSpeed => sprintSpeed;
-        public float CrouchSpeed => crouchSpeed;
+        public float WalkSpeed =>
+            walkSpeed + runtimeSpeedBonus;
+        public float SprintSpeed =>
+            sprintSpeed + runtimeSpeedBonus;
+        public float CrouchSpeed =>
+            crouchSpeed + runtimeSpeedBonus;
         public float JumpHeight => jumpHeight;
         public float Gravity => gravity;
         public float ReversalBrakeDot => reversalBrakeDot;
         public float ReversalRestartAngle => reversalRestartAngle;
         public float CrouchTransitionSpeed => crouchTransitionSpeed;
+
+        public void SetRuntimeSpeedBonus(float bonus)
+        {
+            runtimeSpeedBonus = Mathf.Max(
+                -Mathf.Min(
+                    walkSpeed,
+                    crouchSpeed) + 0.1f,
+                bonus);
+        }
 
         public void ResetForDiagnostics(Vector3 worldPosition, Quaternion worldRotation)
         {
@@ -154,10 +168,10 @@ namespace WorldBuilder.Gameplay.Characters
                     !facingOverridden &&
                     intent.SprintHeld;
                 float targetSpeed = isCrouched
-                    ? crouchSpeed
+                    ? CrouchSpeed
                     : sprintAllowed
-                        ? sprintSpeed
-                        : walkSpeed;
+                        ? SprintSpeed
+                        : WalkSpeed;
                 targetHorizontalSpeed = desiredDirection.sqrMagnitude > 0.001f ? targetSpeed : 0f;
                 Vector3 desiredVelocity = GetGroundTargetVelocity(
                     desiredDirection,

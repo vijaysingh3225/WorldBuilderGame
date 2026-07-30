@@ -12,10 +12,22 @@ namespace WorldBuilder.Gameplay.Input
         private bool diagnosticOverrideActive;
         private PlayerIntent diagnosticIntent;
         private bool crouchToggled;
+        private bool userInterfaceCaptureActive;
 
         public PlayerIntent CurrentIntent { get; private set; }
         public bool DiagnosticOverrideActive => diagnosticOverrideActive;
+        public bool UserInterfaceCaptureActive =>
+            userInterfaceCaptureActive;
         public event Action<int> WeaponSlotRequested;
+
+        public void SetUserInterfaceCapture(bool captured)
+        {
+            userInterfaceCaptureActive = captured;
+            if (captured)
+            {
+                CurrentIntent = default;
+            }
+        }
 
         public void SetDiagnosticOverride(in PlayerIntent intent)
         {
@@ -41,11 +53,18 @@ namespace WorldBuilder.Gameplay.Input
             diagnosticOverrideActive = false;
             diagnosticIntent = default;
             crouchToggled = false;
+            userInterfaceCaptureActive = false;
             CurrentIntent = default;
         }
 
         private void Update()
         {
+            if (userInterfaceCaptureActive)
+            {
+                CurrentIntent = default;
+                return;
+            }
+
             if (diagnosticOverrideActive)
             {
                 CurrentIntent = diagnosticIntent;

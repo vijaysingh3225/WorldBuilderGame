@@ -48,6 +48,7 @@ namespace WorldBuilder.Gameplay.Combat
 
         private PlayerInputSource input;
         private Health ownerHealth;
+        private float runtimeDamageBonus;
         private float nextAttackTime;
         private bool swingStarted;
         private bool damageWindowOpen;
@@ -61,7 +62,8 @@ namespace WorldBuilder.Gameplay.Combat
         public event Action<MeleeAttackReport> AttackResolved;
 
         public float CooldownRemaining => Mathf.Max(0f, nextAttackTime - Time.time);
-        public float Damage => damage;
+        public float Damage =>
+            Mathf.Max(0f, damage + runtimeDamageBonus);
         public float Cooldown => cooldown;
         public float Reach => bladeLength;
         public float Radius => bladeRadius;
@@ -97,6 +99,11 @@ namespace WorldBuilder.Gameplay.Combat
             bladeLength = Mathf.Max(0.1f, visibleBladeLength);
             bladeRadius = Mathf.Max(0.005f, visibleBladeRadius);
             CaptureBladePose();
+        }
+
+        public void SetRuntimeDamageBonus(float bonus)
+        {
+            runtimeDamageBonus = bonus;
         }
 
         private void Awake()
@@ -281,7 +288,7 @@ namespace WorldBuilder.Gameplay.Combat
                 uniqueDamageables++;
                 Vector3 hitPoint = hit.ClosestPoint(bladeCenter);
                 DamageRequest request =
-                    new DamageRequest(gameObject, damage, hitPoint, damageDirection, weaponId);
+                    new DamageRequest(gameObject, Damage, hitPoint, damageDirection, weaponId);
                 if (DamageService.TryApply(hit, request))
                 {
                     damagedTargets++;

@@ -6,6 +6,15 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/_Project/Scenes/Bootstrap.unity
+    guid: f94a5261711662644be540e359f3dcc0
+  - enabled: 1
+    path: Assets/_Project/Scenes/HomeBase.unity
+    guid: 479529aeea55ce04d83e123d05d27417
+  - enabled: 1
+    path: Assets/_Project/Scenes/RaidPrototype.unity
+    guid: 6977c9816628c0d4e9ac2cead93dd472
+  - enabled: 1
     path: Assets/_Project/Scenes/CombatLab.unity
     guid: 4fe1c8bdc83b4394b9ea106e7610291b
   m_configObjects:
