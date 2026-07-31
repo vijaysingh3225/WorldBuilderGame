@@ -24,6 +24,63 @@ namespace WorldBuilder.Editor
             EnvironmentMeshFolder + "/RaidTreeTrunk.asset";
         private const string RaidTreeCanopyMeshPath =
             EnvironmentMeshFolder + "/RaidTreeCanopy.asset";
+        private const string StylizedForestModelFolder =
+            "Assets/_Project/Art/Environment/StylizedForest/Models/Stylized_forest_fbx";
+        private const string StylizedForestTextureFolder =
+            "Assets/_Project/Art/Environment/StylizedForest/Textures";
+        private static readonly string[] StylizedForestTreeNames =
+        {
+            "SM_sf_birch_01",
+            "SM_sf_birch_02",
+            "SM_sf_birch_03",
+            "SM_sf_tree_01",
+            "SM_sf_tree_02",
+            "SM_sf_tree_03",
+            "SM_sf_tree_04",
+            "SM_sf_pine_01",
+            "SM_sf_pine_02",
+            "SM_sf_pine_03",
+            "SM_sf_pine_04"
+        };
+        private static readonly string[] StylizedForestGrassNames =
+        {
+            "SM_sf_grass_01",
+            "SM_sf_grass_02",
+            "SM_sf_grass_03",
+            "SM_sf_grass_04",
+            "SM_sf_grass_05"
+        };
+        private static readonly string[] StylizedForestUndergrowthNames =
+        {
+            "SM_sf_bush_01",
+            "SM_sf_bush_02",
+            "SM_sf_clover_01",
+            "SM_sf_clover_02",
+            "SM_sf_flower_01",
+            "SM_sf_flower_02",
+            "SM_sf_flower_03",
+            "SM_sf_plnats_01",
+            "SM_sf_plnats_02",
+            "SM_sf_plnats_03"
+        };
+        private static readonly string[] StylizedForestRockNames =
+        {
+            "SM_rock_01",
+            "SM_rock_02",
+            "SM_rock_03",
+            "SM_rock_04",
+            "SM_rock_05",
+            "SM_rock_06",
+            "SM_rock_07",
+            "SM_rock_08",
+            "SM_rock_09"
+        };
+        private const string ChestPrefabPath =
+            "Assets/_Project/Art/Environment/Chest/Chest.fbx";
+        private const string ChestDiffusePath =
+            "Assets/_Project/Art/Environment/Chest/Chest_Diffuse.png";
+        private const string ChestNormalPath =
+            "Assets/_Project/Art/Environment/Chest/Chest_Normal_OpenGL.png";
 
         [MenuItem("WorldBuilder/Build Gameplay Loop")]
         public static void BuildAll()
@@ -66,6 +123,16 @@ namespace WorldBuilder.Editor
                 "Raid Prototype",
                 GameplaySceneRegistry.RaidPrototypeScenePath,
                 BuildRaidPrototype);
+        }
+
+        public static void BuildRaidPrototypeFromCommandLine()
+        {
+            BuildRaidPrototype();
+        }
+
+        public static void BuildHomeBaseFromCommandLine()
+        {
+            BuildHomeBase();
         }
 
         [MenuItem("WorldBuilder/Build/Combat Lab")]
@@ -234,9 +301,8 @@ namespace WorldBuilder.Editor
             Material wall = CombatLabSceneBuilder.GetStandardMaterial(
                 "HomeWall",
                 new Color(0.24f, 0.26f, 0.24f));
-            Material wood = CombatLabSceneBuilder.GetStandardMaterial(
-                "HomeStorage",
-                new Color(0.28f, 0.17f, 0.09f));
+            Material chestMaterial =
+                GetOrCreateChestMaterial();
             Material gate = CombatLabSceneBuilder.GetStandardMaterial(
                 "RaidGate",
                 new Color(0.24f, 0.48f, 0.35f),
@@ -244,69 +310,85 @@ namespace WorldBuilder.Editor
                 0.05f);
 
             GameObject environment = new GameObject("Environment");
+            GameObject gridObject =
+                new GameObject("Home Placement Grid");
+            gridObject.transform.SetParent(
+                environment.transform,
+                false);
+            HomePlacementGrid homeGrid =
+                gridObject.AddComponent<HomePlacementGrid>();
+            homeGrid.Configure(2.5f);
             CombatLabSceneBuilder.CreateStandardBlock(
                 "Base Floor",
                 new Vector3(0f, -0.25f, 0f),
-                new Vector3(30f, 0.5f, 26f),
+                new Vector3(30f, 0.5f, 25f),
                 floor,
                 environment.transform);
             CombatLabSceneBuilder.CreateStandardBlock(
                 "North Wall",
-                new Vector3(0f, 2f, 12.75f),
+                new Vector3(0f, 2f, 12.25f),
                 new Vector3(30f, 4.5f, 0.5f),
                 wall,
                 environment.transform);
             CombatLabSceneBuilder.CreateStandardBlock(
                 "West Wall",
                 new Vector3(-14.75f, 2f, 0f),
-                new Vector3(0.5f, 4.5f, 26f),
+                new Vector3(0.5f, 4.5f, 25f),
                 wall,
                 environment.transform);
             CombatLabSceneBuilder.CreateStandardBlock(
                 "East Wall",
                 new Vector3(14.75f, 2f, 0f),
-                new Vector3(0.5f, 4.5f, 26f),
+                new Vector3(0.5f, 4.5f, 25f),
                 wall,
                 environment.transform);
 
             GameObject[] storageChests = new GameObject[4];
             for (int index = 0; index < 4; index++)
             {
-                GameObject crate =
-                    CombatLabSceneBuilder.CreateStandardBlock(
-                    $"Storage Crate {index + 1}",
-                    new Vector3(-10.5f + index * 2.1f, 0.65f, 8.5f),
-                    new Vector3(1.6f, 1.3f, 1.6f),
-                    wood,
-                    environment.transform);
-                crate.name = $"Interactive Storage Chest {index + 1}";
-                storageChests[index] = crate;
+                storageChests[index] =
+                    CreateHomeStorageChest(
+                        index,
+                        homeGrid,
+                        chestMaterial,
+                        environment.transform);
             }
 
+            GameObject raidGateAssembly =
+                new GameObject("Raid Gate Assembly");
+            raidGateAssembly.transform.SetParent(
+                environment.transform,
+                false);
+            HomeGridOccupant raidGateOccupant =
+                raidGateAssembly.AddComponent<HomeGridOccupant>();
+            raidGateOccupant.Configure(
+                homeGrid,
+                new Vector2Int(-1, 4),
+                new Vector2Int(3, 1));
             CombatLabSceneBuilder.CreateStandardBlock(
                 "Raid Gate Left",
                 new Vector3(-3.5f, 2.5f, 11.9f),
                 new Vector3(1.25f, 5f, 1f),
                 gate,
-                environment.transform);
+                raidGateAssembly.transform);
             CombatLabSceneBuilder.CreateStandardBlock(
                 "Raid Gate Right",
                 new Vector3(3.5f, 2.5f, 11.9f),
                 new Vector3(1.25f, 5f, 1f),
                 gate,
-                environment.transform);
+                raidGateAssembly.transform);
             CombatLabSceneBuilder.CreateStandardBlock(
                 "Raid Gate Header",
                 new Vector3(0f, 4.5f, 11.9f),
                 new Vector3(5.8f, 1f, 1f),
                 gate,
-                environment.transform);
+                raidGateAssembly.transform);
             CombatLabSceneBuilder.CreateStandardMarker(
                 "Raid Launch Marker",
                 new Vector3(0f, 0.03f, 9.4f),
                 new Vector3(3.2f, 0.04f, 2.2f),
                 gate,
-                environment.transform);
+                raidGateAssembly.transform);
 
             GameObject player =
                 CombatLabSceneBuilder.CreateStandardPlayer(
@@ -349,13 +431,16 @@ namespace WorldBuilder.Editor
                     new Vector3(2.4f, 2.4f, 2.8f);
                 HomeStorageChest chest =
                     chestInteraction.AddComponent<HomeStorageChest>();
-                chest.Configure(inventory);
+                chest.Configure(
+                    inventory,
+                    $"home-chest-{index + 1}",
+                    $"Chest {index + 1}");
             }
 
             GameObject raidDoorInteraction =
                 new GameObject("Raid Door Interaction");
             raidDoorInteraction.transform.SetParent(
-                environment.transform);
+                raidGateAssembly.transform);
             raidDoorInteraction.transform.position =
                 new Vector3(0f, 1.6f, 10.3f);
             BoxCollider raidDoorTrigger =
@@ -367,96 +452,224 @@ namespace WorldBuilder.Editor
             SaveScene(scene, GameplaySceneRegistry.HomeBaseScenePath);
         }
 
+        private static GameObject CreateHomeStorageChest(
+            int zeroBasedIndex,
+            HomePlacementGrid grid,
+            Material material,
+            Transform parent)
+        {
+            GameObject chest =
+                new GameObject(
+                    $"Interactive Storage Chest {zeroBasedIndex + 1}");
+            chest.transform.SetParent(parent, false);
+            HomeGridOccupant occupant =
+                chest.AddComponent<HomeGridOccupant>();
+            occupant.Configure(
+                grid,
+                new Vector2Int(-4 + zeroBasedIndex, 3),
+                Vector2Int.one,
+                0f,
+                2);
+
+            GameObject source =
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    ChestPrefabPath);
+            GameObject model =
+                source != null
+                    ? PrefabUtility.InstantiatePrefab(
+                        source,
+                        chest.transform) as GameObject
+                    : null;
+            if (model == null)
+            {
+                model =
+                    GameObject.CreatePrimitive(
+                        PrimitiveType.Cube);
+                model.transform.SetParent(
+                    chest.transform,
+                    false);
+            }
+            model.name = "Chest Model";
+
+            Renderer[] renderers =
+                model.GetComponentsInChildren<Renderer>(true);
+            for (int index = 0;
+                 index < renderers.Length;
+                 index++)
+            {
+                renderers[index].sharedMaterial = material;
+            }
+
+            if (TryGetRendererBounds(
+                    renderers,
+                    out Bounds initialBounds))
+            {
+                if (initialBounds.size.z >
+                    initialBounds.size.x)
+                {
+                    model.transform.rotation =
+                        Quaternion.AngleAxis(
+                            90f,
+                            Vector3.up) *
+                        model.transform.rotation;
+                    TryGetRendererBounds(
+                        renderers,
+                        out initialBounds);
+                }
+
+                float scale =
+                    Mathf.Min(
+                        2.15f /
+                            Mathf.Max(
+                                0.001f,
+                                initialBounds.size.x),
+                        Mathf.Min(
+                            1.25f /
+                                Mathf.Max(
+                                    0.001f,
+                                    initialBounds.size.y),
+                            1.65f /
+                                Mathf.Max(
+                                    0.001f,
+                                    initialBounds.size.z)));
+                model.transform.localScale *= scale;
+                TryGetRendererBounds(
+                    renderers,
+                    out Bounds scaledBounds);
+                model.transform.position +=
+                    Vector3.up *
+                    (chest.transform.position.y -
+                     scaledBounds.min.y);
+            }
+
+            var solidCollider =
+                chest.AddComponent<BoxCollider>();
+            if (TryGetRendererBounds(
+                    renderers,
+                    out Bounds finalBounds))
+            {
+                solidCollider.center =
+                    chest.transform.InverseTransformPoint(
+                        finalBounds.center);
+                solidCollider.size =
+                    finalBounds.size +
+                    new Vector3(0.04f, 0.02f, 0.04f);
+            }
+            else
+            {
+                solidCollider.center =
+                    new Vector3(0f, 0.6f, 0f);
+                solidCollider.size =
+                    new Vector3(2f, 1.2f, 1.5f);
+            }
+
+            return chest;
+        }
+
         private static void BuildRaidPrototype()
         {
             Scene scene = EditorSceneManager.NewScene(
                 NewSceneSetup.EmptyScene,
                 NewSceneMode.Single);
             CombatLabSceneBuilder.CreateStandardLighting();
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor =
+                new Color(
+                    0.72f,
+                    0.74f,
+                    0.75f,
+                    1f);
+            RenderSettings.fogStartDistance = 14f;
+            RenderSettings.fogEndDistance = 62f;
             CreateSceneBootstrap(
                 GameLaunchMode.RaidSandbox,
                 initializeOnAwake: true);
 
-            Material ground = CombatLabSceneBuilder.GetStandardMaterial(
-                "RaidGround",
-                new Color(0.19f, 0.23f, 0.17f));
-            Material stone = CombatLabSceneBuilder.GetStandardMaterial(
-                "RaidStone",
-                new Color(0.27f, 0.29f, 0.26f));
-            Material bark = CombatLabSceneBuilder.GetStandardMaterial(
-                "RaidBark",
-                new Color(0.22f, 0.13f, 0.065f));
-            Material leaves = CombatLabSceneBuilder.GetStandardMaterial(
-                "RaidLeaves",
-                new Color(0.16f, 0.32f, 0.16f));
+            Material ground =
+                GetOrCreateStylizedForestMaterial(
+                    "RaidGround",
+                    "Stylized_forest_tga/" +
+                    "T_Landscape_grass_BaseColor.TGA",
+                    false,
+                    Color.white);
+            Material road =
+                GetOrCreateStylizedForestMaterial(
+                    "RaidDirtRoad",
+                    "Stylized_forest_tga/" +
+                    "T_Landscape_dirt_BaseColor.TGA",
+                    false,
+                    Color.white);
+            Material water = CombatLabSceneBuilder.GetStandardMaterial(
+                "RaidWater",
+                new Color(0.07f, 0.32f, 0.42f),
+                0.82f,
+                0.08f);
+            Material bridge = CombatLabSceneBuilder.GetStandardMaterial(
+                "RaidBridge",
+                new Color(0.31f, 0.19f, 0.095f),
+                0.12f);
+            Material treeBark =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestBark",
+                    "Stylized_forest_tga/T_bark_BaseColor.TGA",
+                    false,
+                    Color.white);
+            Material birchBark =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestBirchBark",
+                    "Stylized_forest_tga/T_bark_birch_BaseColor.TGA",
+                    false,
+                    Color.white);
+            Material treeLeaves =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestLeaves",
+                    "T_leaves_BaseColor_Unity.TGA",
+                    true,
+                    Color.white);
+            Material pineLeaves =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestPineLeaves",
+                    "T_pine_leaves_BaseColor_Unity.TGA",
+                    true,
+                    new Color(
+                        0.48f,
+                        0.82f,
+                        1.35f,
+                        1f));
+            Material grassDetails =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestGrassDetails",
+                    "Stylized_forest_tga/" +
+                    "T_grass_BaseColor.TGA",
+                    true,
+                    Color.white);
+            Material plantDetails =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestPlantDetails",
+                    "Stylized_forest_tga/" +
+                    "T_plants_BaseColor.TGA",
+                    true,
+                    Color.white);
+            Material rocks =
+                GetOrCreateStylizedForestMaterial(
+                    "StylizedForestRocks",
+                    "Stylized_forest_tga/" +
+                    "T_rocks_BaseColor.TGA",
+                    false,
+                    Color.white);
             Material extraction = CombatLabSceneBuilder.GetStandardMaterial(
                 "Extraction",
                 new Color(0.18f, 0.72f, 0.54f),
                 0.35f,
                 0.08f);
 
-            GameObject environment = new GameObject("Environment");
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "Raid Ground",
-                new Vector3(0f, -0.3f, 10f),
-                new Vector3(72f, 0.6f, 86f),
-                ground,
-                environment.transform);
-            CreateHill(
-                "West Hill",
-                new Vector3(-27f, -0.9f, 8f),
-                new Vector3(14f, 3.5f, 18f),
-                stone,
-                environment.transform);
-            CreateHill(
-                "East Hill",
-                new Vector3(28f, -1.2f, 25f),
-                new Vector3(16f, 4f, 19f),
-                stone,
-                environment.transform);
-
-            Vector3[] treePositions =
-            {
-                new Vector3(-27f, 0f, -19f),
-                new Vector3(-17f, 0f, -16f),
-                new Vector3(-7f, 0f, -12f),
-                new Vector3(7f, 0f, -11f),
-                new Vector3(18f, 0f, -15f),
-                new Vector3(29f, 0f, -10f),
-                new Vector3(-25f, 0f, -5f),
-                new Vector3(-12f, 0f, -3f),
-                new Vector3(9f, 0f, -2f),
-                new Vector3(22f, 0f, 2f),
-                new Vector3(-29f, 0f, 10f),
-                new Vector3(-16f, 0f, 8f),
-                new Vector3(14f, 0f, 10f),
-                new Vector3(28f, 0f, 15f),
-                new Vector3(-24f, 0f, 20f),
-                new Vector3(-11f, 0f, 21f),
-                new Vector3(18f, 0f, 22f),
-                new Vector3(-29f, 0f, 34f),
-                new Vector3(-16f, 0f, 33f),
-                new Vector3(11f, 0f, 34f),
-                new Vector3(25f, 0f, 31f),
-                new Vector3(-21f, 0f, 45f),
-                new Vector3(-9f, 0f, 42f),
-                new Vector3(12f, 0f, 45f),
-                new Vector3(27f, 0f, 43f)
-            };
-            for (int index = 0; index < treePositions.Length; index++)
-            {
-                CreateTree(
-                    $"Cover Tree {index + 1:00}",
-                    treePositions[index],
-                    bark,
-                    leaves,
-                    environment.transform,
-                    index);
-            }
+            new GameObject(
+                "Environment - Generated At Runtime");
 
             GameObject player =
                 CombatLabSceneBuilder.CreateStandardPlayer(
-                    new Vector3(0f, 1f, -20f),
+                    new Vector3(0f, 1f, -65f),
                     out Health _,
                     out PlayerInputSource input);
             CombatLabSceneBuilder.CreateStandardCamera(
@@ -465,10 +678,12 @@ namespace WorldBuilder.Editor
 
             Vector3[] enemyPositions =
             {
-                new Vector3(0f, 1f, 1f),
-                new Vector3(-8f, 1f, 15f),
-                new Vector3(8f, 1f, 27f)
+                new Vector3(0f, 1f, -25f),
+                new Vector3(0f, 1f, 0f),
+                new Vector3(0f, 1f, 25f)
             };
+            EnemyBrain[] raidEnemies =
+                new EnemyBrain[enemyPositions.Length];
             for (int index = 0; index < enemyPositions.Length; index++)
             {
                 GameObject enemy =
@@ -477,15 +692,19 @@ namespace WorldBuilder.Editor
                         out Health _);
                 enemy.name = $"Raider {index + 1}";
                 EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+                raidEnemies[index] = brain;
                 if (brain != null)
                 {
+                    brain.ConfigureAsTrainingDummy(
+                        requireManualActivation: false);
                     brain.enabled = false;
                 }
             }
 
             GameObject systems =
                 new GameObject(InfrastructureMarkerName);
-            systems.AddComponent<RaidPrototypeController>();
+            RaidPrototypeController raidController =
+                systems.AddComponent<RaidPrototypeController>();
             BowAimCrosshairPresenter crosshair =
                 systems.AddComponent<BowAimCrosshairPresenter>();
             crosshair.Configure(
@@ -508,11 +727,246 @@ namespace WorldBuilder.Editor
                 "wind-step",
                 new Vector3(-3f, 0.75f, 31f),
                 new Color(0.31f, 0.82f, 0.62f));
-            CreateExtractionZone(
-                new Vector3(0f, 0.05f, 42f),
+            ExtractionZone extractionZone =
+                CreateExtractionZone(
+                new Vector3(0f, 0.05f, 65f),
                 extraction);
+            ProceduralRaidGenerator generator =
+                systems.AddComponent<ProceduralRaidGenerator>();
+            generator.Configure(
+                player.transform,
+                raidEnemies,
+                extractionZone,
+                LoadStylizedForestTreePrefabs(),
+                LoadStylizedForestPrefabs(
+                    StylizedForestGrassNames),
+                LoadStylizedForestPrefabs(
+                    StylizedForestUndergrowthNames),
+                LoadStylizedForestPrefabs(
+                    StylizedForestRockNames),
+                ground,
+                road,
+                water,
+                bridge,
+                treeBark,
+                birchBark,
+                treeLeaves,
+                pineLeaves,
+                grassDetails,
+                plantDetails,
+                rocks);
+            extractionZone.Configure(
+                raidController,
+                "Far Trail Extraction");
 
             SaveScene(scene, GameplaySceneRegistry.RaidPrototypeScenePath);
+        }
+
+        private static GameObject[] LoadStylizedForestTreePrefabs()
+        {
+            return LoadStylizedForestPrefabs(
+                StylizedForestTreeNames);
+        }
+
+        private static GameObject[] LoadStylizedForestPrefabs(
+            string[] prefabNames)
+        {
+            GameObject[] prefabs =
+                new GameObject[prefabNames.Length];
+            for (int index = 0;
+                 index < prefabs.Length;
+                 index++)
+            {
+                prefabs[index] =
+                    AssetDatabase.LoadAssetAtPath<GameObject>(
+                        $"{StylizedForestModelFolder}/" +
+                        $"{prefabNames[index]}.FBX");
+            }
+            return prefabs;
+        }
+
+        private static Material GetOrCreateStylizedForestMaterial(
+            string materialName,
+            string textureName,
+            bool alphaClipped,
+            Color tint)
+        {
+            Material material =
+                CombatLabSceneBuilder.GetStandardMaterial(
+                    materialName,
+                    Color.white,
+                    0.08f);
+            Shader shader =
+                Shader.Find(
+                    "Universal Render Pipeline/Lit");
+            if (shader != null)
+            {
+                material.shader = shader;
+            }
+
+            string texturePath =
+                $"{StylizedForestTextureFolder}/" +
+                textureName;
+            TextureImporter textureImporter =
+                AssetImporter.GetAtPath(
+                    texturePath) as TextureImporter;
+            if (alphaClipped &&
+                textureImporter != null &&
+                (textureImporter.alphaSource !=
+                    TextureImporterAlphaSource.FromInput ||
+                 !textureImporter.alphaIsTransparency ||
+                 !textureImporter.mipmapEnabled ||
+                 !textureImporter
+                    .mipMapsPreserveCoverage ||
+                 !Mathf.Approximately(
+                    textureImporter
+                        .alphaTestReferenceValue,
+                    0.35f)))
+            {
+                textureImporter.alphaSource =
+                    TextureImporterAlphaSource.FromInput;
+                textureImporter.alphaIsTransparency =
+                    true;
+                textureImporter.mipmapEnabled = true;
+                textureImporter.mipMapsPreserveCoverage =
+                    true;
+                textureImporter.alphaTestReferenceValue =
+                    0.35f;
+                textureImporter.SaveAndReimport();
+            }
+            Texture2D baseColor =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    texturePath);
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture(
+                    "_BaseMap",
+                    baseColor);
+            }
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor(
+                    "_BaseColor",
+                    tint);
+            }
+            if (material.HasProperty("_Color"))
+            {
+                material.SetColor(
+                    "_Color",
+                    tint);
+            }
+            if (material.HasProperty("_AlphaClip"))
+            {
+                material.SetFloat(
+                    "_AlphaClip",
+                    alphaClipped ? 1f : 0f);
+            }
+            if (material.HasProperty("_Cutoff"))
+            {
+                material.SetFloat(
+                    "_Cutoff",
+                    0.35f);
+            }
+            if (material.HasProperty("_Cull"))
+            {
+                material.SetFloat(
+                    "_Cull",
+                    alphaClipped ? 0f : 2f);
+            }
+            if (alphaClipped)
+            {
+                material.EnableKeyword(
+                    "_ALPHATEST_ON");
+                material.renderQueue =
+                    (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+                material.doubleSidedGI = true;
+            }
+            else
+            {
+                material.DisableKeyword(
+                    "_ALPHATEST_ON");
+                material.renderQueue = -1;
+                material.doubleSidedGI = false;
+            }
+            material.enableInstancing = true;
+
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        private static Material GetOrCreateChestMaterial()
+        {
+            TextureImporter normalImporter =
+                AssetImporter.GetAtPath(
+                    ChestNormalPath) as TextureImporter;
+            if (normalImporter != null &&
+                (normalImporter.textureType !=
+                    TextureImporterType.NormalMap ||
+                 !normalImporter.flipGreenChannel))
+            {
+                normalImporter.textureType =
+                    TextureImporterType.NormalMap;
+                normalImporter.flipGreenChannel = true;
+                normalImporter.SaveAndReimport();
+            }
+
+            Material material =
+                CombatLabSceneBuilder.GetStandardMaterial(
+                    "HomeStorage",
+                    Color.white,
+                    0.26f,
+                    0f);
+            Texture2D diffuse =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    ChestDiffusePath);
+            Texture2D normal =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    ChestNormalPath);
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture(
+                    "_BaseMap",
+                    diffuse);
+            }
+            if (material.HasProperty("_BumpMap"))
+            {
+                material.SetTexture(
+                    "_BumpMap",
+                    normal);
+                material.EnableKeyword("_NORMALMAP");
+            }
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        private static bool TryGetRendererBounds(
+            Renderer[] renderers,
+            out Bounds bounds)
+        {
+            bounds = default;
+            bool found = false;
+            for (int index = 0;
+                 index < renderers.Length;
+                 index++)
+            {
+                Renderer renderer = renderers[index];
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                if (!found)
+                {
+                    bounds = renderer.bounds;
+                    found = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(
+                        renderer.bounds);
+                }
+            }
+            return found;
         }
 
         private static void CreateHill(
@@ -872,7 +1326,7 @@ namespace WorldBuilder.Editor
             raidPickup.Configure(definitionId, name.Replace(" Pickup", ""));
         }
 
-        private static void CreateExtractionZone(
+        private static ExtractionZone CreateExtractionZone(
             Vector3 position,
             Material material)
         {
@@ -884,13 +1338,15 @@ namespace WorldBuilder.Editor
             zone.GetComponent<Renderer>().sharedMaterial = material;
             Collider collider = zone.GetComponent<Collider>();
             Object.DestroyImmediate(collider);
-            zone.AddComponent<ExtractionZone>();
+            ExtractionZone extractionZone =
+                zone.AddComponent<ExtractionZone>();
             BoxCollider trigger = zone.GetComponent<BoxCollider>();
             trigger.size = new Vector3(1f, 40f, 1f);
             trigger.center = new Vector3(0f, 20f, 0f);
             Rigidbody body = zone.AddComponent<Rigidbody>();
             body.isKinematic = true;
             body.useGravity = false;
+            return extractionZone;
         }
 
         private static void SaveScene(Scene scene, string path)

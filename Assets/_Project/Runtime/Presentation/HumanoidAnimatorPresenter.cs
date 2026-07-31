@@ -33,6 +33,7 @@ namespace WorldBuilder.Gameplay.Presentation
             if (animator != null)
             {
                 animator.applyRootMotion = false;
+                KeepAnimatedVisualRenderable();
             }
 
 #if UNITY_EDITOR
@@ -61,6 +62,25 @@ namespace WorldBuilder.Gameplay.Presentation
             if (animator != null)
             {
                 animator.applyRootMotion = false;
+                KeepAnimatedVisualRenderable();
+            }
+        }
+
+        private void KeepAnimatedVisualRenderable()
+        {
+            animator.cullingMode =
+                AnimatorCullingMode.AlwaysAnimate;
+            SkinnedMeshRenderer[] renderers =
+                animator.GetComponentsInChildren<
+                    SkinnedMeshRenderer>(true);
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                SkinnedMeshRenderer renderer =
+                    renderers[index];
+                renderer.updateWhenOffscreen = true;
+                Bounds bounds = renderer.localBounds;
+                bounds.Expand(0.5f);
+                renderer.localBounds = bounds;
             }
         }
 

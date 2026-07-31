@@ -168,6 +168,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
+            enemy.ConfigureForArenaDormancy();
             Health health = enemy.GetComponent<Health>();
             enemies.Add(enemy);
             enemyHealth.Add(health);

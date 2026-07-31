@@ -157,10 +157,38 @@ namespace WorldBuilder.Gameplay.Loop
     }
 
     [Serializable]
+    public sealed class ChestStorageAssignment
+    {
+        [SerializeField] private string entryId;
+        [SerializeField] private string chestId;
+
+        public string EntryId => entryId;
+        public string ChestId => chestId;
+
+        internal static ChestStorageAssignment Create(
+            string entryId,
+            string chestId)
+        {
+            return new ChestStorageAssignment
+            {
+                entryId = entryId,
+                chestId = chestId
+            };
+        }
+
+        internal ChestStorageAssignment Clone()
+        {
+            return Create(entryId, chestId);
+        }
+    }
+
+    [Serializable]
     public sealed class PlayerProfile
     {
-        public const int CurrentSchemaVersion = 2;
+        public const int CurrentSchemaVersion = 3;
         public const int InventoryCapacity = 24;
+        public const int ChestCapacity = 50;
+        public const string DefaultChestId = "home-chest-1";
 
         [SerializeField] private int schemaVersion = CurrentSchemaVersion;
         [SerializeField] private string profileId;
@@ -170,6 +198,9 @@ namespace WorldBuilder.Gameplay.Loop
         [SerializeField] private List<StorageEntry> storage = new List<StorageEntry>();
         [SerializeField] private List<string> inventoryEntryIds =
             new List<string>();
+        [SerializeField] private List<ChestStorageAssignment>
+            chestStorageAssignments =
+                new List<ChestStorageAssignment>();
         [SerializeField] private WeaponInstanceRecord weaponOne;
         [SerializeField] private WeaponInstanceRecord weaponTwo;
 
@@ -181,6 +212,9 @@ namespace WorldBuilder.Gameplay.Loop
         public IReadOnlyList<StorageEntry> Storage => storage;
         public IReadOnlyList<string> InventoryEntryIds =>
             inventoryEntryIds;
+        public IReadOnlyList<ChestStorageAssignment>
+            ChestStorageAssignments =>
+                chestStorageAssignments;
         public WeaponInstanceRecord WeaponOne => weaponOne;
         public WeaponInstanceRecord WeaponTwo => weaponTwo;
 
@@ -250,6 +284,7 @@ namespace WorldBuilder.Gameplay.Loop
             StorageEntry copy = entry.Clone();
             copy.Normalize();
             storage.Add(copy);
+            MoveToChest(copy.EntryId, DefaultChestId);
         }
 
         public bool RemoveStorageEntry(string entryId)
@@ -269,6 +304,7 @@ namespace WorldBuilder.Gameplay.Loop
             storage.RemoveAt(index);
             inventoryEntryIds.RemoveAll(id =>
                 string.Equals(id, entryId, StringComparison.Ordinal));
+            RemoveChestAssignment(entryId);
             return true;
         }
 
@@ -298,8 +334,7 @@ namespace WorldBuilder.Gameplay.Loop
 
         public bool TryMoveToInventory(string entryId)
         {
-            if (inventoryEntryIds.Count >= InventoryCapacity ||
-                FindStorageEntry(entryId) == null)
+            if (FindStorageEntry(entryId) == null)
             {
                 return false;
             }
@@ -309,22 +344,98 @@ namespace WorldBuilder.Gameplay.Loop
                 return true;
             }
 
+            if (inventoryEntryIds.Count >= InventoryCapacity)
+            {
+                return false;
+            }
+
+            RemoveChestAssignment(entryId);
             inventoryEntryIds.Add(entryId);
             return true;
         }
 
         public bool MoveToStorage(string entryId)
         {
-            if (string.IsNullOrWhiteSpace(entryId))
+            return MoveToChest(entryId, DefaultChestId);
+        }
+
+        public bool MoveToChest(
+            string entryId,
+            string chestId)
+        {
+            if (string.IsNullOrWhiteSpace(entryId) ||
+                string.IsNullOrWhiteSpace(chestId) ||
+                FindStorageEntry(entryId) == null)
             {
                 return false;
             }
 
-            return inventoryEntryIds.RemoveAll(id =>
+            string normalizedChestId = chestId.Trim();
+            ChestStorageAssignment existing =
+                chestStorageAssignments.Find(assignment =>
+                    assignment != null &&
+                    string.Equals(
+                        assignment.EntryId,
+                        entryId,
+                        StringComparison.Ordinal));
+            if (existing != null &&
+                string.Equals(
+                    existing.ChestId,
+                    normalizedChestId,
+                    StringComparison.Ordinal))
+            {
+                inventoryEntryIds.RemoveAll(id =>
+                    string.Equals(
+                        id,
+                        entryId,
+                        StringComparison.Ordinal));
+                return true;
+            }
+
+            if (GetChestEntryIds(normalizedChestId).Count >=
+                ChestCapacity)
+            {
+                return false;
+            }
+
+            inventoryEntryIds.RemoveAll(id =>
                 string.Equals(
                     id,
                     entryId,
-                    StringComparison.Ordinal)) > 0;
+                    StringComparison.Ordinal));
+            RemoveChestAssignment(entryId);
+            chestStorageAssignments.Add(
+                ChestStorageAssignment.Create(
+                    entryId,
+                    normalizedChestId));
+            return true;
+        }
+
+        public IReadOnlyList<string> GetChestEntryIds(
+            string chestId)
+        {
+            var entryIds = new List<string>();
+            if (string.IsNullOrWhiteSpace(chestId))
+            {
+                return entryIds;
+            }
+
+            for (int index = 0;
+                 index < chestStorageAssignments.Count;
+                 index++)
+            {
+                ChestStorageAssignment assignment =
+                    chestStorageAssignments[index];
+                if (assignment != null &&
+                    string.Equals(
+                        assignment.ChestId,
+                        chestId,
+                        StringComparison.Ordinal))
+                {
+                    entryIds.Add(assignment.EntryId);
+                }
+            }
+            return entryIds;
         }
 
         public void Rename(string value)
@@ -347,6 +458,9 @@ namespace WorldBuilder.Gameplay.Loop
                 storage = new List<StorageEntry>(storage.Count),
                 inventoryEntryIds =
                     new List<string>(inventoryEntryIds),
+                chestStorageAssignments =
+                    new List<ChestStorageAssignment>(
+                        chestStorageAssignments.Count),
                 weaponOne = weaponOne?.Clone(),
                 weaponTwo = weaponTwo?.Clone(),
             };
@@ -356,6 +470,16 @@ namespace WorldBuilder.Gameplay.Loop
                 if (entry != null)
                 {
                     clone.storage.Add(entry.Clone());
+                }
+            }
+
+            foreach (ChestStorageAssignment assignment
+                     in chestStorageAssignments)
+            {
+                if (assignment != null)
+                {
+                    clone.chestStorageAssignments.Add(
+                        assignment.Clone());
                 }
             }
 
@@ -406,6 +530,72 @@ namespace WorldBuilder.Gameplay.Loop
             }
 
             inventoryEntryIds = normalizedInventoryIds;
+            chestStorageAssignments ??=
+                new List<ChestStorageAssignment>();
+            var normalizedAssignments =
+                new List<ChestStorageAssignment>();
+            var assignedEntryIds =
+                new HashSet<string>(StringComparer.Ordinal);
+            var chestCounts =
+                new Dictionary<string, int>(
+                    StringComparer.Ordinal);
+            for (int index = 0;
+                 index < chestStorageAssignments.Count;
+                 index++)
+            {
+                ChestStorageAssignment assignment =
+                    chestStorageAssignments[index];
+                if (assignment == null ||
+                    string.IsNullOrWhiteSpace(
+                        assignment.EntryId) ||
+                    string.IsNullOrWhiteSpace(
+                        assignment.ChestId) ||
+                    !validEntryIds.Contains(
+                        assignment.EntryId) ||
+                    inventoryEntryIds.Contains(
+                        assignment.EntryId) ||
+                    !assignedEntryIds.Add(
+                        assignment.EntryId))
+                {
+                    continue;
+                }
+
+                string chestId = assignment.ChestId.Trim();
+                chestCounts.TryGetValue(
+                    chestId,
+                    out int chestCount);
+                if (chestCount >= ChestCapacity)
+                {
+                    assignedEntryIds.Remove(
+                        assignment.EntryId);
+                    continue;
+                }
+
+                normalizedAssignments.Add(
+                    ChestStorageAssignment.Create(
+                        assignment.EntryId,
+                        chestId));
+                chestCounts[chestId] = chestCount + 1;
+            }
+
+            for (int index = 0;
+                 index < storage.Count;
+                 index++)
+            {
+                string entryId = storage[index].EntryId;
+                if (inventoryEntryIds.Contains(entryId) ||
+                    assignedEntryIds.Contains(entryId))
+                {
+                    continue;
+                }
+
+                normalizedAssignments.Add(
+                    ChestStorageAssignment.Create(
+                        entryId,
+                        DefaultChestId));
+                assignedEntryIds.Add(entryId);
+            }
+            chestStorageAssignments = normalizedAssignments;
             weaponOne ??= WeaponInstanceRecord.Create("short-sword", "Short Sword");
             weaponTwo ??= WeaponInstanceRecord.Create("hunting-bow", "Hunting Bow");
             weaponOne.Normalize("short-sword", "Short Sword");
@@ -442,6 +632,16 @@ namespace WorldBuilder.Gameplay.Loop
             inventoryEntryIds.Clear();
             inventoryEntryIds.AddRange(snapshot.inventoryEntryIds);
 
+            chestStorageAssignments ??=
+                new List<ChestStorageAssignment>();
+            chestStorageAssignments.Clear();
+            foreach (ChestStorageAssignment assignment
+                     in snapshot.chestStorageAssignments)
+            {
+                chestStorageAssignments.Add(
+                    assignment.Clone());
+            }
+
             if (weaponOne == null)
             {
                 weaponOne = snapshot.weaponOne.Clone();
@@ -459,6 +659,16 @@ namespace WorldBuilder.Gameplay.Loop
             {
                 weaponTwo.RestoreFrom(snapshot.weaponTwo);
             }
+        }
+
+        private void RemoveChestAssignment(string entryId)
+        {
+            chestStorageAssignments.RemoveAll(assignment =>
+                assignment != null &&
+                string.Equals(
+                    assignment.EntryId,
+                    entryId,
+                    StringComparison.Ordinal));
         }
     }
 

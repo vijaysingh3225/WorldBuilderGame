@@ -541,7 +541,7 @@ namespace WorldBuilder.Editor
                     animator.runtimeAnimatorController = controller;
                     animator.applyRootMotion = false;
                     animator.updateMode = AnimatorUpdateMode.Normal;
-                    animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+                    animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
 
                     HumanoidAnimatorPresenter presenter = player.AddComponent<HumanoidAnimatorPresenter>();
                     presenter.Configure(motor, animator);
@@ -746,7 +746,7 @@ namespace WorldBuilder.Editor
                 : new[] { bodyMaterial };
             renderer.localBounds = sourceRenderer.localBounds;
             renderer.quality = SkinQuality.Bone4;
-            renderer.updateWhenOffscreen = false;
+            renderer.updateWhenOffscreen = true;
             renderer.shadowCastingMode =
                 UnityEngine.Rendering.ShadowCastingMode.On;
             renderer.receiveShadows = true;
@@ -967,14 +967,14 @@ namespace WorldBuilder.Editor
                 "Lower Gray Bow Grip",
                 bow.transform,
                 lowerInner,
-                new Vector3(0f, -0.035f, 0f),
+                Vector3.zero,
                 0.036f,
                 0.045f,
                 stringMaterial);
             CreatePolygonBeamBetween(
                 "Upper Gray Bow Grip",
                 bow.transform,
-                new Vector3(0f, 0.035f, 0f),
+                Vector3.zero,
                 upperInner,
                 0.036f,
                 0.045f,

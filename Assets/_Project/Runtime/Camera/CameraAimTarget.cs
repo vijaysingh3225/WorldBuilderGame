@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Unity.Cinemachine;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
@@ -24,6 +25,12 @@ namespace WorldBuilder.Gameplay.CameraSystem
         [SerializeField] private BowWeapon bowWeapon;
         [SerializeField, Min(0f)] private float bowAimRightOffset = 0f;
         [SerializeField, Min(0f)] private float bowAimOffsetSmoothTime = 0.10f;
+        [SerializeField] private CinemachineThirdPersonFollow thirdPersonFollow;
+        [SerializeField] private Vector3 closeDrawShoulderOffset =
+            new Vector3(0.72f, -0.16f, 0f);
+        [SerializeField, Min(0.1f)] private float closeDrawCameraDistance = 2.45f;
+        [SerializeField, Min(0f)] private float fastBowCameraBlendInTime = 0.075f;
+        [SerializeField, Min(0f)] private float bowCameraBlendOutTime = 0.22f;
         [Header("Model Inspection")]
         [SerializeField] private Vector2 inspectionPitchLimits =
             new Vector2(-75f, 80f);
@@ -38,6 +45,11 @@ namespace WorldBuilder.Gameplay.CameraSystem
         private float followHeightVelocity;
         private float currentBowAimOffset;
         private float bowAimOffsetVelocity;
+        private Vector3 defaultShoulderOffset;
+        private float defaultCameraDistance;
+        private float bowCameraWeight;
+        private float bowCameraWeightVelocity;
+        private bool bowCameraDefaultsCaptured;
         private bool inspectionOrbitActive;
         private float inspectionYaw;
         private float inspectionPitch;
@@ -63,11 +75,49 @@ namespace WorldBuilder.Gameplay.CameraSystem
         public Vector3 InspectionAimOrigin =>
             inspectionAimOrigin;
         public float CurrentBowAimOffset => currentBowAimOffset;
+        public float BowCameraWeight => bowCameraWeight;
+        public Vector3 CurrentShoulderOffset =>
+            thirdPersonFollow != null
+                ? thirdPersonFollow.ShoulderOffset
+                : default;
+        public float CurrentCameraDistance =>
+            thirdPersonFollow != null
+                ? thirdPersonFollow.CameraDistance
+                : 0f;
         public bool IsBowAiming =>
             bowWeapon != null &&
             bowWeapon.WeaponEquipped &&
             input != null &&
             input.CurrentIntent.BlockHeld;
+
+        public static float CalculateBowCameraTargetWeight(
+            bool isBowAiming,
+            bool isInspecting)
+        {
+            return isBowAiming && !isInspecting
+                ? 1f
+                : 0f;
+        }
+
+        public static void CalculateBowCameraComposition(
+            Vector3 normalShoulderOffset,
+            float normalDistance,
+            Vector3 aimedShoulderOffset,
+            float aimedDistance,
+            float weight,
+            out Vector3 shoulderOffset,
+            out float cameraDistance)
+        {
+            float clampedWeight = Mathf.Clamp01(weight);
+            shoulderOffset = Vector3.Lerp(
+                normalShoulderOffset,
+                aimedShoulderOffset,
+                clampedWeight);
+            cameraDistance = Mathf.Lerp(
+                normalDistance,
+                aimedDistance,
+                clampedWeight);
+        }
 
         public void SetInspectionDiagnosticOverride(
             bool held,
@@ -104,6 +154,11 @@ namespace WorldBuilder.Gameplay.CameraSystem
             currentPitch = desiredPitch;
             currentFollowHeight = followOffset.y;
             SnapToTarget();
+        }
+
+        private void Start()
+        {
+            ResolveBowCameraRig();
         }
 
         private void Awake()
@@ -209,15 +264,91 @@ namespace WorldBuilder.Gameplay.CameraSystem
                     ref bowAimOffsetVelocity,
                     bowAimOffsetSmoothTime);
 
+            UpdateBowCameraComposition();
             SnapToTarget();
         }
 
         private void OnDisable()
         {
+            RestoreDefaultCameraComposition();
             inspectionOrbitActive = false;
             inspectionDiagnosticOverride = false;
             inspectionDiagnosticHeld = false;
             inspectionDiagnosticLook = Vector2.zero;
+        }
+
+        private void UpdateBowCameraComposition()
+        {
+            ResolveBowCameraRig();
+            if (!bowCameraDefaultsCaptured)
+            {
+                return;
+            }
+
+            float targetWeight =
+                CalculateBowCameraTargetWeight(
+                    IsBowAiming,
+                    inspectionOrbitActive);
+            float smoothTime =
+                targetWeight > bowCameraWeight
+                    ? fastBowCameraBlendInTime
+                    : bowCameraBlendOutTime;
+            bowCameraWeight =
+                smoothTime <= 0f
+                    ? targetWeight
+                    : Mathf.SmoothDamp(
+                        bowCameraWeight,
+                        targetWeight,
+                        ref bowCameraWeightVelocity,
+                        smoothTime);
+
+            CalculateBowCameraComposition(
+                defaultShoulderOffset,
+                defaultCameraDistance,
+                closeDrawShoulderOffset,
+                closeDrawCameraDistance,
+                bowCameraWeight,
+                out Vector3 shoulderOffset,
+                out float cameraDistance);
+            thirdPersonFollow.ShoulderOffset = shoulderOffset;
+            thirdPersonFollow.CameraDistance = cameraDistance;
+        }
+
+        private void ResolveBowCameraRig()
+        {
+            if (thirdPersonFollow == null)
+            {
+                thirdPersonFollow =
+                    FindFirstObjectByType<CinemachineThirdPersonFollow>();
+            }
+
+            if (thirdPersonFollow == null ||
+                bowCameraDefaultsCaptured)
+            {
+                return;
+            }
+
+            defaultShoulderOffset =
+                thirdPersonFollow.ShoulderOffset;
+            defaultCameraDistance =
+                thirdPersonFollow.CameraDistance;
+            bowCameraDefaultsCaptured = true;
+        }
+
+        private void RestoreDefaultCameraComposition()
+        {
+            if (!bowCameraDefaultsCaptured ||
+                thirdPersonFollow == null)
+            {
+                return;
+            }
+
+            thirdPersonFollow.ShoulderOffset =
+                defaultShoulderOffset;
+            thirdPersonFollow.CameraDistance =
+                defaultCameraDistance;
+            bowCameraWeight = 0f;
+            bowCameraWeightVelocity = 0f;
         }
 
         private void BeginInspectionOrbit()

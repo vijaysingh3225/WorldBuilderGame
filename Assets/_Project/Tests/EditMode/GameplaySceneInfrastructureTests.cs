@@ -86,10 +86,107 @@ namespace WorldBuilder.Tests.EditMode
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None),
                 Has.Length.EqualTo(4));
+            HomeStorageChest[] chests =
+                Object.FindObjectsByType<HomeStorageChest>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None)
+                    .OrderBy(chest => chest.ChestId)
+                    .ToArray();
+            Assert.That(
+                chests.Select(chest => chest.ChestId),
+                Is.EqualTo(new[]
+                {
+                    "home-chest-1",
+                    "home-chest-2",
+                    "home-chest-3",
+                    "home-chest-4"
+                }));
+            HomeGridOccupant[] chestOccupants =
+                chests.Select(chest =>
+                        chest.GetComponentInParent<
+                            HomeGridOccupant>())
+                    .ToArray();
+            Assert.That(
+                chestOccupants,
+                Has.All.Not.Null);
+            Assert.That(
+                chestOccupants.Select(occupant =>
+                    occupant.Cell.y),
+                Has.All.EqualTo(
+                    chestOccupants[0].Cell.y));
+            Assert.That(
+                chestOccupants.Select(occupant =>
+                        occupant.Cell.x)
+                    .OrderBy(value => value),
+                Is.EqualTo(new[] { -4, -3, -2, -1 }));
+            Assert.That(
+                chests,
+                Has.All.Matches<HomeStorageChest>(
+                    chest =>
+                        chest.GetComponentInParent<
+                                HomeGridOccupant>()
+                            .transform
+                            .GetComponentInChildren<Renderer>(
+                                true) != null));
+            foreach (HomeStorageChest chest in chests)
+            {
+                Transform chestRoot =
+                    chest.GetComponentInParent<
+                            HomeGridOccupant>()
+                        .transform;
+                Renderer renderer =
+                    chestRoot.GetComponentInChildren<Renderer>(
+                        true);
+                Assert.That(
+                    renderer.bounds.min.y,
+                    Is.EqualTo(0f).Within(0.04f));
+                Assert.That(
+                    renderer.bounds.size.x,
+                    Is.LessThanOrEqualTo(2.2f));
+                Assert.That(
+                    renderer.bounds.size.z,
+                    Is.LessThanOrEqualTo(1.7f));
+                Assert.That(
+                    renderer.bounds.size.y,
+                    Is.GreaterThan(0.5f));
+                GameObject source =
+                    PrefabUtility
+                        .GetCorrespondingObjectFromSource(
+                            renderer.gameObject);
+                Assert.That(source, Is.Not.Null);
+                Assert.That(
+                    AssetDatabase.GetAssetPath(source),
+                    Does.EndWith(
+                        "/Environment/Chest/Chest.fbx"));
+            }
             Assert.That(
                 Object.FindFirstObjectByType<HomeRaidDoor>(
                     FindObjectsInactive.Include),
                 Is.Not.Null);
+            HomeRaidDoor raidDoor =
+                Object.FindFirstObjectByType<HomeRaidDoor>(
+                    FindObjectsInactive.Include);
+            HomeGridOccupant gateOccupant =
+                raidDoor.GetComponentInParent<
+                    HomeGridOccupant>();
+            Assert.That(gateOccupant, Is.Not.Null);
+            Assert.That(
+                gateOccupant.Footprint,
+                Is.EqualTo(new Vector2Int(3, 1)));
+            HomeGridOccupant[] allOccupants =
+                Object.FindObjectsByType<HomeGridOccupant>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None);
+            Assert.That(allOccupants, Has.Length.EqualTo(5));
+            Vector2Int[] occupiedCells =
+                allOccupants
+                    .SelectMany(occupant =>
+                        occupant.OccupiedCells())
+                    .ToArray();
+            Assert.That(
+                occupiedCells.Distinct().Count(),
+                Is.EqualTo(occupiedCells.Length),
+                "Home grid occupants must not overlap cells.");
             Assert.That(
                 Object.FindFirstObjectByType<SceneNavigationMenu>(
                     FindObjectsInactive.Include),
@@ -138,9 +235,7 @@ namespace WorldBuilder.Tests.EditMode
                         player.transform.position)),
                 Is.GreaterThan(controller.EnemyActivationRadius));
 
-            AssertExactHillCollision("West Hill");
-            AssertExactHillCollision("East Hill");
-            AssertRaidTreeCover();
+            AssertProceduralRaidGenerator(player, enemies);
             BowAimCrosshairPresenter crosshair =
                 Object.FindFirstObjectByType<BowAimCrosshairPresenter>(
                     FindObjectsInactive.Include);
@@ -210,71 +305,54 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo((int)expected));
         }
 
-        private static void AssertExactHillCollision(string hillName)
+        private static void AssertProceduralRaidGenerator(
+            GameObject player,
+            EnemyBrain[] enemies)
         {
-            GameObject hill = GameObject.Find(hillName);
-            Assert.That(hill, Is.Not.Null);
+            ProceduralRaidGenerator generator =
+                Object.FindFirstObjectByType<
+                    ProceduralRaidGenerator>(
+                    FindObjectsInactive.Include);
+            Assert.That(generator, Is.Not.Null);
+            SerializedObject serialized =
+                new SerializedObject(generator);
             Assert.That(
-                hill.GetComponent<SphereCollider>(),
-                Is.Null,
-                $"{hillName} should not keep the primitive sphere collider.");
-            MeshCollider collider =
-                hill.GetComponent<MeshCollider>();
-            MeshFilter filter = hill.GetComponent<MeshFilter>();
-            Assert.That(collider, Is.Not.Null);
-            Assert.That(filter, Is.Not.Null);
-            Assert.That(collider.sharedMesh, Is.SameAs(filter.sharedMesh));
-            Assert.That(collider.convex, Is.False);
-        }
-
-        private static void AssertRaidTreeCover()
-        {
-            Transform[] coverTrees =
-                Object.FindObjectsByType<Transform>(
-                        FindObjectsInactive.Include,
-                        FindObjectsSortMode.None)
-                    .Where(transform =>
-                        transform.name.StartsWith("Cover Tree "))
-                    .ToArray();
+                serialized.FindProperty("player")
+                    .objectReferenceValue,
+                Is.SameAs(player.transform));
             Assert.That(
-                coverTrees,
-                Has.Length.GreaterThanOrEqualTo(24),
-                "The raid route needs frequent hard cover against ranged AI.");
-
-            for (int index = 0; index < coverTrees.Length; index++)
-            {
-                Transform trunk =
-                    coverTrees[index].Find("Trunk");
-                Assert.That(
-                    trunk,
-                    Is.Not.Null,
-                    $"{coverTrees[index].name} is missing its cover trunk.");
-                MeshFilter filter =
-                    trunk.GetComponent<MeshFilter>();
-                MeshCollider collider =
-                    trunk.GetComponent<MeshCollider>();
-                MeshRenderer renderer =
-                    trunk.GetComponent<MeshRenderer>();
-                Assert.That(filter, Is.Not.Null);
-                Assert.That(collider, Is.Not.Null);
-                Assert.That(renderer, Is.Not.Null);
-                Assert.That(
-                    collider.sharedMesh,
-                    Is.SameAs(filter.sharedMesh));
-                Assert.That(
-                    filter.sharedMesh.vertexCount,
-                    Is.LessThanOrEqualTo(120),
-                    "Tree trunks should keep a clearly faceted low-poly mesh.");
-                Assert.That(
-                    renderer.bounds.size.y,
-                    Is.GreaterThanOrEqualTo(7f));
-                Assert.That(
-                    Mathf.Min(
-                        renderer.bounds.size.x,
-                        renderer.bounds.size.z),
-                    Is.GreaterThanOrEqualTo(2.2f),
-                    "Tree trunks must be wide enough to function as cover.");
-            }
+                serialized.FindProperty("enemies")
+                    .arraySize,
+                Is.EqualTo(enemies.Length));
+            Assert.That(
+                serialized.FindProperty("treePrefabs")
+                    .arraySize,
+                Is.EqualTo(11),
+                "Every supplied birch, broadleaf, and pine variant must drive runtime forest generation.");
+            Assert.That(
+                serialized.FindProperty("treeBarkMaterial")
+                    .objectReferenceValue,
+                Is.Not.Null);
+            Assert.That(
+                serialized.FindProperty("birchBarkMaterial")
+                    .objectReferenceValue,
+                Is.Not.Null);
+            Assert.That(
+                serialized.FindProperty("treeLeavesMaterial")
+                    .objectReferenceValue,
+                Is.Not.Null);
+            Assert.That(
+                serialized.FindProperty("pineLeavesMaterial")
+                    .objectReferenceValue,
+                Is.Not.Null);
+            Assert.That(
+                serialized.FindProperty("treeCount")
+                    .intValue,
+                Is.GreaterThanOrEqualTo(300));
+            Assert.That(
+                serialized.FindProperty("mapRadius")
+                    .floatValue,
+                Is.GreaterThanOrEqualTo(70f));
         }
 
         private static Scene Open(string path)

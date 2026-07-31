@@ -2,7 +2,8 @@
   "name": "WorldBuilder.Gameplay",
   "rootNamespace": "WorldBuilder.Gameplay",
   "references": [
-    "Unity.InputSystem"
+    "Unity.InputSystem",
+    "Unity.Cinemachine"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

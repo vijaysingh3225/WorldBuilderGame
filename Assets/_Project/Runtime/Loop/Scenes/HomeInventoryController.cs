@@ -22,6 +22,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private bool isOpen;
         private bool chestOpen;
+        private string activeChestId =
+            PlayerProfile.DefaultChestId;
+        private string activeChestName = "CHEST 1";
         private float previousTimeScale = 1f;
         private CursorLockMode previousCursorLock;
         private bool previousCursorVisible;
@@ -46,6 +49,23 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         public void OpenChest()
         {
+            OpenChest(
+                PlayerProfile.DefaultChestId,
+                "CHEST 1");
+        }
+
+        public void OpenChest(
+            string chestId,
+            string chestName)
+        {
+            activeChestId =
+                string.IsNullOrWhiteSpace(chestId)
+                    ? PlayerProfile.DefaultChestId
+                    : chestId.Trim();
+            activeChestName =
+                string.IsNullOrWhiteSpace(chestName)
+                    ? "CHEST"
+                    : chestName.Trim().ToUpperInvariant();
             chestOpen = true;
             Open();
         }
@@ -165,7 +185,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 {
                     if (chestOpen)
                     {
-                        profile.MoveToStorage(entry.EntryId);
+                        statusMessage =
+                            profile.MoveToChest(
+                                entry.EntryId,
+                                activeChestId)
+                                ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to {activeChestName.ToLowerInvariant()}."
+                                : $"{activeChestName} is full.";
                         Persist();
                     }
                 });
@@ -179,8 +204,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     packArea.height);
                 DrawContainer(
                     chestArea,
-                    "CHEST  /  5 × 10",
-                    BuildChestEntries(profile),
+                    $"{activeChestName}  /  5 × 10",
+                    BuildChestEntries(
+                        profile,
+                        activeChestId),
                     ChestColumns,
                     ChestRows,
                     entry =>
@@ -285,13 +312,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         }
 
         private static List<StorageEntry> BuildChestEntries(
-            PlayerProfile profile)
+            PlayerProfile profile,
+            string chestId)
         {
             var entries = new List<StorageEntry>();
-            for (int index = 0; index < profile.Storage.Count; index++)
+            IReadOnlyList<string> entryIds =
+                profile.GetChestEntryIds(chestId);
+            for (int index = 0;
+                 index < entryIds.Count;
+                 index++)
             {
-                StorageEntry entry = profile.Storage[index];
-                if (!profile.IsInInventory(entry.EntryId))
+                StorageEntry entry =
+                    profile.FindStorageEntry(
+                        entryIds[index]);
+                if (entry != null)
                 {
                     entries.Add(entry);
                 }
@@ -341,6 +375,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             chestOpen = false;
+            activeChestId = PlayerProfile.DefaultChestId;
+            activeChestName = "CHEST 1";
             isOpen = false;
         }
 

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 using WorldBuilder.Gameplay.Core;
 
 namespace WorldBuilder.Gameplay.Combat
@@ -9,10 +10,13 @@ namespace WorldBuilder.Gameplay.Combat
         private const float FlyingLifetime = 20f;
         private const float StuckLifetime = 45f;
         private const float SurfaceIntersectionLocalZ = 0.605f;
+        private const float TrailLifetime = 0.14f;
 
+        private static Material sharedTrailMaterial;
         private GameObject owner;
         private Rigidbody body;
         private CapsuleCollider arrowCollider;
+        private TrailRenderer flightTrail;
         private Transform stuckTo;
         private Vector3 stuckLocalPosition;
         private Vector3 stuckLocalHitPoint;
@@ -29,6 +33,7 @@ namespace WorldBuilder.Gameplay.Combat
         public Vector3 ImpactDirection { get; private set; }
         public Vector3 LaunchWorldScale => launchWorldScale;
         public float SurfaceIntersectionDistance { get; private set; }
+        public TrailRenderer FlightTrail => flightTrail;
 
         public void Launch(
             GameObject instigator,
@@ -46,6 +51,8 @@ namespace WorldBuilder.Gameplay.Combat
                 velocity.sqrMagnitude > 0.0001f
                     ? velocity.normalized
                     : transform.forward;
+
+            CreateFlightTrail();
 
             arrowCollider = gameObject.AddComponent<CapsuleCollider>();
             arrowCollider.direction = 2;
@@ -171,6 +178,98 @@ namespace WorldBuilder.Gameplay.Combat
             source.PlayOneShot(impactClip, 0.88f);
         }
 
+        private void CreateFlightTrail()
+        {
+            GameObject trailObject =
+                new GameObject("Arrow Flight Trail");
+            trailObject.transform.SetParent(
+                transform,
+                false);
+            trailObject.transform.localPosition =
+                new Vector3(0f, 0f, -0.035f);
+            flightTrail =
+                trailObject.AddComponent<TrailRenderer>();
+            flightTrail.emitting = false;
+            flightTrail.time = TrailLifetime;
+            flightTrail.minVertexDistance = 0.035f;
+            flightTrail.widthCurve =
+                new AnimationCurve(
+                    new Keyframe(0f, 0.018f),
+                    new Keyframe(1f, 0.0025f));
+            flightTrail.colorGradient =
+                new Gradient
+                {
+                    colorKeys = new[]
+                    {
+                        new GradientColorKey(
+                            Color.white,
+                            0f),
+                        new GradientColorKey(
+                            new Color(
+                                0.82f,
+                                0.90f,
+                                1f),
+                            1f)
+                    },
+                    alphaKeys = new[]
+                    {
+                        new GradientAlphaKey(0.82f, 0f),
+                        new GradientAlphaKey(0f, 1f)
+                    }
+                };
+            flightTrail.alignment =
+                LineAlignment.View;
+            flightTrail.textureMode =
+                LineTextureMode.Stretch;
+            flightTrail.numCornerVertices = 2;
+            flightTrail.numCapVertices = 2;
+            flightTrail.shadowCastingMode =
+                ShadowCastingMode.Off;
+            flightTrail.receiveShadows = false;
+            flightTrail.generateLightingData = false;
+            flightTrail.sharedMaterial =
+                GetTrailMaterial();
+            flightTrail.Clear();
+            flightTrail.emitting = true;
+        }
+
+        private static Material GetTrailMaterial()
+        {
+            if (sharedTrailMaterial != null)
+            {
+                return sharedTrailMaterial;
+            }
+
+            Shader shader =
+                Shader.Find("Sprites/Default") ??
+                Shader.Find(
+                    "Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                return null;
+            }
+
+            sharedTrailMaterial =
+                new Material(shader)
+                {
+                    name = "Runtime Arrow Trail",
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+            if (sharedTrailMaterial.HasProperty("_Color"))
+            {
+                sharedTrailMaterial.SetColor(
+                    "_Color",
+                    Color.white);
+            }
+            if (sharedTrailMaterial.HasProperty("_BaseColor"))
+            {
+                sharedTrailMaterial.SetColor(
+                    "_BaseColor",
+                    Color.white);
+            }
+            return sharedTrailMaterial;
+        }
+
         private void StickTo(
             Transform hitTransform,
             Vector3 hitPoint,
@@ -188,6 +287,10 @@ namespace WorldBuilder.Gameplay.Combat
             if (arrowCollider != null)
             {
                 arrowCollider.enabled = false;
+            }
+            if (flightTrail != null)
+            {
+                flightTrail.emitting = false;
             }
 
             SurfaceIntersectionDistance =

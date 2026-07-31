@@ -1,5 +1,76 @@
 # Faster planted walk + tucked run V12 candidate
 
+## Stylized forest environment pack
+
+The complete creator-supplied forest exchange set is organized under
+`Assets/_Project/Art/Environment/StylizedForest`: 35 individual FBX models and
+12 TGA textures. The procedural raid now replaces the previous single pine
+with all 11 tree models from the pack: three birches, four broadleaf trees, and
+four pines. The 320 placements remain deterministic and uniformly distributed
+through the disc's forest/grass area while preserving the existing road, river,
+player-start, extraction, and inter-tree clearances. Every generated forest
+contains each tree variant at least once before selection continues randomly.
+
+Four instanced URP materials preserve ordinary bark, birch bark, broadleaf
+foliage, and pine foliage separately. Pine foliage applies a distinct cool
+blue-green multiplier over its dedicated texture instead of reading as the same
+warm green as the broadleaf canopy. Foliage uses alpha clipping and double-sided
+rendering. Each instance is normalized to a 14.4–21 m height,
+retains random yaw, is lifted from its complete renderer bounds so its base
+meets the terrain, and receives the existing trunk collider. The previously
+imported rocks, bushes, grass, flowers, clover, and plants are retained as
+organized source assets for later environment passes but are not substituted
+for trees.
+
+The pack also includes one Unreal-style `UCX_SM_*` collision hull in every tree
+FBX. Unity imports that convention as an ordinary renderer instead of consuming
+it as hidden collision geometry. Those hulls were the large geometric shells
+visible around some canopies after receiving the bark fallback material.
+Generation now identifies and disables every `UCX_` renderer before material
+assignment and renderer-bounds scaling. The existing capsule trunk collider
+remains authoritative.
+
+The supplied leaf TGAs separately contain useful transparency bytes while
+declaring zero alpha bits in their headers. Active Unity-specific TGA copies
+preserve every original pixel byte and correct only that declaration from zero
+to eight; alpha-test mip coverage remains explicit. The original TGAs remain
+untouched as source files.
+
+The raid scene now adds linear gray-white distance fog for atmosphere. Creator
+testing found the initial 38–115 m range effectively invisible inside the
+72 m-radius arena. The active range begins at 14 m and reaches full density at
+62 m, making the middle and far forest visibly recede while keeping immediate
+combat readable. The raid generator reapplies these settings whenever it
+generates, preventing scene-load state from silently disabling the effect.
+Combat Lab and Home Base retain their existing render settings.
+
+The raid trail now shares the terrain disc instead of rendering as a raised
+ribbon. Ground and road triangles are separate material regions of the same
+128-resolution mesh, using the forest pack's landscape grass and dirt
+textures. The path is 3.6 m wide, recessed 0.18 m at its center, and blends
+back into the surrounding terrain over a 2.2 m shoulder.
+
+## Equipped-sword stalking posture candidate
+
+Creator review clarified that the desired forward intention belongs to
+locomotion while the short sword is equipped, not to the unarmed gait clips.
+The rejected V7/V15 gait rewrite remains rolled back. A presentation-only
+sword-ready stance now blends from a 5.5-degree stalking walk lean to an
+11-degree run lean across the hips, spine, chest, and upper chest while
+preserving the authored leg rotations. The head largely preserves its
+evaluated world orientation. Both shoulders close toward the target, the free
+arm is partially contained, and the sword shoulder, upper arm, forearm, and
+hand blend strongly toward a stable rearward ready reference instead of
+following the full run-arm oscillation.
+
+The stance activates only while the sword is equipped, grounded, moving, and
+not crouched. It drops immediately for the approved two-handed guard, bow aim,
+or an active sword attack so those authored presentations remain untouched.
+Runtime sword and guard state come directly from their owning presenters, and
+Humanoid bone resolution retries if the first setup frame occurs before the
+Avatar is ready. Unity compilation passes. Full-scene creator and diagnostic
+validation remain pending.
+
 ## Walk posture V4 candidate
 
 Creator review found that the walk dropped both shoulders down and forward compared with the preferred idle stance, then identified too much whole-body forward lean after the shoulders were corrected. `Grounded Tactical Walk V4` holds the shoulder height and upper-arm lateral/twist posture at the standing-idle values, adds only a slight forward shoulder bias, and blends the walk root, torso, neck, and head pitch strongly toward the idle posture while retaining 20% of the authored walk motion. Front-to-back arm swing and all lower-body curves remain authored. The isolated 60-sample capture completed without compilation errors or crossover frames; walk hand spread is 0.852 m and left/right elbow lateral ranges are 0.028/0.039 m. Jog and sprint retain their existing forward lean and are unchanged. This remains a visual candidate pending creator playtesting.
@@ -123,6 +194,14 @@ The wrist lock now has one deliberately narrow exception at the socket. It remai
 
 Each of the four shared-track legs now runs in 0.55 seconds instead of 0.78 seconds, a roughly 30 percent reduction. The geometric path, easing ratios, wrist-release fraction, torso frame, and ownership-transfer order are unchanged.
 
+The sword-to-bow sheathe now applies presentation-only rotational damping to
+the sword at the hilt. The sword base remains exactly on the solved hand path,
+while small frame-to-frame forearm-twist corrections are filtered before they
+can become large blade-tip movement. The filter converges to the exact
+back-socket rotation during the existing final wrist-release interval. The
+arm solve, elbow path, wrist lock, hand position, and socket transfer timing
+are unchanged.
+
 ## 2026-07-29 progressive bow-draw torso turn
 
 The bow aim lock still keeps the player root and shot direction aligned with the
@@ -143,6 +222,25 @@ progressive partial-draw turn, at least 70 degrees of full-draw torso yaw,
 stable yaw/pitch aiming, outside elbow clearance, stable aimed movement, and
 accurate release. All 21 EditMode regression tests passed. No diagnostic
 baseline was promoted.
+
+## 2026-07-31 close bow camera and outward holding elbow
+
+The bow draw again uses the accepted close Cinemachine composition: it blends
+from the normal 4.7 m camera to 2.45 m with a slightly lower 0.72 m
+right-shoulder offset, using the fast 0.075-second arrival and 0.22-second
+return. The center crosshair and existing camera-ray shot authority are
+unchanged. The close-view culling protection remains enabled so the animated
+body cannot disappear while separately rendered weapons remain visible.
+
+The bow-holding hand now derives its grip axis from the left index and middle
+finger roots and aligns that anatomical axis to the bow's vertical handle.
+The captured neutral wrist and bow-local grip are updated together, avoiding a
+perpendicular palm or underside grip. The left wrist target sits 0.055 m below
+the unchanged bow center so the visible arrow remains directly above the hand,
+and the elbow uses the outside character-left hemisphere. Bow root, functional
+arrow root, drawing arm, torso response, draw timing, projectile aim, and close
+camera composition are unchanged. Presentation and combat checkpoint tests
+pass 4/4.
 
 ## 2026-07-29 runtime model-inspection orbit
 

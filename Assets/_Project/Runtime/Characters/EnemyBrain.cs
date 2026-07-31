@@ -15,6 +15,7 @@ namespace WorldBuilder.Gameplay.Characters
         public enum EnemyState
         {
             Idle,
+            Patrolling,
             Alerted,
             Investigating,
             Pursuing,
@@ -49,9 +50,17 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.1f)] private float investigationDuration = 9f;
         [SerializeField, Min(0.1f)] private float investigationGuessDistance = 10f;
         [SerializeField, Min(0.1f)] private float investigationStopDistance = 1.25f;
+        [SerializeField, Min(0f)] private float lostSightWaitDuration = 1.25f;
+        [SerializeField, Min(0.1f)] private float investigationSwordDistance = 2.6f;
+        [SerializeField, Min(0f)] private float cornerProbeDistance = 1.4f;
         [SerializeField, Min(0.1f)] private float bowOcclusionHoldDuration = 2.4f;
         [SerializeField, Min(0.1f)] private float searchAimInterval = 0.8f;
-        [SerializeField] private LayerMask sightMask = ~(1 << 2);
+        [SerializeField] private LayerMask sightMask = ~0;
+        [Header("Patrol")]
+        [SerializeField, Min(0.5f)] private float patrolRadius = 5f;
+        [SerializeField, Min(0.1f)] private float patrolStopDistance = 0.65f;
+        [SerializeField, Min(0f)] private float minimumPatrolWait = 0.8f;
+        [SerializeField, Min(0f)] private float maximumPatrolWait = 2.2f;
 
         private CharacterController controller;
         private Health health;
@@ -85,10 +94,21 @@ namespace WorldBuilder.Gameplay.Characters
         private bool loggedFirstSwordHit;
         private Vector3 heldAimPoint;
         private Vector3 lastKnownPosition;
+        private Vector3 lastKnownApproachDirection;
         private float investigationTimer;
+        private float lostSightWaitTimer;
         private float searchAimTimer;
         private float bowOcclusionTimer;
         private float searchSide = 1f;
+        private bool patrolWhenIdle;
+        private bool manualActivationOnly = true;
+        private Vector3 patrolOrigin;
+        private Vector3 patrolDestination;
+        private float patrolWaitTimer;
+        private bool hasPatrolDestination;
+        private Vector3[] patrolRoute;
+        private int patrolRouteIndex;
+        private int patrolRouteDirection = 1;
 
         public event Action<EnemyState> StateChanged;
 
@@ -101,6 +121,7 @@ namespace WorldBuilder.Gameplay.Characters
         public void Configure(Transform pursuitTarget)
         {
             target = pursuitTarget;
+            patrolWhenIdle = true;
             ActivateCombat(
                 preserveCurrentHealth: false,
                 beginAlerted: false);
@@ -108,19 +129,62 @@ namespace WorldBuilder.Gameplay.Characters
 
         public void ActivateForDiagnostics()
         {
+            patrolWhenIdle = false;
+            ResolvePlayerTarget();
             ActivateCombat(
                 preserveCurrentHealth: false,
                 beginAlerted: true);
         }
 
-        public void ConfigureAsTrainingDummy()
+        public void ConfigureForArenaDormancy()
+        {
+            manualActivationOnly = false;
+            patrolWhenIdle = true;
+        }
+
+        public void ConfigurePatrolRoute(
+            Vector3[] worldPoints,
+            int startIndex)
+        {
+            patrolRoute =
+                worldPoints != null
+                    ? (Vector3[])worldPoints.Clone()
+                    : null;
+            if (patrolRoute == null ||
+                patrolRoute.Length == 0)
+            {
+                patrolRouteIndex = 0;
+                patrolRouteDirection = 1;
+                hasPatrolDestination = false;
+                return;
+            }
+
+            patrolRouteIndex = Mathf.Clamp(
+                startIndex,
+                0,
+                patrolRoute.Length - 1);
+            patrolRouteDirection =
+                patrolRouteIndex >= patrolRoute.Length - 1
+                    ? -1
+                    : 1;
+            patrolDestination =
+                patrolRoute[patrolRouteIndex];
+            hasPatrolDestination = true;
+            patrolWhenIdle = true;
+        }
+
+        public void ConfigureAsTrainingDummy(
+            bool requireManualActivation = true)
         {
             target = null;
             trainingDummy = true;
+            manualActivationOnly = requireManualActivation;
             alerted = false;
             hasVisualContact = false;
             drawingBow = false;
             investigationTimer = 0f;
+            lostSightWaitTimer = 0f;
+            patrolWhenIdle = false;
             ResolveReferences();
             if (input != null)
             {
@@ -196,8 +260,7 @@ namespace WorldBuilder.Gameplay.Characters
 
             if (target == null)
             {
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                target = player != null ? player.transform : null;
+                ResolvePlayerTarget();
             }
 
             Health targetHealth =
@@ -218,8 +281,15 @@ namespace WorldBuilder.Gameplay.Characters
             if (!alerted)
             {
                 aimSource?.ClearOverride();
-                SetIntent(Vector2.zero, false, false);
-                ChangeState(EnemyState.Idle);
+                if (patrolWhenIdle)
+                {
+                    UpdatePatrol();
+                }
+                else
+                {
+                    SetIntent(Vector2.zero, false, false);
+                    ChangeState(EnemyState.Idle);
+                }
                 return;
             }
 
@@ -259,6 +329,20 @@ namespace WorldBuilder.Gameplay.Characters
             }
         }
 
+        private void ResolvePlayerTarget()
+        {
+            if (target != null)
+            {
+                return;
+            }
+
+            GameObject player =
+                GameObject.FindGameObjectWithTag("Player");
+            target = player != null
+                ? player.transform
+                : null;
+        }
+
         private void ActivateCombat(
             bool preserveCurrentHealth,
             bool beginAlerted)
@@ -270,6 +354,24 @@ namespace WorldBuilder.Gameplay.Characters
 
             ResolveReferences();
             trainingDummy = false;
+            patrolOrigin = transform.position;
+            patrolWaitTimer = 0f;
+            if (patrolRoute != null &&
+                patrolRoute.Length > 0)
+            {
+                patrolRouteIndex = Mathf.Clamp(
+                    patrolRouteIndex,
+                    0,
+                    patrolRoute.Length - 1);
+                patrolDestination =
+                    patrolRoute[patrolRouteIndex];
+                hasPatrolDestination = true;
+            }
+            else
+            {
+                patrolDestination = patrolOrigin;
+                hasPatrolDestination = false;
+            }
             if (!preserveCurrentHealth)
             {
                 health.ConfigureWithFloor(88f, 0f);
@@ -305,6 +407,11 @@ namespace WorldBuilder.Gameplay.Characters
 
             input?.SetDiagnosticOverride(default);
             actionTimer = 0.35f;
+            if (beginAlerted)
+            {
+                ResolvePlayerTarget();
+            }
+
             if (beginAlerted && target != null)
             {
                 AlertAt(target.position, "activation");
@@ -377,6 +484,7 @@ namespace WorldBuilder.Gameplay.Characters
                 bowWeapon?.AbortDraw();
                 SetIntent(Vector2.zero, false, false);
                 drawingBow = false;
+                lostSightWaitTimer = 0f;
                 actionTimer = UnityEngine.Random.Range(
                     minimumBowRecovery,
                     maximumBowRecovery);
@@ -404,15 +512,31 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdatePerception(Vector3 targetChest)
         {
+            bool hadVisualContact = hasVisualContact;
             hasVisualContact = CanSeeTarget(targetChest);
             if (!hasVisualContact)
             {
+                if (hadVisualContact)
+                {
+                    lostSightWaitTimer =
+                        lostSightWaitDuration;
+                }
                 return;
             }
 
             alerted = true;
             lastKnownPosition = target.position;
+            Vector3 approachDirection =
+                Vector3.ProjectOnPlane(
+                    target.position - transform.position,
+                    Vector3.up);
+            if (approachDirection.sqrMagnitude > 0.001f)
+            {
+                lastKnownApproachDirection =
+                    approachDirection.normalized;
+            }
             investigationTimer = investigationDuration;
+            lostSightWaitTimer = lostSightWaitDuration;
             searchAimTimer = searchAimInterval;
         }
 
@@ -483,17 +607,40 @@ namespace WorldBuilder.Gameplay.Characters
         private void UpdateInvestigation()
         {
             investigationTimer -= Time.deltaTime;
+            if (lostSightWaitTimer > 0f)
+            {
+                lostSightWaitTimer -= Time.deltaTime;
+                SetAim(
+                    lastKnownPosition +
+                    Vector3.up * 0.65f);
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Alerted);
+                return;
+            }
+
+            Vector3 investigationDestination =
+                lastKnownPosition +
+                lastKnownApproachDirection *
+                cornerProbeDistance;
             Vector3 toLastKnown = Vector3.ProjectOnPlane(
-                lastKnownPosition - transform.position,
+                investigationDestination - transform.position,
                 Vector3.up);
             float distance = toLastKnown.magnitude;
+            float distanceToLastKnown = Vector3.Distance(
+                Vector3.ProjectOnPlane(
+                    lastKnownPosition,
+                    Vector3.up),
+                Vector3.ProjectOnPlane(
+                    transform.position,
+                    Vector3.up));
             Vector3 direction = distance > 0.001f
                 ? toLastKnown / distance
                 : transform.forward;
             if (weaponSlots != null)
             {
                 int desiredSlot =
-                    distance > bowRange
+                    distanceToLastKnown >
+                        investigationSwordDistance
                         ? TwoSlotWeaponPresenter.SecondarySlot
                         : TwoSlotWeaponPresenter.PrimarySlot;
                 if (weaponSlots.ActiveSlot != desiredSlot &&
@@ -543,6 +690,90 @@ namespace WorldBuilder.Gameplay.Characters
 
             SetIntent(Vector2.zero, false, false);
             ChangeState(EnemyState.Alerted);
+        }
+
+        private void UpdatePatrol()
+        {
+            if (!hasPatrolDestination)
+            {
+                patrolWaitTimer -= Time.deltaTime;
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Idle);
+                if (patrolWaitTimer > 0f)
+                {
+                    return;
+                }
+
+                if (patrolRoute != null &&
+                    patrolRoute.Length > 0)
+                {
+                    AdvancePatrolRoute();
+                    patrolDestination =
+                        patrolRoute[patrolRouteIndex];
+                }
+                else
+                {
+                    Vector2 offset =
+                        UnityEngine.Random.insideUnitCircle *
+                        patrolRadius;
+                    patrolDestination =
+                        patrolOrigin +
+                        new Vector3(offset.x, 0f, offset.y);
+                }
+                hasPatrolDestination = true;
+            }
+
+            Vector3 toDestination = Vector3.ProjectOnPlane(
+                patrolDestination - transform.position,
+                Vector3.up);
+            if (toDestination.magnitude <= patrolStopDistance)
+            {
+                hasPatrolDestination = false;
+                patrolWaitTimer = UnityEngine.Random.Range(
+                    minimumPatrolWait,
+                    maximumPatrolWait);
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Idle);
+                return;
+            }
+
+            Vector3 direction =
+                toDestination.sqrMagnitude > 0.001f
+                    ? toDestination.normalized
+                    : transform.forward;
+            direction = ResolveObstacleAwareDirection(direction);
+            SetIntent(
+                WorldDirectionToInput(direction * 0.55f),
+                false,
+                false);
+            ChangeState(EnemyState.Patrolling);
+        }
+
+        private void AdvancePatrolRoute()
+        {
+            if (patrolRoute == null ||
+                patrolRoute.Length <= 1)
+            {
+                patrolRouteIndex = 0;
+                return;
+            }
+
+            int next =
+                patrolRouteIndex +
+                patrolRouteDirection;
+            if (next < 0 ||
+                next >= patrolRoute.Length)
+            {
+                patrolRouteDirection *= -1;
+                next =
+                    patrolRouteIndex +
+                    patrolRouteDirection;
+            }
+
+            patrolRouteIndex = Mathf.Clamp(
+                next,
+                0,
+                patrolRoute.Length - 1);
         }
 
         private Vector3 ResolveObstacleAwareDirection(
@@ -596,7 +827,16 @@ namespace WorldBuilder.Gameplay.Characters
             alerted = true;
             hasVisualContact = false;
             lastKnownPosition = believedSourcePosition;
+            Vector3 approachDirection =
+                Vector3.ProjectOnPlane(
+                    believedSourcePosition - transform.position,
+                    Vector3.up);
+            lastKnownApproachDirection =
+                approachDirection.sqrMagnitude > 0.001f
+                    ? approachDirection.normalized
+                    : transform.forward;
             investigationTimer = investigationDuration;
+            lostSightWaitTimer = 0f;
             searchAimTimer = searchAimInterval;
             actionTimer = 0f;
             swordModeActive = false;
@@ -1054,19 +1294,29 @@ namespace WorldBuilder.Gameplay.Characters
                 return;
             }
 
-            if (request.Instigator != null)
-            {
-                target = request.Instigator.transform;
-            }
-
             if (trainingDummy)
             {
+                if (manualActivationOnly)
+                {
+                    return;
+                }
+
+                patrolWhenIdle = true;
+                target = request.Instigator != null
+                    ? request.Instigator.transform
+                    : target;
                 enabled = true;
                 ActivateCombat(
                     preserveCurrentHealth: true,
                     beginAlerted: false);
             }
-            else if (!enabled)
+
+            if (request.Instigator != null)
+            {
+                target = request.Instigator.transform;
+            }
+
+            if (!enabled)
             {
                 enabled = true;
             }

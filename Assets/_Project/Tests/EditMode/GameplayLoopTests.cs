@@ -37,6 +37,71 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(profile.IsInInventory(firstId), Is.False);
         }
 
+        [Test]
+        public void HomeChestsKeepIndependentPersistentContents()
+        {
+            PlayerProfile profile =
+                PlayerProfile.CreateNew("separate-chests");
+            StorageEntry secondChestItem =
+                StorageEntry.Create("artifact-second-chest");
+            StorageEntry thirdChestItem =
+                StorageEntry.Create("artifact-third-chest");
+            profile.AddToStorage(secondChestItem);
+            profile.AddToStorage(thirdChestItem);
+            Assert.That(
+                profile.TryMoveToInventory(
+                    secondChestItem.EntryId),
+                Is.True);
+            Assert.That(
+                profile.TryMoveToInventory(
+                    thirdChestItem.EntryId),
+                Is.True);
+
+            Assert.That(
+                profile.MoveToChest(
+                    secondChestItem.EntryId,
+                    "home-chest-2"),
+                Is.True);
+            Assert.That(
+                profile.MoveToChest(
+                    thirdChestItem.EntryId,
+                    "home-chest-3"),
+                Is.True);
+
+            Assert.That(
+                profile.GetChestEntryIds("home-chest-1"),
+                Is.Empty);
+            Assert.That(
+                profile.GetChestEntryIds("home-chest-2"),
+                Is.EqualTo(
+                    new[] { secondChestItem.EntryId }));
+            Assert.That(
+                profile.GetChestEntryIds("home-chest-3"),
+                Is.EqualTo(
+                    new[] { thirdChestItem.EntryId }));
+            Assert.That(
+                profile.GetChestEntryIds("home-chest-4"),
+                Is.Empty);
+
+            var store =
+                new JsonPlayerProfileStore(
+                    temporaryDirectory);
+            store.Save("separate-chests", profile);
+            Assert.That(
+                store.TryLoad(
+                    "separate-chests",
+                    out PlayerProfile reopened),
+                Is.True);
+            Assert.That(
+                reopened.GetChestEntryIds("home-chest-2"),
+                Is.EqualTo(
+                    new[] { secondChestItem.EntryId }));
+            Assert.That(
+                reopened.GetChestEntryIds("home-chest-3"),
+                Is.EqualTo(
+                    new[] { thirdChestItem.EntryId }));
+        }
+
         private string temporaryDirectory;
 
         [SetUp]
@@ -110,6 +175,11 @@ namespace WorldBuilder.Tests.EditMode
                 continued.ActiveProfile.Storage[0].DefinitionId,
                 Is.EqualTo("artifact-health"));
             Assert.That(continued.ActiveProfile.Storage[0].Quantity, Is.EqualTo(2));
+            Assert.That(
+                continued.ActiveProfile.GetChestEntryIds(
+                    PlayerProfile.DefaultChestId),
+                Is.EqualTo(
+                    new[] { storedArtifact.EntryId }));
             Assert.That(
                 continued.ActiveProfile.WeaponOne.GridStateJson,
                 Is.EqualTo("{\"weapon\":\"one\",\"columns\":4}"));
