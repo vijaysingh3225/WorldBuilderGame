@@ -7,7 +7,7 @@ using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
-    [DefaultExecutionOrder(500)]
+    [DefaultExecutionOrder(900)]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Animator))]
     public sealed class TwoSlotWeaponPresenter : MonoBehaviour
@@ -26,7 +26,46 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string SwordReadyLayerName = "Short Sword Ready";
         public const float BowBraceHeight = 0.24f;
         public const float BowMaximumDrawDistance = 0.42f;
+        public const float BowArrowRightOffset = 0.045f;
+        public const float BowArrowRestHeight = 0.075f;
+        public const float BowGripPalmClearance = 0.042f;
         private const float BowReadyReachExtension = 0.10f;
+        private static readonly HumanBodyBones[] LeftBowFingerBones =
+        {
+            HumanBodyBones.LeftThumbProximal,
+            HumanBodyBones.LeftThumbIntermediate,
+            HumanBodyBones.LeftThumbDistal,
+            HumanBodyBones.LeftIndexProximal,
+            HumanBodyBones.LeftIndexIntermediate,
+            HumanBodyBones.LeftIndexDistal,
+            HumanBodyBones.LeftMiddleProximal,
+            HumanBodyBones.LeftMiddleIntermediate,
+            HumanBodyBones.LeftMiddleDistal,
+            HumanBodyBones.LeftRingProximal,
+            HumanBodyBones.LeftRingIntermediate,
+            HumanBodyBones.LeftRingDistal,
+            HumanBodyBones.LeftLittleProximal,
+            HumanBodyBones.LeftLittleIntermediate,
+            HumanBodyBones.LeftLittleDistal
+        };
+        private static readonly HumanBodyBones[] RightBowFingerBones =
+        {
+            HumanBodyBones.RightThumbProximal,
+            HumanBodyBones.RightThumbIntermediate,
+            HumanBodyBones.RightThumbDistal,
+            HumanBodyBones.RightIndexProximal,
+            HumanBodyBones.RightIndexIntermediate,
+            HumanBodyBones.RightIndexDistal,
+            HumanBodyBones.RightMiddleProximal,
+            HumanBodyBones.RightMiddleIntermediate,
+            HumanBodyBones.RightMiddleDistal,
+            HumanBodyBones.RightRingProximal,
+            HumanBodyBones.RightRingIntermediate,
+            HumanBodyBones.RightRingDistal,
+            HumanBodyBones.RightLittleProximal,
+            HumanBodyBones.RightLittleIntermediate,
+            HumanBodyBones.RightLittleDistal
+        };
 
         [SerializeField] private Animator animator;
         [SerializeField] private PlayerInputSource input;
@@ -61,6 +100,8 @@ namespace WorldBuilder.Gameplay.Presentation
         private Transform rightMiddleDistal;
         private Transform leftIndexProximal;
         private Transform leftMiddleProximal;
+        private Transform[] leftBowFingers = Array.Empty<Transform>();
+        private Transform[] rightBowFingers = Array.Empty<Transform>();
         private Transform upperBowString;
         private Transform lowerBowString;
         private Transform upperChest;
@@ -100,14 +141,15 @@ namespace WorldBuilder.Gameplay.Presentation
         private Quaternion stableLeftLowerArmLocalRotation;
         private Quaternion stableRightUpperArmLocalRotation;
         private Quaternion stableRightLowerArmLocalRotation;
+        private Quaternion[] stableLeftBowFingerLocalRotations =
+            Array.Empty<Quaternion>();
+        private Quaternion[] stableRightBowFingerLocalRotations =
+            Array.Empty<Quaternion>();
         private Quaternion neutralRightHandLocalRotation;
         private bool hasNeutralRightHandRotation;
         private Vector3 lockedBowGripLocalPosition;
         private Quaternion lockedBowGripLocalRotation;
         private bool hasLockedBowGrip;
-        private Vector3 straightDrawStartNockLocalPosition;
-        private Vector3 straightDrawFinalNockLocalPosition;
-        private bool hasStraightDrawStart;
         private Vector3 rightFingerAxisLocal;
         private Vector3 rightPalmNormalLocal;
         private bool hasRightHandAnatomicalFrame;
@@ -115,6 +157,9 @@ namespace WorldBuilder.Gameplay.Presentation
         private Vector3 leftPalmNormalLocal;
         private Vector3 leftGripContactLocal;
         private bool hasLeftHandGripFrame;
+        private bool hasAuthoredLeftBowFingerGrip;
+        private bool hasAuthoredRightBowFingerGrip;
+        private Vector3 stableRightStringContactLocal;
 
         public event Action<int> ActiveSlotChanged;
 
@@ -160,7 +205,8 @@ namespace WorldBuilder.Gameplay.Presentation
                 ? Vector3.Distance(
                     bowRoot.position,
                     leftHand.TransformPoint(
-                        leftGripContactLocal))
+                        leftGripContactLocal) +
+                    bowRoot.right * BowGripPalmClearance)
                 : 99f;
         public float PresentedBowGripRotationDeviation =>
             hasStableBowRigPose && leftHand != null
@@ -424,7 +470,7 @@ namespace WorldBuilder.Gameplay.Presentation
                     idleArrowDirection,
                     idleBowUp);
             Quaternion readyBowRotation =
-                Quaternion.LookRotation(
+                BowArrowProjectile.CalculateFlightRotation(
                     readyArrowDirection,
                     up);
             Quaternion bowRotation = Quaternion.Slerp(
@@ -440,6 +486,61 @@ namespace WorldBuilder.Gameplay.Presentation
                 (forward * 0.985f - right * 0.06f + up * 0.16f).normalized;
             Vector3 leftReachDirection = Vector3.Slerp(
                 idleLeftReach,
+                readyLeftReach,
+                easedReady).normalized;
+            float maximumGripYaw =
+                upperBodyAimPresenter != null
+                    ? upperBodyAimPresenter.MaximumYaw
+                    : 68f;
+            float currentGripYaw =
+                upperBodyAimPresenter != null
+                    ? upperBodyAimPresenter.CurrentYaw
+                    : Vector3.SignedAngle(
+                        rootForward,
+                        Vector3.ProjectOnPlane(
+                            readyArrowDirection,
+                            up),
+                        up);
+            Quaternion leftGripReferenceFrameRotation =
+                Quaternion.AngleAxis(
+                    -maximumGripYaw,
+                    up) * stableAimFrameRotation;
+            Vector3 referenceRight =
+                leftGripReferenceFrameRotation * Vector3.right;
+            Vector3 referenceUp =
+                leftGripReferenceFrameRotation * Vector3.up;
+            Vector3 referenceForward =
+                leftGripReferenceFrameRotation * Vector3.forward;
+            Vector3 referenceIdleArrowDirection =
+                (referenceForward * 0.78f +
+                    referenceRight * 0.06f -
+                    referenceUp * 0.62f).normalized;
+            Vector3 referenceIdleBowUp =
+                Vector3.ProjectOnPlane(
+                    referenceRight + referenceUp * 0.18f,
+                    referenceIdleArrowDirection).normalized;
+            Quaternion referenceIdleBowRotation =
+                Quaternion.LookRotation(
+                    referenceIdleArrowDirection,
+                    referenceIdleBowUp);
+            Vector3 referenceReadyArrowDirection =
+                Quaternion.AngleAxis(
+                    -maximumGripYaw - currentGripYaw,
+                    up) * readyArrowDirection;
+            Quaternion referenceReadyBowRotation =
+                BowArrowProjectile.CalculateFlightRotation(
+                    referenceReadyArrowDirection,
+                    up);
+            Quaternion referenceBowRotation = Quaternion.Slerp(
+                referenceIdleBowRotation,
+                referenceReadyBowRotation,
+                easedReady);
+            Vector3 referenceIdleLeftReach =
+                (referenceForward * 0.72f +
+                    referenceRight * 0.30f -
+                    referenceUp * 0.55f).normalized;
+            Vector3 referenceLeftReachDirection = Vector3.Slerp(
+                referenceIdleLeftReach,
                 readyLeftReach,
                 easedReady).normalized;
             Vector3 idleLeftWristPosition =
@@ -486,12 +587,19 @@ namespace WorldBuilder.Gameplay.Presentation
                 up * 0.04f;
             Quaternion targetLeftHandRotation =
                 GetBowHoldingHandRotation(
-                    bowRotation,
+                    referenceBowRotation,
                     rootRight,
-                    leftReachDirection);
+                    referenceLeftReachDirection);
+            targetLeftHandRotation =
+                CalculateBowLockedHandRotation(
+                    bowRotation,
+                    referenceBowRotation,
+                    targetLeftHandRotation);
             Vector3 targetLeftHandPosition =
                 hasLeftHandGripFrame
                     ? bowPosition -
+                        bowRotation * Vector3.right *
+                        BowGripPalmClearance -
                         targetLeftHandRotation *
                         leftGripContactLocal
                     : nominalLeftWristPosition;
@@ -518,7 +626,9 @@ namespace WorldBuilder.Gameplay.Presentation
                 Vector3 actualGripPosition =
                     hasLeftHandGripFrame
                         ? leftHand.TransformPoint(
-                            leftGripContactLocal)
+                            leftGripContactLocal) +
+                            bowRotation * Vector3.right *
+                            BowGripPalmClearance
                         : leftHand.position;
                 bowRoot.SetPositionAndRotation(
                     actualGripPosition,
@@ -536,80 +646,52 @@ namespace WorldBuilder.Gameplay.Presentation
                 arrowDirection = bowRoot.forward;
             }
 
-            float scaledNockDistance =
-                (BowBraceHeight +
-                    BowMaximumDrawDistance * drawWeight) *
-                bowScale;
-            Vector3 nockPosition =
-                bowPosition -
-                arrowDirection * scaledNockDistance;
-            bool isDrawing =
-                bowWeapon != null &&
-                bowWeapon.IsDrawing;
-            if (!isDrawing)
-            {
-                hasStraightDrawStart = false;
-            }
-            else if (drawWeight > 0f)
-            {
-                Vector3 unpulledNockPosition =
-                    bowPosition -
+            Vector3 nockPosition = bowRoot != null
+                ? bowRoot.TransformPoint(
+                    CalculateArrowNockLocalPosition(drawWeight))
+                : bowPosition -
                     arrowDirection *
-                    BowBraceHeight *
+                    (BowBraceHeight +
+                        BowMaximumDrawDistance * drawWeight) *
                     bowScale;
-                Transform drawFrame =
-                    characterRoot != null
-                        ? characterRoot
-                        : transform;
-                if (!hasStraightDrawStart)
-                {
-                    upperBodyAimPresenter ??=
-                        GetComponent<UpperBodyAimPresenter>();
-                    straightDrawStartNockLocalPosition =
-                        drawFrame.InverseTransformPoint(
-                            unpulledNockPosition);
-                    Vector3 currentFullDrawNockPosition =
-                        bowPosition -
-                        arrowDirection *
-                        (BowBraceHeight +
-                            BowMaximumDrawDistance) *
-                        bowScale;
-                    Vector3 predictedHeadPosition =
-                        upperBodyAimPresenter != null
-                            ? upperBodyAimPresenter
-                                .PredictFullDrawHeadPosition()
-                            : head != null
-                                ? head.position
-                                : currentFullDrawNockPosition;
-                    Vector3 predictedFinalNockPosition =
-                        predictedHeadPosition +
-                        rootRight * 0.105f -
-                        rootForward * 0.025f -
-                        up * 0.075f;
-                    straightDrawFinalNockLocalPosition =
-                        drawFrame.InverseTransformPoint(
-                            predictedFinalNockPosition);
-                    hasStraightDrawStart = true;
-                }
-
-                Vector3 drawStartPosition =
-                    drawFrame.TransformPoint(
-                        straightDrawStartNockLocalPosition);
-                Vector3 fullDrawNockPosition =
-                    drawFrame.TransformPoint(
-                        straightDrawFinalNockLocalPosition);
-                nockPosition = Vector3.Lerp(
-                    drawStartPosition,
-                    fullDrawNockPosition,
-                    easedDraw);
+            if (!hasAuthoredRightBowFingerGrip &&
+                easedReady >= 0.95f)
+            {
+                stableRightBowFingerLocalRotations =
+                    CaptureClosedFingerGripPose(
+                        rightHand,
+                        rightBowFingers,
+                        nockPosition);
+                ApplyFingerPose(
+                    rightBowFingers,
+                    stableRightBowFingerLocalRotations,
+                    1f);
+                stableRightStringContactLocal =
+                    rightHand.InverseTransformPoint(
+                        GetRightFingerContactPosition());
+                hasAuthoredRightBowFingerGrip = true;
             }
+            else if (hasAuthoredRightBowFingerGrip)
+            {
+                ApplyFingerPose(
+                    rightBowFingers,
+                    stableRightBowFingerLocalRotations,
+                    1f);
+            }
+
             Vector3 rightFingerContact =
-                GetRightFingerContactPosition();
+                hasAuthoredRightBowFingerGrip
+                    ? rightHand.TransformPoint(
+                        stableRightStringContactLocal)
+                    : GetRightFingerContactPosition();
             Vector3 rightWristPosition =
                 nockPosition -
                 (rightFingerContact - rightHand.position);
             Vector3 rightFingerContactLocal =
-                rightHand.InverseTransformPoint(rightFingerContact);
+                hasAuthoredRightBowFingerGrip
+                    ? stableRightStringContactLocal
+                    : rightHand.InverseTransformPoint(
+                        rightFingerContact);
             Quaternion rightHandRotation = Quaternion.Slerp(
                 rightHand.rotation,
                 GetBowDrawHandRotation(rootRight, up),
@@ -674,6 +756,24 @@ namespace WorldBuilder.Gameplay.Presentation
                 true);
 
             UpdateBowGeometry(nockPosition);
+            if (!hasAuthoredLeftBowFingerGrip &&
+                bowRoot != null)
+            {
+                stableLeftBowFingerLocalRotations =
+                    CaptureClosedFingerGripPose(
+                        leftHand,
+                        leftBowFingers,
+                        bowRoot.position);
+                hasAuthoredLeftBowFingerGrip = true;
+            }
+            ApplyFingerPose(
+                leftBowFingers,
+                stableLeftBowFingerLocalRotations,
+                weight);
+            ApplyFingerPose(
+                rightBowFingers,
+                stableRightBowFingerLocalRotations,
+                weight * easedReady);
         }
 
         private void CaptureStableBowRigPose()
@@ -704,6 +804,10 @@ namespace WorldBuilder.Gameplay.Presentation
                 rightUpperArm.localRotation;
             stableRightLowerArmLocalRotation =
                 rightLowerArm.localRotation;
+            stableLeftBowFingerLocalRotations =
+                CaptureFingerPose(leftBowFingers);
+            stableRightBowFingerLocalRotations =
+                CaptureFingerPose(rightBowFingers);
             CaptureLeftHandGripFrame();
             CaptureRightHandAnatomicalFrame();
             hasStableBowRigPose = true;
@@ -795,22 +899,15 @@ namespace WorldBuilder.Gameplay.Presentation
                 reachDirection.normalized;
             Vector3 desiredPalmNormal =
                 Vector3.ProjectOnPlane(
-                    bowRotation * Vector3.right,
+                    -(bowRotation * Vector3.right),
                     desiredFingerAxis).normalized;
             if (desiredPalmNormal.sqrMagnitude <
                 0.000001f)
             {
                 desiredPalmNormal =
                     Vector3.ProjectOnPlane(
-                        characterRight,
+                        -characterRight,
                         desiredFingerAxis).normalized;
-            }
-            if (Vector3.Dot(
-                    desiredPalmNormal,
-                    characterRight) > 0f)
-            {
-                desiredPalmNormal =
-                    -desiredPalmNormal;
             }
 
             Quaternion localHandFrame =
@@ -824,6 +921,17 @@ namespace WorldBuilder.Gameplay.Presentation
             return desiredWorldFrame *
                 Quaternion.Inverse(
                     localHandFrame);
+        }
+
+        private static Quaternion CalculateBowLockedHandRotation(
+            Quaternion bowRotation,
+            Quaternion referenceBowRotation,
+            Quaternion referenceHandRotation)
+        {
+            Quaternion handRotationInBowSpace =
+                Quaternion.Inverse(referenceBowRotation) *
+                referenceHandRotation;
+            return bowRotation * handRotationInBowSpace;
         }
 
         private void CaptureRightHandAnatomicalFrame()
@@ -954,26 +1062,163 @@ namespace WorldBuilder.Gameplay.Presentation
                 weight);
         }
 
+        private static Quaternion[] CaptureFingerPose(
+            Transform[] fingers)
+        {
+            if (fingers == null)
+            {
+                return Array.Empty<Quaternion>();
+            }
+
+            Quaternion[] rotations = new Quaternion[fingers.Length];
+            for (int index = 0; index < fingers.Length; index++)
+            {
+                rotations[index] = fingers[index] != null
+                    ? fingers[index].localRotation
+                    : Quaternion.identity;
+            }
+
+            return rotations;
+        }
+
+        public static Quaternion[] CaptureClosedFingerGripPose(
+            Transform hand,
+            Transform[] fingers,
+            Vector3 gripCenter)
+        {
+            Quaternion[] originalRotations =
+                CaptureFingerPose(fingers);
+            if (hand == null || fingers == null)
+            {
+                return originalRotations;
+            }
+
+            for (int fingerIndex = 0;
+                 fingerIndex < fingers.Length / 3;
+                 fingerIndex++)
+            {
+                int firstJoint = fingerIndex * 3;
+                bool thumb = fingerIndex == 0;
+                for (int jointIndex = 0;
+                     jointIndex < 3;
+                     jointIndex++)
+                {
+                    int boneIndex = firstJoint + jointIndex;
+                    Transform bone = fingers[boneIndex];
+                    if (bone == null)
+                    {
+                        continue;
+                    }
+
+                    Vector3 fingerDirection;
+                    if (jointIndex < 2 &&
+                        fingers[boneIndex + 1] != null)
+                    {
+                        fingerDirection =
+                            fingers[boneIndex + 1].position -
+                            bone.position;
+                    }
+                    else if (jointIndex > 0 &&
+                        fingers[boneIndex - 1] != null)
+                    {
+                        fingerDirection =
+                            bone.position -
+                            fingers[boneIndex - 1].position;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    Vector3 towardGrip = Vector3.ProjectOnPlane(
+                        gripCenter - bone.position,
+                        fingerDirection);
+                    if (fingerDirection.sqrMagnitude < 0.000001f ||
+                        towardGrip.sqrMagnitude < 0.000001f)
+                    {
+                        continue;
+                    }
+
+                    Vector3 curlAxis = Vector3.Cross(
+                        fingerDirection.normalized,
+                        towardGrip.normalized).normalized;
+                    float curlAngle = thumb
+                        ? jointIndex == 0 ? 24f :
+                            jointIndex == 1 ? 34f : 20f
+                        : jointIndex == 0 ? 42f :
+                            jointIndex == 1 ? 56f : 30f;
+                    bone.rotation = Quaternion.AngleAxis(
+                        curlAngle,
+                        curlAxis) * bone.rotation;
+                }
+            }
+
+            Quaternion[] closedRotations =
+                CaptureFingerPose(fingers);
+            ApplyFingerPose(
+                fingers,
+                originalRotations,
+                1f);
+            return closedRotations;
+        }
+
+        public static void ApplyFingerPose(
+            Transform[] fingers,
+            Quaternion[] rotations,
+            float weight)
+        {
+            if (fingers == null || rotations == null)
+            {
+                return;
+            }
+
+            float clampedWeight = Mathf.Clamp01(weight);
+            int count = Mathf.Min(fingers.Length, rotations.Length);
+            for (int index = 0; index < count; index++)
+            {
+                Transform finger = fingers[index];
+                if (finger == null)
+                {
+                    continue;
+                }
+
+                finger.localRotation = Quaternion.Slerp(
+                    finger.localRotation,
+                    rotations[index],
+                    clampedWeight);
+            }
+        }
+
         private void UpdateBowGeometry(float drawWeight)
         {
-            float localNockZ =
-                -BowBraceHeight -
-                BowMaximumDrawDistance * Mathf.Clamp01(drawWeight);
+            Vector3 localNock =
+                CalculateArrowNockLocalPosition(drawWeight);
             if (arrowRoot != null)
             {
                 arrowRoot.localPosition =
-                    new Vector3(0f, 0f, localNockZ + BowBraceHeight);
+                    localNock +
+                    Vector3.forward * BowBraceHeight;
             }
 
-            Vector3 nock = new Vector3(0f, 0f, localNockZ);
             SetCylinderBetween(
                 upperBowString,
                 new Vector3(0f, 0.52f, -BowBraceHeight),
-                nock);
+                localNock);
             SetCylinderBetween(
                 lowerBowString,
                 new Vector3(0f, -0.52f, -BowBraceHeight),
-                nock);
+                localNock);
+        }
+
+        public static Vector3 CalculateArrowNockLocalPosition(
+            float drawWeight)
+        {
+            return new Vector3(
+                BowArrowRightOffset,
+                BowArrowRestHeight,
+                -BowBraceHeight -
+                    BowMaximumDrawDistance *
+                    Mathf.Clamp01(drawWeight));
         }
 
         private void UpdateBowGeometry(Vector3 worldNockPosition)
@@ -2034,7 +2279,6 @@ namespace WorldBuilder.Gameplay.Presentation
             bowRoot.localRotation = Quaternion.identity;
             bowRoot.localScale = bowLocalScale;
             hasLockedBowGrip = false;
-            hasStraightDrawStart = false;
             bowEquipped = true;
             bowPoseWeight = 0f;
             UpdateBowGeometry(0f);
@@ -2053,7 +2297,6 @@ namespace WorldBuilder.Gameplay.Presentation
             bowRoot.localRotation = Quaternion.identity;
             bowRoot.localScale = bowLocalScale;
             hasLockedBowGrip = false;
-            hasStraightDrawStart = false;
             UpdateBowGeometry(0f);
             bowWeapon?.SetWeaponEquipped(false);
             bowEquipped = false;
@@ -2118,6 +2361,8 @@ namespace WorldBuilder.Gameplay.Presentation
                     HumanBodyBones.RightMiddleIntermediate);
             rightMiddleDistal =
                 animator.GetBoneTransform(HumanBodyBones.RightMiddleDistal);
+            leftBowFingers = ResolveBones(LeftBowFingerBones);
+            rightBowFingers = ResolveBones(RightBowFingerBones);
             upperChest =
                 animator.GetBoneTransform(HumanBodyBones.UpperChest) ??
                 animator.GetBoneTransform(HumanBodyBones.Chest);
@@ -2183,6 +2428,17 @@ namespace WorldBuilder.Gameplay.Presentation
                     swordReadyLayerIndex,
                     Mathf.Clamp01(weight));
             }
+        }
+
+        private Transform[] ResolveBones(HumanBodyBones[] bones)
+        {
+            Transform[] resolved = new Transform[bones.Length];
+            for (int index = 0; index < bones.Length; index++)
+            {
+                resolved[index] = animator.GetBoneTransform(bones[index]);
+            }
+
+            return resolved;
         }
 
         private void OnSlotRequested(int slot)

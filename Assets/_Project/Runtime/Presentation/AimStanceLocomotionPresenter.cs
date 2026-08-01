@@ -9,6 +9,11 @@ namespace WorldBuilder.Gameplay.Presentation
     public sealed class AimStanceLocomotionPresenter :
         MonoBehaviour
     {
+        public const float AlertWalkLean = 8f;
+        public const float AlertRunLean = 16f;
+        public const float AlertWalkShoulderClose = 7.5f;
+        public const float AlertRunShoulderClose = 11f;
+
         private static readonly int GaitPlaybackHash =
             Animator.StringToHash(
                 HumanoidAnimatorPresenter.GaitPlaybackParameter);
@@ -60,6 +65,7 @@ namespace WorldBuilder.Gameplay.Presentation
         private float bowWeight;
         private float swordShuffleWeight;
         private float swordReadyWeight;
+        private float alertMovementWeight;
         private float currentBowYaw;
         private float gaitPlayback = 1f;
         private float shuffleCycle;
@@ -73,11 +79,14 @@ namespace WorldBuilder.Gameplay.Presentation
         private Quaternion rightHandReference;
         private ShortSwordAttackPresenter swordAttackPresenter;
         private ShortSwordBlockPresenter swordBlockPresenter;
+        private TwoSlotWeaponPresenter weaponSlots;
 
         public float StanceWeight =>
             Mathf.Max(
                 swordReadyWeight,
-                Mathf.Max(bowWeight, swordShuffleWeight));
+                Mathf.Max(
+                    alertMovementWeight,
+                    Mathf.Max(bowWeight, swordShuffleWeight)));
         public float BowStanceWeight => bowWeight;
         public float SwordShuffleWeight => swordShuffleWeight;
         public float SwordReadyWeight => swordReadyWeight;
@@ -203,6 +212,18 @@ namespace WorldBuilder.Gameplay.Presentation
                 motor.IsGrounded &&
                 !motor.IsCrouched &&
                 motor.HorizontalSpeed > 0.08f;
+            bool alertMovementActive =
+                (SwordEquipped || BowEquipped) &&
+                !SwordGuardActive &&
+                !aimPresenter.BowAimLocked &&
+                (swordAttackPresenter == null ||
+                    !swordAttackPresenter.IsAttacking) &&
+                motor.IsGrounded &&
+                !motor.IsCrouched &&
+                motor.HorizontalSpeed > 0.08f;
+            alertMovementWeight = MoveWeight(
+                alertMovementWeight,
+                alertMovementActive ? 1f : 0f);
             if (!swordReadyActive &&
                 (SwordGuardActive ||
                     aimPresenter.BowAimLocked ||
@@ -216,6 +237,11 @@ namespace WorldBuilder.Gameplay.Presentation
                 swordReadyWeight = MoveWeight(
                     swordReadyWeight,
                     swordReadyActive ? 1f : 0f);
+            }
+
+            if (alertMovementWeight > 0.001f)
+            {
+                ApplyAlertMovementPosture();
             }
 
             if (swordReadyWeight > 0.001f &&
@@ -335,70 +361,8 @@ namespace WorldBuilder.Gameplay.Presentation
                 motor.WalkSpeed,
                 motor.SprintSpeed,
                 motor.HorizontalSpeed);
-            float lean =
-                Mathf.Lerp(
-                    swordWalkLean,
-                    swordRunLean,
-                    gait) *
-                swordReadyWeight;
-            Quaternion animatedHeadRotation =
-                head != null
-                    ? head.rotation
-                    : Quaternion.identity;
-            Quaternion leftThighRotation =
-                leftThigh.rotation;
-            Quaternion rightThighRotation =
-                rightThigh.rotation;
-            Vector3 pitchAxis = characterRoot.right;
-
-            ApplyWorldPitch(hips, lean * 0.42f, pitchAxis);
-            leftThigh.rotation = leftThighRotation;
-            rightThigh.rotation = rightThighRotation;
-            ApplyWorldPitch(spine, lean * 0.25f, pitchAxis);
-            ApplyWorldPitch(chest, lean * 0.20f, pitchAxis);
-            ApplyWorldPitch(upperChest, lean * 0.13f, pitchAxis);
-
-            if (head != null)
-            {
-                head.rotation = Quaternion.Slerp(
-                    head.rotation,
-                    animatedHeadRotation,
-                    swordReadyWeight * 0.9f);
-            }
-
             float close =
                 swordShoulderClose * swordReadyWeight;
-            if (leftShoulder != null)
-            {
-                Quaternion leftShoulderTarget =
-                    leftShoulder.parent.rotation *
-                    leftShoulderReference;
-                leftShoulderTarget =
-                    Quaternion.AngleAxis(
-                        close,
-                        characterRoot.up) *
-                    leftShoulderTarget;
-                leftShoulder.rotation = Quaternion.Slerp(
-                    leftShoulder.rotation,
-                    leftShoulderTarget,
-                    swordReadyWeight);
-            }
-
-            if (rightShoulder != null)
-            {
-                Quaternion rightShoulderTarget =
-                    rightShoulder.parent.rotation *
-                    rightShoulderReference;
-                rightShoulderTarget =
-                    Quaternion.AngleAxis(
-                        -close,
-                        characterRoot.up) *
-                    rightShoulderTarget;
-                rightShoulder.rotation = Quaternion.Slerp(
-                    rightShoulder.rotation,
-                    rightShoulderTarget,
-                    swordReadyWeight);
-            }
 
             float rightArmWeight =
                 Mathf.Lerp(
@@ -459,6 +423,81 @@ namespace WorldBuilder.Gameplay.Presentation
                 rightHand.rotation,
                 rightHandTarget,
                 rightArmWeight);
+        }
+
+        private void ApplyAlertMovementPosture()
+        {
+            float gait = Mathf.InverseLerp(
+                motor.WalkSpeed,
+                motor.SprintSpeed,
+                motor.HorizontalSpeed);
+            float lean = CalculateAlertLean(
+                gait,
+                Mathf.Max(AlertWalkLean, swordWalkLean),
+                Mathf.Max(AlertRunLean, swordRunLean)) *
+                alertMovementWeight;
+            float shoulderClose = Mathf.Lerp(
+                Mathf.Max(
+                    AlertWalkShoulderClose,
+                    swordShoulderClose),
+                AlertRunShoulderClose,
+                gait) * alertMovementWeight;
+            Quaternion animatedHeadRotation =
+                head != null
+                    ? head.rotation
+                    : Quaternion.identity;
+            Quaternion leftThighRotation =
+                leftThigh.rotation;
+            Quaternion rightThighRotation =
+                rightThigh.rotation;
+            Vector3 pitchAxis = characterRoot.right;
+
+            ApplyWorldPitch(hips, lean * 0.42f, pitchAxis);
+            leftThigh.rotation = leftThighRotation;
+            rightThigh.rotation = rightThighRotation;
+            ApplyWorldPitch(spine, lean * 0.25f, pitchAxis);
+            ApplyWorldPitch(chest, lean * 0.20f, pitchAxis);
+            ApplyWorldPitch(upperChest, lean * 0.13f, pitchAxis);
+
+            if (leftShoulder != null)
+            {
+                leftShoulder.rotation =
+                    Quaternion.AngleAxis(
+                        shoulderClose,
+                        characterRoot.up) *
+                    leftShoulder.rotation;
+            }
+            if (rightShoulder != null)
+            {
+                rightShoulder.rotation =
+                    Quaternion.AngleAxis(
+                        -shoulderClose,
+                        characterRoot.up) *
+                    rightShoulder.rotation;
+            }
+
+            if (head != null)
+            {
+                float awarenessRecovery = Mathf.Lerp(
+                    0.58f,
+                    0.76f,
+                    gait) * alertMovementWeight;
+                head.rotation = Quaternion.Slerp(
+                    head.rotation,
+                    animatedHeadRotation,
+                    awarenessRecovery);
+            }
+        }
+
+        public static float CalculateAlertLean(
+            float gait,
+            float walkLean,
+            float runLean)
+        {
+            return Mathf.Lerp(
+                walkLean,
+                runLean,
+                Mathf.Clamp01(gait));
         }
 
         private static void ApplyWorldPitch(
@@ -636,6 +675,8 @@ namespace WorldBuilder.Gameplay.Presentation
                 GetComponent<ShortSwordAttackPresenter>();
             swordBlockPresenter ??=
                 GetComponent<ShortSwordBlockPresenter>();
+            weaponSlots ??=
+                GetComponent<TwoSlotWeaponPresenter>();
             leftThigh = animator.GetBoneTransform(
                 HumanBodyBones.LeftUpperLeg);
             leftKnee = animator.GetBoneTransform(
@@ -738,6 +779,10 @@ namespace WorldBuilder.Gameplay.Presentation
                 ? swordAttackPresenter.WeaponEquipped
                 : swordBlockPresenter != null &&
                     swordBlockPresenter.WeaponEquipped;
+
+        private bool BowEquipped =>
+            weaponSlots != null &&
+            weaponSlots.BowIsEquipped;
 
         private bool SwordGuardActive =>
             aimPresenter.SwordGuardLocked ||

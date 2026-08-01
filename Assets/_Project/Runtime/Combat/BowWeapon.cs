@@ -17,11 +17,14 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField] private Transform nockedArrow;
         [SerializeField] private AudioClip pullbackClip;
         [SerializeField] private AudioClip arrowImpactClip;
+        [SerializeField] private AudioClip enemyHitFeedbackClip;
+        [SerializeField] private AudioClip headshotFeedbackClip;
         [SerializeField] private AudioSource bowAudioSource;
+        [SerializeField] private AudioSource hitFeedbackAudioSource;
         [SerializeField, Range(0f, 1f)] private float pullbackVolume = 0.30f;
+        [SerializeField, Range(0.5f, 1.5f)] private float pullbackPitch = 0.62f;
         [SerializeField] private CameraAimTarget aimTarget;
         [SerializeField] private CharacterAimSource characterAimSource;
-        [SerializeField] private LayerMask aimCollisionMask = ~(1 << 2);
         [SerializeField, Min(10f)] private float maximumAimDistance = 150f;
         [SerializeField, Min(0.05f)] private float minimumHoldDuration = 0.18f;
         [SerializeField, Min(0.1f)] private float fullDrawDuration = 1.08f;
@@ -42,6 +45,7 @@ namespace WorldBuilder.Gameplay.Combat
         private float runtimeDamageBonus;
         private int firedArrowCount;
         private float lastShotCharge;
+        private bool playerOwned;
 
         public event Action<float> ArrowFired;
 
@@ -76,18 +80,46 @@ namespace WorldBuilder.Gameplay.Combat
         public Vector3 LastAimOrigin { get; private set; }
         public Vector3 LastAimDirection { get; private set; }
         public Vector3 LastAimRight { get; private set; }
+        public float LastHorizontalAimError { get; private set; }
+        public float LastHorizontalLaunchOffset { get; private set; }
+        public float LastCrosshairAlignmentDistance { get; private set; }
         public Vector3 LastCrosshairPoint { get; private set; }
         public Vector3 LastZeroGravityImpactPoint { get; private set; }
         public bool AudioConfigured =>
             pullbackClip != null &&
             arrowImpactClip != null &&
+            enemyHitFeedbackClip != null &&
+            headshotFeedbackClip != null &&
             bowAudioSource != null;
         public float PullbackVolume => pullbackVolume;
+        public float PullbackPitch => pullbackPitch;
+        public AudioClip EnemyHitFeedbackClip =>
+            enemyHitFeedbackClip;
+        public AudioClip HeadshotFeedbackClip =>
+            headshotFeedbackClip;
+        public float PullbackSpatialBlend =>
+            bowAudioSource != null
+                ? bowAudioSource.spatialBlend
+                : 0f;
+        public float PullbackMaxDistance =>
+            bowAudioSource != null
+                ? bowAudioSource.maxDistance
+                : 0f;
+        public float HitFeedbackSpatialBlend =>
+            hitFeedbackAudioSource != null
+                ? hitFeedbackAudioSource.spatialBlend
+                : 1f;
+        public GameObject HitFeedbackAudioHost =>
+            hitFeedbackAudioSource != null
+                ? hitFeedbackAudioSource.gameObject
+                : null;
         public float FullDrawDuration => fullDrawDuration;
         public float MaximumArrowSpeed => maximumArrowSpeed;
         public float RuntimeDamageBonus => runtimeDamageBonus;
         public float PartialVelocityExponent =>
             partialVelocityExponent;
+        public float MinimumDamage => minimumDamage;
+        public float MaximumDamage => maximumDamage;
 
         public void Configure(
             PlayerInputSource intentSource,
@@ -95,7 +127,9 @@ namespace WorldBuilder.Gameplay.Combat
             Transform equippedBow,
             Transform arrow,
             AudioClip drawClip = null,
-            AudioClip impactClip = null)
+            AudioClip impactClip = null,
+            AudioClip enemyHitClip = null,
+            AudioClip headshotClip = null)
         {
             input = intentSource;
             characterRoot = root;
@@ -103,6 +137,8 @@ namespace WorldBuilder.Gameplay.Combat
             nockedArrow = arrow;
             pullbackClip = drawClip;
             arrowImpactClip = impactClip;
+            enemyHitFeedbackClip = enemyHitClip;
+            headshotFeedbackClip = headshotClip;
             ConfigureAudio();
             SetWeaponEquipped(false);
         }
@@ -250,10 +286,19 @@ namespace WorldBuilder.Gameplay.Combat
             Vector3 visibleTip = nockedArrow.TransformPoint(
                 new Vector3(0f, 0f, 0.60f));
             Ray aimRay = ResolveAimRay();
+            Camera aimCamera = Camera.main;
+            Vector3 aimRight = aimCamera != null
+                ? aimCamera.transform.right.normalized
+                : characterRoot != null
+                    ? characterRoot.right.normalized
+                    : Vector3.right;
             Vector3 direction = ResolveShotDirection(
                 visibleTip,
-                aimRay);
-            Quaternion rotation = Quaternion.LookRotation(
+                aimRay,
+                aimRight,
+                playerOwned);
+            Quaternion rotation =
+                BowArrowProjectile.CalculateFlightRotation(
                 direction,
                 bowRoot != null ? bowRoot.up : Vector3.up);
             Vector3 scale = nockedArrow.lossyScale;
@@ -273,12 +318,11 @@ namespace WorldBuilder.Gameplay.Combat
             LastFiredProjectile = arrow;
             LastAimOrigin = aimRay.origin;
             LastAimDirection = aimRay.direction;
-            Camera aimCamera = Camera.main;
-            LastAimRight = aimCamera != null
-                ? aimCamera.transform.right
-                : characterRoot != null
-                    ? characterRoot.right
-                    : Vector3.right;
+            LastAimRight = aimRight;
+            LastHorizontalAimError = Mathf.Abs(
+                Vector3.Dot(direction, aimRight));
+            LastHorizontalLaunchOffset = Mathf.Abs(
+                Vector3.Dot(visibleTip - aimRay.origin, aimRight));
             arrow.Launch(
                 characterRoot != null
                     ? characterRoot.gameObject
@@ -289,7 +333,11 @@ namespace WorldBuilder.Gameplay.Combat
                     maximumDamage,
                     ballisticPower) +
                     runtimeDamageBonus,
-                arrowImpactClip);
+                arrowImpactClip,
+                enemyHitFeedbackClip,
+                headshotFeedbackClip,
+                hitFeedbackAudioSource,
+                playerOwned);
 
             firedArrowCount++;
             lastShotCharge = charge;
@@ -307,62 +355,112 @@ namespace WorldBuilder.Gameplay.Combat
             ArrowFired?.Invoke(charge);
         }
 
+        public static Vector3 CalculateStraightShotDirection(
+            Vector3 launchPoint,
+            Ray crosshairRay,
+            float alignmentDistance)
+        {
+            Vector3 rayDirection =
+                crosshairRay.direction.sqrMagnitude > 0.000001f
+                    ? crosshairRay.direction.normalized
+                    : Vector3.forward;
+            float launchDepth = Vector3.Dot(
+                launchPoint - crosshairRay.origin,
+                rayDirection);
+            float safeAlignmentDistance = Mathf.Max(
+                Mathf.Max(0.1f, alignmentDistance),
+                launchDepth + 0.25f);
+            Vector3 direction =
+                crosshairRay.origin +
+                rayDirection * safeAlignmentDistance -
+                launchPoint;
+            return direction.sqrMagnitude > 0.0001f
+                ? direction.normalized
+                : rayDirection;
+        }
+
+        public static bool IsAimHitAheadOfLaunch(
+            Vector3 launchPoint,
+            Ray aimRay,
+            Vector3 hitPoint)
+        {
+            Vector3 rayDirection =
+                aimRay.direction.sqrMagnitude > 0.000001f
+                    ? aimRay.direction.normalized
+                    : Vector3.forward;
+            float launchDepth = Vector3.Dot(
+                launchPoint - aimRay.origin,
+                rayDirection);
+            float hitDepth = Vector3.Dot(
+                hitPoint - aimRay.origin,
+                rayDirection);
+            return hitDepth > launchDepth + 0.25f;
+        }
+
         private Vector3 ResolveShotDirection(
             Vector3 launchOrigin,
-            Ray aimRay)
+            Ray aimRay,
+            Vector3 aimRight,
+            bool useCrosshairSurfaceDepth)
         {
-            Vector3 aimPoint = aimRay.GetPoint(maximumAimDistance);
-            if (TryGetFirstAimHit(
-                    aimRay.origin,
-                    aimRay.direction,
-                    0f,
-                    maximumAimDistance,
-                    out RaycastHit crosshairHit))
+            float alignmentDistance = maximumAimDistance;
+            if (useCrosshairSurfaceDepth)
             {
-                aimPoint = crosshairHit.point;
+                TryResolveCrosshairSurfaceDistance(
+                    launchOrigin,
+                    aimRay,
+                    out alignmentDistance);
             }
 
+            LastCrosshairAlignmentDistance = alignmentDistance;
+            Vector3 aimPoint = aimRay.GetPoint(alignmentDistance);
             LastCrosshairPoint = aimPoint;
-            Vector3 correctedAimPoint = aimPoint;
-            Vector3 direction = aimRay.direction;
             LastZeroGravityImpactPoint = aimPoint;
-            for (int iteration = 0; iteration < 6; iteration++)
+            return CalculateStraightShotDirection(
+                launchOrigin,
+                aimRay,
+                alignmentDistance);
+        }
+
+        private bool TryResolveCrosshairSurfaceDistance(
+            Vector3 launchOrigin,
+            Ray aimRay,
+            out float alignmentDistance)
+        {
+            alignmentDistance = maximumAimDistance;
+            RaycastHit[] hits = Physics.RaycastAll(
+                aimRay,
+                maximumAimDistance,
+                Physics.AllLayers,
+                QueryTriggerInteraction.Ignore);
+            float closestDistance = float.PositiveInfinity;
+            for (int index = 0; index < hits.Length; index++)
             {
-                direction = correctedAimPoint - launchOrigin;
-                direction = direction.sqrMagnitude > 0.0001f
-                    ? direction.normalized
-                    : aimRay.direction;
-                if (!TryGetFirstAimHit(
+                Collider candidate = hits[index].collider;
+                if (candidate == null ||
+                    hits[index].distance <= 0.001f ||
+                    hits[index].distance >= closestDistance ||
+                    (characterRoot != null &&
+                        candidate.transform.IsChildOf(
+                            characterRoot)) ||
+                    !IsAimHitAheadOfLaunch(
                         launchOrigin,
-                        direction,
-                        0.025f,
-                        maximumAimDistance,
-                        out RaycastHit projectileHit))
+                        aimRay,
+                        hits[index].point))
                 {
-                    LastZeroGravityImpactPoint =
-                        launchOrigin +
-                        direction * maximumAimDistance;
-                    break;
+                    continue;
                 }
 
-                LastZeroGravityImpactPoint = projectileHit.point;
-                Vector3 surfaceError =
-                    aimPoint - projectileHit.point;
-                Vector3 crosshairPlaneError =
-                    Vector3.ProjectOnPlane(
-                        surfaceError,
-                        aimRay.direction);
-                if (crosshairPlaneError.sqrMagnitude <= 0.000004f)
-                {
-                    break;
-                }
-
-                correctedAimPoint += Vector3.ClampMagnitude(
-                    crosshairPlaneError,
-                    0.30f);
+                closestDistance = hits[index].distance;
             }
 
-            return direction;
+            if (float.IsPositiveInfinity(closestDistance))
+            {
+                return false;
+            }
+
+            alignmentDistance = closestDistance;
+            return true;
         }
 
         private Ray ResolveAimRay()
@@ -412,50 +510,6 @@ namespace WorldBuilder.Gameplay.Combat
                     : Vector3.forward);
         }
 
-        private bool TryGetFirstAimHit(
-            Vector3 origin,
-            Vector3 direction,
-            float radius,
-            float distance,
-            out RaycastHit closestHit)
-        {
-            RaycastHit[] hits = radius > 0f
-                ? Physics.SphereCastAll(
-                    origin,
-                    radius,
-                    direction,
-                    distance,
-                    aimCollisionMask,
-                    QueryTriggerInteraction.Ignore)
-                : Physics.RaycastAll(
-                    origin,
-                    direction,
-                    distance,
-                    aimCollisionMask,
-                    QueryTriggerInteraction.Ignore);
-            closestHit = default;
-            float closestDistance = float.PositiveInfinity;
-            for (int index = 0; index < hits.Length; index++)
-            {
-                Collider collider = hits[index].collider;
-                if (collider == null ||
-                    (characterRoot != null &&
-                        collider.transform.IsChildOf(
-                            characterRoot)))
-                {
-                    continue;
-                }
-
-                if (hits[index].distance < closestDistance)
-                {
-                    closestDistance = hits[index].distance;
-                    closestHit = hits[index];
-                }
-            }
-
-            return closestDistance < float.PositiveInfinity;
-        }
-
         private void CancelDraw(bool publish)
         {
             if (publish && drawHeldLastFrame)
@@ -484,6 +538,13 @@ namespace WorldBuilder.Gameplay.Combat
 
         private void ConfigureAudio()
         {
+            EnsureAudioDataLoaded(enemyHitFeedbackClip);
+            EnsureAudioDataLoaded(headshotFeedbackClip);
+            playerOwned =
+                input != null ||
+                IsPlayerTransform(characterRoot);
+            minimumDamage = playerOwned ? 12f : 10f;
+            maximumDamage = playerOwned ? 100f : 34f;
             if (bowAudioSource == null)
             {
                 bowAudioSource =
@@ -492,8 +553,60 @@ namespace WorldBuilder.Gameplay.Combat
 
             bowAudioSource.playOnAwake = false;
             bowAudioSource.loop = false;
-            bowAudioSource.spatialBlend = 0.20f;
             bowAudioSource.dopplerLevel = 0f;
+            bowAudioSource.rolloffMode =
+                AudioRolloffMode.Logarithmic;
+            pullbackVolume = playerOwned
+                ? 0.09f
+                : 0.14f;
+            bowAudioSource.spatialBlend =
+                playerOwned ? 0f : 1f;
+            bowAudioSource.minDistance = 1.4f;
+            bowAudioSource.maxDistance = 20f;
+
+            if (hitFeedbackAudioSource == null)
+            {
+                GameObject feedbackHost =
+                    playerOwned && characterRoot != null
+                        ? characterRoot.gameObject
+                        : gameObject;
+                hitFeedbackAudioSource =
+                    feedbackHost.AddComponent<AudioSource>();
+            }
+            hitFeedbackAudioSource.enabled = true;
+            hitFeedbackAudioSource.playOnAwake = false;
+            hitFeedbackAudioSource.loop = false;
+            hitFeedbackAudioSource.spatialBlend = 0f;
+            hitFeedbackAudioSource.dopplerLevel = 0f;
+            hitFeedbackAudioSource.priority = 32;
+            hitFeedbackAudioSource.volume = 1f;
+            hitFeedbackAudioSource.mute = false;
+            hitFeedbackAudioSource.ignoreListenerPause = true;
+        }
+
+        private static bool IsPlayerTransform(
+            Transform candidate)
+        {
+            for (Transform current = candidate;
+                 current != null;
+                 current = current.parent)
+            {
+                if (current.CompareTag("Player"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static void EnsureAudioDataLoaded(
+            AudioClip clip)
+        {
+            if (clip != null &&
+                clip.loadState == AudioDataLoadState.Unloaded)
+            {
+                clip.LoadAudioData();
+            }
         }
 
         private void PlayPullbackAudio()
@@ -505,7 +618,9 @@ namespace WorldBuilder.Gameplay.Combat
             }
 
             bowAudioSource.Stop();
-            bowAudioSource.pitch = 1f;
+            // The source clip is a short rising string-creak. Slowing it
+            // slightly keeps its peak aligned with the visible draw motion.
+            bowAudioSource.pitch = pullbackPitch;
             bowAudioSource.clip = pullbackClip;
             bowAudioSource.volume = pullbackVolume;
             bowAudioSource.Play();

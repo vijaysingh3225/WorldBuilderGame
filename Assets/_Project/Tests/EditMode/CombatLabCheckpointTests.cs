@@ -32,6 +32,21 @@ namespace WorldBuilder.Tests.EditMode
                     "Natural Jump Rise V2",
                     "Natural Jump Fall V2"
                 }));
+            AnimatorState crouchState =
+                controller.layers[0].stateMachine.states
+                    .Select(child => child.state)
+                    .Single(state =>
+                        state.name ==
+                            "Resting Tactical Crouch V5");
+            Assert.That(
+                crouchState.speedParameterActive,
+                Is.True,
+                "Aimed crouch backpedaling must reverse its authored walk cycle.");
+            Assert.That(
+                crouchState.speedParameter,
+                Is.EqualTo(
+                    HumanoidAnimatorPresenter.
+                        GaitPlaybackParameter));
 
             AnimatorControllerLayer gripLayer = controller.layers[1];
             Assert.That(gripLayer.name, Is.EqualTo("Short Sword Ready"));
@@ -320,6 +335,28 @@ namespace WorldBuilder.Tests.EditMode
                 .GetComponentsInChildren<SkinnedMeshRenderer>(true)
                 .Single(renderer => renderer.name == "Mannequin");
             Assert.That(dummyOriginal.enabled, Is.False);
+        }
+
+        [Test]
+        public void CrouchedLocomotionUsesSignedGaitPlayback()
+        {
+            AnimatorController controller =
+                AssetDatabase.LoadAssetAtPath<AnimatorController>(
+                    HumanoidAnimationSetup.ControllerPath);
+            Assert.That(controller, Is.Not.Null);
+
+            AnimatorState crouchState =
+                controller.layers[0].stateMachine.states
+                    .Select(child => child.state)
+                    .Single(state =>
+                        state.name ==
+                            "Resting Tactical Crouch V5");
+            Assert.That(crouchState.speedParameterActive, Is.True);
+            Assert.That(
+                crouchState.speedParameter,
+                Is.EqualTo(
+                    HumanoidAnimatorPresenter.
+                        GaitPlaybackParameter));
         }
 
     }

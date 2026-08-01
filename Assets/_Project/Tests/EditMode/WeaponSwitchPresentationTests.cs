@@ -107,14 +107,8 @@ namespace WorldBuilder.Tests.EditMode
                 reachDirection;
             Vector3 expectedPalmSide =
                 Vector3.ProjectOnPlane(
-                    bowRotation * Vector3.right,
+                    -(bowRotation * Vector3.right),
                     expectedGripAxis).normalized;
-            if (Vector3.Dot(
-                    expectedPalmSide,
-                    characterRight) > 0f)
-            {
-                expectedPalmSide = -expectedPalmSide;
-            }
 
             Assert.That(
                 Vector3.Angle(
@@ -126,6 +120,253 @@ namespace WorldBuilder.Tests.EditMode
                     handRotation * localPalmNormal,
                     expectedPalmSide),
                 Is.LessThan(0.01f));
+        }
+
+        [Test]
+        public void BowHoldingHandDoesNotInvertAcrossRightAim()
+        {
+            MethodInfo calculate =
+                typeof(TwoSlotWeaponPresenter).GetMethod(
+                    "CalculateBowHoldingHandRotation",
+                    BindingFlags.NonPublic |
+                    BindingFlags.Static);
+            Assert.That(calculate, Is.Not.Null);
+            MethodInfo lockToBow =
+                typeof(TwoSlotWeaponPresenter).GetMethod(
+                    "CalculateBowLockedHandRotation",
+                    BindingFlags.NonPublic |
+                    BindingFlags.Static);
+            Assert.That(lockToBow, Is.Not.Null);
+
+            Vector3 localFingerAxis =
+                new Vector3(0.91f, 0.32f, -0.26f).normalized;
+            Vector3 localPalmNormal =
+                Vector3.ProjectOnPlane(
+                    new Vector3(-0.08f, 0.72f, 0.69f),
+                    localFingerAxis).normalized;
+            Vector3 characterRight = Vector3.right;
+            Vector3 reachDirection =
+                new Vector3(-0.08f, 0.11f, 0.99f).normalized;
+
+            Quaternion leftBowRotation =
+                Quaternion.Euler(-17f, -68f, 11f);
+            Quaternion rightBowRotation =
+                Quaternion.Euler(-17f, 68f, 11f);
+            Quaternion leftAimRotation =
+                (Quaternion)calculate.Invoke(
+                    null,
+                    new object[]
+                    {
+                        localFingerAxis,
+                        localPalmNormal,
+                        leftBowRotation,
+                        characterRight,
+                        reachDirection
+                    });
+            Quaternion rightAimRotation =
+                (Quaternion)lockToBow.Invoke(
+                    null,
+                    new object[]
+                    {
+                        rightBowRotation,
+                        leftBowRotation,
+                        leftAimRotation
+                    });
+            Vector3 expectedLeftPalmSide =
+                Vector3.ProjectOnPlane(
+                    -(leftBowRotation * Vector3.right),
+                    reachDirection).normalized;
+            Assert.That(
+                Vector3.Angle(
+                    leftAimRotation * localPalmNormal,
+                    expectedLeftPalmSide),
+                Is.LessThan(0.01f));
+            Assert.That(
+                Vector3.Dot(
+                    leftAimRotation * localPalmNormal,
+                    leftBowRotation * Vector3.right),
+                Is.LessThan(0f));
+            Assert.That(
+                Vector3.Dot(
+                    rightAimRotation * localPalmNormal,
+                    rightBowRotation * Vector3.right),
+                Is.LessThan(0f));
+            Assert.That(
+                Vector3.Angle(
+                    Quaternion.Inverse(leftBowRotation) *
+                        (leftAimRotation * localPalmNormal),
+                    Quaternion.Inverse(rightBowRotation) *
+                        (rightAimRotation * localPalmNormal)),
+                Is.LessThan(0.01f));
+        }
+
+        [Test]
+        public void ArrowSlidesAcrossFixedRightHandShelfDuringDraw()
+        {
+            Vector3 undrawn =
+                TwoSlotWeaponPresenter.
+                    CalculateArrowNockLocalPosition(0f);
+            Vector3 fullDraw =
+                TwoSlotWeaponPresenter.
+                    CalculateArrowNockLocalPosition(1f);
+
+            Assert.That(undrawn.x, Is.GreaterThan(0f));
+            Assert.That(undrawn.y, Is.GreaterThan(0f));
+            Assert.That(
+                fullDraw.x,
+                Is.EqualTo(undrawn.x).Within(0.000001f));
+            Assert.That(
+                fullDraw.y,
+                Is.EqualTo(undrawn.y).Within(0.000001f));
+            Assert.That(
+                fullDraw.z - undrawn.z,
+                Is.EqualTo(-TwoSlotWeaponPresenter.
+                    BowMaximumDrawDistance).Within(0.000001f));
+        }
+
+        [Test]
+        public void BowContactSolveRunsAfterAimedStrafePose()
+        {
+            DefaultExecutionOrder bowOrder =
+                typeof(TwoSlotWeaponPresenter).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+            DefaultExecutionOrder stanceOrder =
+                typeof(AimStanceLocomotionPresenter).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+
+            Assert.That(bowOrder, Is.Not.Null);
+            Assert.That(stanceOrder, Is.Not.Null);
+            Assert.That(
+                bowOrder.order,
+                Is.GreaterThan(stanceOrder.order),
+                "Both bow hand contacts must be solved after strafing rotates the stance hierarchy.");
+        }
+
+        [Test]
+        public void AlertWeaponRunUsesStrongerForwardIntentThanWalk()
+        {
+            float walkLean =
+                AimStanceLocomotionPresenter.CalculateAlertLean(
+                    0f,
+                    AimStanceLocomotionPresenter.AlertWalkLean,
+                    AimStanceLocomotionPresenter.AlertRunLean);
+            float runLean =
+                AimStanceLocomotionPresenter.CalculateAlertLean(
+                    1f,
+                    AimStanceLocomotionPresenter.AlertWalkLean,
+                    AimStanceLocomotionPresenter.AlertRunLean);
+
+            Assert.That(
+                walkLean,
+                Is.EqualTo(8f).Within(0.001f));
+            Assert.That(
+                runLean,
+                Is.EqualTo(16f).Within(0.001f));
+            Assert.That(runLean, Is.GreaterThan(walkLean));
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    AlertRunShoulderClose,
+                Is.GreaterThan(
+                    AimStanceLocomotionPresenter.
+                        AlertWalkShoulderClose));
+        }
+
+        [Test]
+        public void FullBowFingerLockRestoresCapturedGrip()
+        {
+            GameObject fingerObject = new GameObject("Bow Finger");
+            try
+            {
+                Quaternion capturedGrip =
+                    Quaternion.Euler(34f, -18f, 51f);
+                fingerObject.transform.localRotation =
+                    Quaternion.Euler(-25f, 42f, -9f);
+
+                TwoSlotWeaponPresenter.ApplyFingerPose(
+                    new[] { fingerObject.transform },
+                    new[] { capturedGrip },
+                    1f);
+
+                Assert.That(
+                    Quaternion.Angle(
+                        fingerObject.transform.localRotation,
+                        capturedGrip),
+                    Is.LessThan(0.001f),
+                    "A fully aimed bow must overwrite locomotion-driven finger uncurling.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(fingerObject);
+            }
+        }
+
+        [Test]
+        public void ClosedBowGripCurlsFingersTowardHandleAndRestoresSourcePose()
+        {
+            GameObject handObject = new GameObject("Bow Hand");
+            GameObject proximalObject = new GameObject("Index Proximal");
+            GameObject intermediateObject = new GameObject("Index Intermediate");
+            GameObject distalObject = new GameObject("Index Distal");
+            try
+            {
+                proximalObject.transform.SetParent(
+                    handObject.transform,
+                    false);
+                intermediateObject.transform.SetParent(
+                    proximalObject.transform,
+                    false);
+                distalObject.transform.SetParent(
+                    intermediateObject.transform,
+                    false);
+                intermediateObject.transform.localPosition =
+                    Vector3.forward * 0.10f;
+                distalObject.transform.localPosition =
+                    Vector3.forward * 0.10f;
+                Transform[] fingers =
+                {
+                    null,
+                    null,
+                    null,
+                    proximalObject.transform,
+                    intermediateObject.transform,
+                    distalObject.transform
+                };
+                Vector3 gripCenter =
+                    new Vector3(0.10f, 0f, 0.10f);
+                float openDistance = Vector3.Distance(
+                    distalObject.transform.position,
+                    gripCenter);
+
+                Quaternion[] closedPose =
+                    TwoSlotWeaponPresenter.
+                        CaptureClosedFingerGripPose(
+                            handObject.transform,
+                            fingers,
+                            gripCenter);
+
+                Assert.That(
+                    Quaternion.Angle(
+                        proximalObject.transform.localRotation,
+                        Quaternion.identity),
+                    Is.LessThan(0.001f),
+                    "Authoring the grip must not leave the live rig mutated.");
+
+                TwoSlotWeaponPresenter.ApplyFingerPose(
+                    fingers,
+                    closedPose,
+                    1f);
+                float closedDistance = Vector3.Distance(
+                    distalObject.transform.position,
+                    gripCenter);
+                Assert.That(
+                    closedDistance,
+                    Is.LessThan(openDistance),
+                    "The authored fingers must curl toward the bow handle.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(handObject);
+            }
         }
     }
 }

@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using WorldBuilder.Gameplay.Characters;
+using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
@@ -40,6 +42,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private GameObject[] grassPrefabs;
         [SerializeField] private GameObject[] undergrowthPrefabs;
         [SerializeField] private GameObject[] rockPrefabs;
+        [SerializeField] private GameObject bridgePrefab;
         [Header("Materials")]
         [SerializeField] private Material forestGroundMaterial;
         [SerializeField] private Material roadMaterial;
@@ -56,8 +59,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField, Min(30f)] private float mapRadius = 72f;
         [SerializeField, Range(24, 128)] private int terrainResolution = 128;
         [SerializeField, Range(80, 700)] private int treeCount = 320;
-        [SerializeField, Range(5000, 22000)] private int grassCount = 18000;
-        [SerializeField, Range(40, 320)] private int undergrowthCount = 135;
+        [SerializeField, Range(8000, 42000)] private int grassCount = 32000;
+        [SerializeField, Range(40, 600)] private int undergrowthCount = 420;
         [SerializeField, Range(10, 120)] private int boulderCount = 48;
         [SerializeField, Range(10, 120)] private int trailStoneCount = 42;
         [SerializeField, Min(1f)] private float roadHalfWidth = 1.8f;
@@ -67,6 +70,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private const float RoadIndentation = 0.18f;
         private const float RoadShoulderWidth = 2.2f;
+        private const float GrassRoadInteriorLimit = -1.35f;
+        private const float GrassRiverClearance = 0.78f;
+        private const float RiverWaterBankOverlap = 1.15f;
+        private const float BridgeCrossSectionScale = 0.46f;
+        private const float BridgeExtraWidthScale = 1.65f;
+        private const float BridgeDeckLift = 0.35f;
         private const int GrassPlacementsPerBatch = 320;
 
         private sealed class GrassMeshSource
@@ -83,6 +92,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public Matrix4x4 LocalMatrix;
         }
 
+        private struct BoulderPlacement
+        {
+            public Vector2 Position;
+            public float Radius;
+        }
+
         private readonly List<Vector3> mainRoadSamples =
             new List<Vector3>();
         private readonly List<Vector3> forkRoadSamples =
@@ -91,14 +106,35 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             new List<Vector3>();
         private readonly List<Vector2> generatedTreePositions =
             new List<Vector2>();
+        private readonly List<BoulderPlacement>
+            generatedBoulderPlacements =
+                new List<BoulderPlacement>();
+        private readonly List<Vector2>
+            generatedFoliageAnchors =
+                new List<Vector2>();
+        private readonly Dictionary<Mesh, Mesh>
+            treeCollisionMeshCache =
+                new Dictionary<Mesh, Mesh>();
 
         private RaidLayout layout;
         private Transform generatedRoot;
         private int generatedTreeCount;
         private int generatedGrassCount;
+        private int[] generatedGrassVariantCounts =
+            Array.Empty<int>();
         private int generatedUndergrowthCount;
         private int generatedBoulderCount;
         private int generatedTrailStoneCount;
+        private int generatedBushGroupCount;
+        private int generatedFlowerPatchCount;
+        private int generatedBoulderGrassCount;
+        private int generatedTreeBaseGrassCount;
+        private int generatedPlantEdgeGrassCount;
+        private int generatedTreeBaseFoliageCount;
+        private int generatedBushClusterMemberCount;
+        private int generatedFlowerClusterMemberCount;
+        private int generatedGroundCoverPatchCount;
+        private int generatedTrailTransitionGrassCount;
         private Vector2 noiseOffsetA;
         private Vector2 noiseOffsetB;
 
@@ -125,13 +161,44 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 : 0;
         public int GeneratedGrassCount =>
             generatedGrassCount;
+        public int GeneratedGrassVariantCount(
+            int variantIndex)
+        {
+            return variantIndex >= 0 &&
+                variantIndex <
+                    generatedGrassVariantCounts.Length
+                    ? generatedGrassVariantCounts[
+                        variantIndex]
+                    : 0;
+        }
         public int GeneratedUndergrowthCount =>
             generatedUndergrowthCount;
         public int GeneratedBoulderCount =>
             generatedBoulderCount;
         public int GeneratedTrailStoneCount =>
             generatedTrailStoneCount;
+        public int GeneratedBushGroupCount =>
+            generatedBushGroupCount;
+        public int GeneratedFlowerPatchCount =>
+            generatedFlowerPatchCount;
+        public int GeneratedBoulderGrassCount =>
+            generatedBoulderGrassCount;
+        public int GeneratedTreeBaseGrassCount =>
+            generatedTreeBaseGrassCount;
+        public int GeneratedPlantEdgeGrassCount =>
+            generatedPlantEdgeGrassCount;
+        public int GeneratedTreeBaseFoliageCount =>
+            generatedTreeBaseFoliageCount;
+        public int GeneratedBushClusterMemberCount =>
+            generatedBushClusterMemberCount;
+        public int GeneratedFlowerClusterMemberCount =>
+            generatedFlowerClusterMemberCount;
+        public int GeneratedGroundCoverPatchCount =>
+            generatedGroundCoverPatchCount;
+        public int GeneratedTrailTransitionGrassCount =>
+            generatedTrailTransitionGrassCount;
         public RaidLayout CurrentLayout => layout;
+        public GameObject BridgePrefab => bridgePrefab;
 
         public void Configure(
             Transform playerRoot,
@@ -141,6 +208,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GameObject[] forestGrassPrefabs,
             GameObject[] forestUndergrowthPrefabs,
             GameObject[] forestRockPrefabs,
+            GameObject riverBridgePrefab,
             Material forestGround,
             Material dirtRoad,
             Material water,
@@ -161,6 +229,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             undergrowthPrefabs =
                 forestUndergrowthPrefabs;
             rockPrefabs = forestRockPrefabs;
+            bridgePrefab = riverBridgePrefab;
             forestGroundMaterial = forestGround;
             roadMaterial = dirtRoad;
             waterMaterial = water;
@@ -179,10 +248,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Generate();
         }
 
+        private void OnEnable()
+        {
+            if (Application.isPlaying &&
+                FindExistingGeneratedRoot() != null)
+            {
+                Generate();
+            }
+        }
+
         [ContextMenu("Generate Raid")]
         public void Generate()
         {
-            ConfigureRaidFog();
+            ConfigureRaidAtmosphere();
             int seed = ResolveSeed();
             layout = CreateLayout(seed, mapRadius);
             var random = new System.Random(seed);
@@ -209,6 +287,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 5,
                 riverSamples);
 
+            if (generatedRoot == null)
+            {
+                generatedRoot =
+                    FindExistingGeneratedRoot();
+            }
             if (generatedRoot != null)
             {
                 Destroy(generatedRoot.gameObject);
@@ -225,21 +308,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     seed ^ 0x13579,
                     new Color(0.18f, 0.22f, 0.145f),
                     new Color(0.285f, 0.265f, 0.17f),
-                    7f);
+                    7f,
+                    true);
             Material roadRuntime =
                 CreateTexturedMaterial(
                     roadMaterial,
                     seed ^ 0x24680,
                     new Color(0.30f, 0.20f, 0.105f),
                     new Color(0.47f, 0.34f, 0.19f),
-                    5f);
+                    5f,
+                    true);
             Material waterRuntime =
-                CreateTexturedMaterial(
+                CreateRiverMaterial(
                     waterMaterial,
-                    seed ^ 0x55aa55,
-                    new Color(0.055f, 0.23f, 0.31f),
-                    new Color(0.12f, 0.43f, 0.52f),
-                    8f);
+                    seed ^ 0x55aa55);
 
             CreateTerrain(
                 forestRuntime,
@@ -248,7 +330,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             CreateRibbon(
                 "River",
                 riverSamples,
-                riverHalfWidth,
+                riverHalfWidth +
+                    RiverWaterBankOverlap,
                 waterRuntime,
                 false);
             if (layout.RiverCrossesRoad)
@@ -269,6 +352,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 $"trailStones={generatedTrailStoneCount}; " +
                 $"fork={layout.HasRoadFork}; " +
                 $"crossing={layout.RiverCrossesRoad}");
+        }
+
+        private Transform FindExistingGeneratedRoot()
+        {
+            for (int childIndex = 0;
+                 childIndex < transform.childCount;
+                 childIndex++)
+            {
+                Transform child =
+                    transform.GetChild(childIndex);
+                if (child.name.StartsWith(
+                        "Generated Raid ",
+                        StringComparison.Ordinal))
+                {
+                    return child;
+                }
+            }
+            return null;
         }
 
         public static RaidLayout CreateLayout(
@@ -586,6 +687,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             mesh.indexFormat = IndexFormat.UInt32;
             mesh.SetVertices(meshVertices);
             mesh.SetUVs(0, meshUv);
+            var terrainColors =
+                new List<Color>(
+                    meshVertices.Count);
+            for (int vertexIndex = 0;
+                 vertexIndex < meshVertices.Count;
+                 vertexIndex++)
+            {
+                Vector3 vertex =
+                    meshVertices[vertexIndex];
+                terrainColors.Add(
+                    TerrainBlendTintAt(
+                        vertex.x,
+                        vertex.z));
+            }
+            mesh.SetColors(terrainColors);
             mesh.subMeshCount = 2;
             mesh.SetTriangles(
                 groundTriangles,
@@ -603,12 +719,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 false);
             terrain.AddComponent<MeshFilter>()
                 .sharedMesh = mesh;
+            Material terrainBlend =
+                CreateTerrainBlendMaterial(
+                    groundMaterial,
+                    dirtRoadMaterial);
             terrain.AddComponent<MeshRenderer>()
                 .sharedMaterials =
                 new[]
                 {
-                    groundMaterial,
-                    dirtRoadMaterial
+                    terrainBlend,
+                    terrainBlend
                 };
             terrain.AddComponent<MeshCollider>()
                 .sharedMesh = mesh;
@@ -800,17 +920,30 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
+            int widthSegments = road ? 1 : 8;
+            int verticesAcross = widthSegments + 1;
             var vertices =
-                new Vector3[points.Count * 2];
+                new Vector3[
+                    points.Count * verticesAcross];
             var uv =
                 new Vector2[vertices.Length];
+            var flowData =
+                new Vector2[vertices.Length];
             var triangles =
-                new int[(points.Count - 1) * 6];
+                new int[
+                    (points.Count - 1) *
+                    widthSegments * 6];
             float distanceAlong = 0f;
             for (int index = 0;
                  index < points.Count;
                  index++)
             {
+                if (index > 0)
+                {
+                    distanceAlong += Vector3.Distance(
+                        points[index - 1],
+                        points[index]);
+                }
                 Vector3 previous =
                     points[Mathf.Max(0, index - 1)];
                 Vector3 next =
@@ -827,6 +960,31 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         Vector3.up,
                         forward);
                 Vector3 center = points[index];
+                Vector3 incoming =
+                    index > 0
+                        ? Vector3.ProjectOnPlane(
+                            center - points[index - 1],
+                            Vector3.up).normalized
+                        : forward;
+                Vector3 outgoing =
+                    index < points.Count - 1
+                        ? Vector3.ProjectOnPlane(
+                            points[index + 1] - center,
+                            Vector3.up).normalized
+                        : forward;
+                float curvature =
+                    road
+                        ? 0f
+                        : Mathf.Clamp(
+                            Vector3.SignedAngle(
+                                incoming,
+                                outgoing,
+                                Vector3.up) /
+                            18f,
+                            -1f,
+                            1f);
+                float curveSpeed =
+                    1f;
                 float y =
                     road
                         ? RoadSurfaceHeight(
@@ -837,34 +995,72 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                             center.x,
                             center.z);
                 center.y = y;
-                vertices[index * 2] =
-                    center - right * halfWidth;
-                vertices[index * 2 + 1] =
-                    center + right * halfWidth;
-                if (index > 0)
+                float localHalfWidth = halfWidth;
+                if (!road)
                 {
-                    distanceAlong += Vector3.Distance(
-                        points[index - 1],
-                        points[index]);
+                    float widthNoise =
+                        Mathf.PerlinNoise(
+                            noiseOffsetA.x * 0.007f +
+                            center.x * 0.045f,
+                            noiseOffsetA.y * 0.007f +
+                            center.z * 0.045f);
+                    localHalfWidth *=
+                        Mathf.Lerp(
+                            0.94f,
+                            1.08f,
+                            widthNoise);
                 }
-                uv[index * 2] =
-                    new Vector2(0f, distanceAlong / 5f);
-                uv[index * 2 + 1] =
-                    new Vector2(1f, distanceAlong / 5f);
+                for (int crossIndex = 0;
+                     crossIndex < verticesAcross;
+                     crossIndex++)
+                {
+                    float crossT =
+                        crossIndex /
+                        (float)widthSegments;
+                    int vertex =
+                        index * verticesAcross +
+                        crossIndex;
+                    vertices[vertex] =
+                        center +
+                        right *
+                        Mathf.Lerp(
+                            -localHalfWidth,
+                            localHalfWidth,
+                            crossT);
+                    uv[vertex] =
+                        new Vector2(
+                            crossT,
+                            distanceAlong / 5f);
+                    flowData[vertex] =
+                        new Vector2(
+                            curvature,
+                            curveSpeed);
+                }
             }
 
             for (int index = 0;
                  index < points.Count - 1;
                  index++)
             {
-                int triangle = index * 6;
-                int vertex = index * 2;
-                triangles[triangle] = vertex;
-                triangles[triangle + 1] = vertex + 2;
-                triangles[triangle + 2] = vertex + 3;
-                triangles[triangle + 3] = vertex;
-                triangles[triangle + 4] = vertex + 3;
-                triangles[triangle + 5] = vertex + 1;
+                for (int crossIndex = 0;
+                     crossIndex < widthSegments;
+                     crossIndex++)
+                {
+                    int triangle =
+                        (index * widthSegments +
+                         crossIndex) * 6;
+                    int vertex =
+                        index * verticesAcross +
+                        crossIndex;
+                    int nextRow =
+                        vertex + verticesAcross;
+                    triangles[triangle] = vertex;
+                    triangles[triangle + 1] = nextRow;
+                    triangles[triangle + 2] = nextRow + 1;
+                    triangles[triangle + 3] = vertex;
+                    triangles[triangle + 4] = nextRow + 1;
+                    triangles[triangle + 5] = vertex + 1;
+                }
             }
 
             Mesh mesh = new Mesh
@@ -873,8 +1069,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             };
             mesh.vertices = vertices;
             mesh.uv = uv;
+            mesh.uv2 = flowData;
             mesh.triangles = triangles;
             mesh.RecalculateNormals();
+            mesh.RecalculateTangents();
             mesh.RecalculateBounds();
 
             GameObject ribbon =
@@ -895,55 +1093,279 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void CreateBridge()
         {
-            if (!TryFindClosestPair(
+            Vector3 point;
+            Vector3 direction;
+            if (TryFindPolylineIntersection(
                     mainRoadSamples,
                     riverSamples,
-                    out int roadIndex,
-                    out _))
+                    out Vector3 intersection,
+                    out Vector3 roadDirection))
+            {
+                point = intersection;
+                direction = roadDirection;
+            }
+            else if (TryFindClosestPair(
+                         mainRoadSamples,
+                         riverSamples,
+                         out int roadIndex,
+                         out int riverIndex))
+            {
+                point = (mainRoadSamples[roadIndex] +
+                    riverSamples[riverIndex]) * 0.5f;
+                Vector3 previous =
+                    mainRoadSamples[Mathf.Max(0, roadIndex - 1)];
+                Vector3 next =
+                    mainRoadSamples[Mathf.Min(
+                        mainRoadSamples.Count - 1,
+                        roadIndex + 1)];
+                direction = Vector3.ProjectOnPlane(
+                    next - previous,
+                    Vector3.up).normalized;
+            }
+            else
             {
                 return;
             }
-
-            Vector3 point =
-                mainRoadSamples[roadIndex];
-            Vector3 previous =
-                mainRoadSamples[
-                    Mathf.Max(0, roadIndex - 1)];
-            Vector3 next =
-                mainRoadSamples[
-                    Mathf.Min(
-                        mainRoadSamples.Count - 1,
-                        roadIndex + 1)];
-            Vector3 direction =
-                Vector3.ProjectOnPlane(
-                    next - previous,
-                    Vector3.up).normalized;
-            GameObject bridge =
-                GameObject.CreatePrimitive(
-                    PrimitiveType.Cube);
+            GameObject bridge = bridgePrefab != null
+                ? Instantiate(bridgePrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Cube);
             bridge.name = "Road Bridge";
             bridge.transform.SetParent(
                 generatedRoot,
                 false);
+            if (bridgePrefab == null)
+            {
+                ConfigureFallbackBridge(
+                    bridge,
+                    point,
+                    direction);
+                return;
+            }
+
+            ConfigureImportedBridge(
+                bridge,
+                point,
+                direction);
+        }
+
+        private void ConfigureFallbackBridge(
+            GameObject bridge,
+            Vector3 point,
+            Vector3 direction)
+        {
+            float deckHeight = BridgeDeckHeight(point.x, point.z);
             bridge.transform.position =
-                new Vector3(
-                    point.x,
-                    RoadSurfaceHeight(
-                        point.x,
-                        point.z) +
-                    -0.07f,
-                    point.z);
+                new Vector3(point.x, deckHeight - 0.17f, point.z);
+            bridge.transform.rotation = Quaternion.LookRotation(
+                direction,
+                Vector3.up);
+            bridge.transform.localScale = new Vector3(
+                roadHalfWidth * 2f + 1.1f,
+                0.34f,
+                riverHalfWidth * 2.8f + 4f);
+            Renderer renderer = bridge.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                renderer.sharedMaterial = bridgeMaterial;
+            }
+        }
+
+        private void ConfigureImportedBridge(
+            GameObject bridge,
+            Vector3 point,
+            Vector3 direction)
+        {
+            bridge.transform.SetPositionAndRotation(
+                Vector3.zero,
+                Quaternion.identity);
+            bridge.transform.localScale = Vector3.one;
+            Renderer[] renderers =
+                bridge.GetComponentsInChildren<Renderer>(true);
+            if (!TryGetRendererBounds(renderers, out Bounds sourceBounds))
+            {
+                ConfigureFallbackBridge(bridge, point, direction);
+                return;
+            }
+
+            bool lengthUsesX =
+                sourceBounds.size.x >= sourceBounds.size.z;
+            float sourceLength = Mathf.Max(
+                0.01f,
+                lengthUsesX
+                    ? sourceBounds.size.x
+                    : sourceBounds.size.z);
+            float targetLength =
+                (riverHalfWidth + 2.2f) * 2f;
+            float lengthScale = targetLength / sourceLength;
+            float heightScale =
+                lengthScale * BridgeCrossSectionScale;
+            float widthScale =
+                heightScale * BridgeExtraWidthScale;
+            bridge.transform.localScale = lengthUsesX
+                ? new Vector3(lengthScale, widthScale, heightScale)
+                : new Vector3(heightScale, widthScale, lengthScale);
+
+            ResolveBridgeBankFit(
+                point,
+                direction,
+                targetLength,
+                out Vector3 fittedDirection,
+                out float deckHeight);
+
+            Quaternion pathAxisCorrection = lengthUsesX
+                ? Quaternion.Euler(0f, -90f, 0f)
+                : Quaternion.identity;
+            Quaternion deckUprightCorrection = lengthUsesX
+                ? Quaternion.Euler(-90f, 0f, 0f)
+                : Quaternion.Euler(0f, 0f, 90f);
             bridge.transform.rotation =
-                Quaternion.LookRotation(
-                    direction,
-                    Vector3.up);
-            bridge.transform.localScale =
-                new Vector3(
-                    roadHalfWidth * 2f + 1.1f,
-                    0.34f,
-                    riverHalfWidth * 2.8f + 4f);
-            bridge.GetComponent<Renderer>()
-                .sharedMaterial = bridgeMaterial;
+                Quaternion.LookRotation(fittedDirection, Vector3.up) *
+                pathAxisCorrection *
+                deckUprightCorrection;
+
+            bridge.transform.position = new Vector3(
+                point.x,
+                0f,
+                point.z);
+
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                if (renderers[index] != null && bridgeMaterial != null)
+                {
+                    Material[] materials =
+                        renderers[index].sharedMaterials;
+                    for (int materialIndex = 0;
+                         materialIndex < materials.Length;
+                         materialIndex++)
+                    {
+                        materials[materialIndex] = bridgeMaterial;
+                    }
+                    renderers[index].sharedMaterials = materials;
+                }
+            }
+            ConfigureBridgeColliders(bridge);
+            SetStaticRecursively(bridge.transform);
+            Physics.SyncTransforms();
+            if (TryFindBridgeDeckHeight(
+                    bridge,
+                    point,
+                    out float currentDeckHeight))
+            {
+                bridge.transform.position += Vector3.up *
+                    (deckHeight - currentDeckHeight);
+            }
+            else if (TryGetRendererBounds(
+                         renderers,
+                         out Bounds placedBounds))
+            {
+                float estimatedDeckHeight =
+                    placedBounds.min.y +
+                    placedBounds.size.y * 0.18f;
+                bridge.transform.position += Vector3.up *
+                    (deckHeight - estimatedDeckHeight);
+            }
+        }
+
+        private static bool TryFindBridgeDeckHeight(
+            GameObject bridge,
+            Vector3 center,
+            out float deckHeight)
+        {
+            deckHeight = 0f;
+            RaycastHit[] hits = Physics.RaycastAll(
+                new Vector3(center.x, 50f, center.z),
+                Vector3.down,
+                100f,
+                ~0,
+                QueryTriggerInteraction.Ignore);
+            float highest = float.NegativeInfinity;
+            for (int index = 0; index < hits.Length; index++)
+            {
+                Collider collider = hits[index].collider;
+                if (collider != null &&
+                    collider.transform.IsChildOf(bridge.transform))
+                {
+                    highest = Mathf.Max(highest, hits[index].point.y);
+                }
+            }
+            if (float.IsNegativeInfinity(highest))
+            {
+                return false;
+            }
+            deckHeight = highest;
+            return true;
+        }
+
+        private static void ConfigureBridgeColliders(GameObject bridge)
+        {
+            Collider[] importedColliders =
+                bridge.GetComponentsInChildren<Collider>(true);
+            for (int index = 0; index < importedColliders.Length; index++)
+            {
+                Collider collider = importedColliders[index];
+                if (collider != null)
+                {
+                    collider.enabled = false;
+                    Destroy(collider);
+                }
+            }
+
+            MeshFilter[] filters =
+                bridge.GetComponentsInChildren<MeshFilter>(true);
+            for (int index = 0; index < filters.Length; index++)
+            {
+                MeshFilter filter = filters[index];
+                if (filter == null || filter.sharedMesh == null)
+                {
+                    continue;
+                }
+                MeshCollider collider =
+                    filter.gameObject.AddComponent<MeshCollider>();
+                collider.sharedMesh = filter.sharedMesh;
+                collider.convex = false;
+            }
+        }
+
+        private static void SetStaticRecursively(Transform root)
+        {
+            root.gameObject.isStatic = true;
+            for (int index = 0; index < root.childCount; index++)
+            {
+                SetStaticRecursively(root.GetChild(index));
+            }
+        }
+
+        private float BridgeDeckHeight(float x, float z)
+        {
+            return RawLandHeight(x, z) - RoadIndentation + 0.02f;
+        }
+
+        private void ResolveBridgeBankFit(
+            Vector3 center,
+            Vector3 horizontalDirection,
+            float span,
+            out Vector3 fittedDirection,
+            out float centerDeckHeight)
+        {
+            Vector3 flatDirection = Vector3.ProjectOnPlane(
+                horizontalDirection,
+                Vector3.up).normalized;
+            float halfSpan = span * 0.5f;
+            Vector3 nearBank = center - flatDirection * halfSpan;
+            Vector3 farBank = center + flatDirection * halfSpan;
+            float nearHeight = BridgeDeckHeight(
+                nearBank.x,
+                nearBank.z);
+            float farHeight = BridgeDeckHeight(
+                farBank.x,
+                farBank.z);
+            centerDeckHeight =
+                (nearHeight + farHeight) * 0.5f +
+                BridgeDeckLift;
+            fittedDirection = new Vector3(
+                flatDirection.x * span,
+                farHeight - nearHeight,
+                flatDirection.z * span).normalized;
         }
 
         private void CreateForest(System.Random random)
@@ -1029,6 +1451,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Instantiate(
                         selectedPrefab,
                         forest);
+                RemoveAllColliders(tree);
                 tree.name =
                     $"{selectedPrefab.name} " +
                     $"{generatedTreeCount + 1:000}";
@@ -1105,31 +1528,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     TryGetRendererBounds(
                         renderers,
                         out Bounds scaledBounds);
+                    float groundedBaseHeight =
+                        MinimumTerrainHeightUnderFootprint(
+                            point,
+                            0.62f,
+                            0.62f,
+                            16) -
+                        0.018f;
                     tree.transform.position +=
                         Vector3.up *
-                        (terrainHeight -
+                        (groundedBaseHeight -
                          scaledBounds.min.y);
                 }
 
-                CapsuleCollider trunk =
-                    tree.AddComponent<CapsuleCollider>();
-                float worldScale =
-                    Mathf.Max(
-                        0.0001f,
-                        tree.transform.lossyScale.y);
-                float trunkWorldHeight =
-                    targetHeight * 0.68f;
-                trunk.radius =
-                    0.55f / worldScale;
-                trunk.height =
-                    trunkWorldHeight / worldScale;
-                trunk.center =
-                    tree.transform.InverseTransformPoint(
-                        new Vector3(
-                            tree.transform.position.x,
-                            terrainHeight +
-                            trunkWorldHeight * 0.5f,
-                            tree.transform.position.z));
+                AddExactTreeWoodColliders(
+                    tree,
+                    renderers);
                 generatedTreePositions.Add(point);
             generatedTreeCount++;
             }
@@ -1139,9 +1553,25 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             System.Random random)
         {
             generatedGrassCount = 0;
+            generatedGrassVariantCounts =
+                grassPrefabs != null
+                    ? new int[grassPrefabs.Length]
+                    : Array.Empty<int>();
             generatedUndergrowthCount = 0;
             generatedBoulderCount = 0;
             generatedTrailStoneCount = 0;
+            generatedBushGroupCount = 0;
+            generatedFlowerPatchCount = 0;
+            generatedBoulderGrassCount = 0;
+            generatedTreeBaseGrassCount = 0;
+            generatedPlantEdgeGrassCount = 0;
+            generatedTreeBaseFoliageCount = 0;
+            generatedBushClusterMemberCount = 0;
+            generatedFlowerClusterMemberCount = 0;
+            generatedGroundCoverPatchCount = 0;
+            generatedTrailTransitionGrassCount = 0;
+            generatedBoulderPlacements.Clear();
+            generatedFoliageAnchors.Clear();
 
             List<GameObject> grasses =
                 CollectValidPrefabs(grassPrefabs);
@@ -1151,11 +1581,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             List<GameObject> rocks =
                 CollectValidPrefabs(rockPrefabs);
 
-            if (grasses.Count > 0)
+            if (rocks.Count > 0)
             {
-                CreateGrassCoverage(
+                CreateBoulders(
                     random,
-                    grasses);
+                    rocks);
             }
             if (undergrowth.Count > 0)
             {
@@ -1163,11 +1593,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     random,
                     undergrowth);
             }
+            if (grasses.Count > 0)
+            {
+                CreateGrassCoverage(
+                    random,
+                    grasses);
+            }
             if (rocks.Count > 0)
             {
-                CreateBoulders(
-                    random,
-                    rocks);
                 CreateTrailStones(
                     random,
                     rocks);
@@ -1195,134 +1628,521 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int placementsInBatch = 0;
             int batchIndex = 0;
             int batchStart = 1;
-            int attempts = grassCount * 6;
-            for (int attempt = 0;
-                 attempt < attempts &&
-                 generatedGrassCount < grassCount;
-                 attempt++)
+            int generatedBaseGrassCount = 0;
+            float usableRadius = mapRadius - 2.5f;
+            float cellSpacing =
+                Mathf.Sqrt(
+                    Mathf.PI * usableRadius *
+                    usableRadius /
+                    (grassCount * 1.30f));
+            int cellsAcross =
+                Mathf.CeilToInt(
+                    usableRadius * 2f /
+                    cellSpacing);
+            float gridStart =
+                -usableRadius + cellSpacing * 0.5f;
+            for (int row = 0;
+                 row < cellsAcross &&
+                 generatedBaseGrassCount < grassCount;
+                 row++)
             {
-                Vector2 point =
-                    RandomDiscPoint(
-                        random,
-                        2.5f);
-                if (SignedDistanceToRoad(point) <
-                        0.28f ||
-                    DistanceToPolyline(
-                        point,
-                        riverSamples) <
-                        riverHalfWidth + 0.7f)
+                float stagger =
+                    (row & 1) == 0
+                        ? 0f
+                        : cellSpacing * 0.5f;
+                for (int column = 0;
+                     column < cellsAcross &&
+                     generatedBaseGrassCount < grassCount;
+                     column++)
                 {
-                    continue;
-                }
+                    Vector2 jitter =
+                        new Vector2(
+                            ((float)random.NextDouble() -
+                             0.5f) * cellSpacing * 0.42f,
+                            ((float)random.NextDouble() -
+                             0.5f) * cellSpacing * 0.42f);
+                    Vector2 point =
+                        new Vector2(
+                            gridStart +
+                            column * cellSpacing +
+                            stagger,
+                            gridStart +
+                            row * cellSpacing) +
+                        jitter;
+                    if (point.sqrMagnitude >
+                        usableRadius * usableRadius)
+                    {
+                        continue;
+                    }
+                    float signedRoadDistance =
+                        SignedDistanceToRoad(point);
+                    if (signedRoadDistance <
+                        GrassRoadInteriorLimit ||
+                        DistanceToPolyline(
+                            point,
+                            riverSamples) <
+                        riverHalfWidth +
+                        GrassRiverClearance)
+                    {
+                        continue;
+                    }
 
-                float patch =
-                    Mathf.PerlinNoise(
-                        noiseOffsetA.x * 0.017f +
-                        point.x * 0.075f,
-                        noiseOffsetA.y * 0.017f +
-                        point.y * 0.075f);
-                float lowerZone =
-                    Mathf.InverseLerp(
-                        3.5f,
-                        -3.5f,
-                        RawLandHeight(
-                            point.x,
-                            point.y));
-                float density =
-                    Mathf.Clamp01(
-                        0.46f +
-                        patch * 0.50f +
-                        lowerZone * 0.16f);
-                if ((float)random.NextDouble() >
-                    density)
-                {
-                    continue;
-                }
-
-                GrassMeshSource source =
-                    sources[
-                        generatedGrassCount <
-                            sources.Count
-                            ? generatedGrassCount %
-                                sources.Count
-                            : random.Next(
-                                sources.Count)];
-                float heightPatch =
-                    Mathf.PerlinNoise(
-                        noiseOffsetB.x * 0.011f +
-                        point.x * 0.034f,
-                        noiseOffsetB.y * 0.011f +
-                        point.y * 0.034f);
-                float targetHeight =
-                    Mathf.Lerp(
-                        0.20f,
-                        0.74f,
+                    float barePatch =
+                        Mathf.PerlinNoise(
+                            noiseOffsetB.x * 0.019f +
+                            point.x * 0.095f +
+                            31.7f,
+                            noiseOffsetB.y * 0.019f +
+                            point.y * 0.095f +
+                            17.3f);
+                    float lowerZone =
+                        Mathf.InverseLerp(
+                            3.5f,
+                            -3.5f,
+                            RawLandHeight(
+                                point.x,
+                                point.y));
+                    float barePatchStrength =
                         Mathf.SmoothStep(
                             0f,
                             1f,
-                            heightPatch)) *
-                    Mathf.Lerp(
-                        0.86f,
-                        1.14f,
-                        (float)random.NextDouble());
-                float uniformScale =
-                    targetHeight /
-                    Mathf.Max(
-                        0.001f,
-                        source.LocalBounds.size.y);
-                float footprintScale =
-                    uniformScale *
-                    Mathf.Lerp(
-                        1.65f,
-                        2.20f,
-                        (float)random.NextDouble());
-                Quaternion rotation =
-                    Quaternion.AngleAxis(
-                        (float)random.NextDouble() *
-                        360f,
-                        Vector3.up) *
-                    source.ImportedRotation;
-                float terrainHeight =
-                    TerrainHeight(
-                        point.x,
-                        point.y);
-                Vector3 scale =
-                    new Vector3(
-                        footprintScale,
-                        uniformScale,
-                        footprintScale);
-                Vector3 position =
-                    new Vector3(
-                        point.x,
-                        terrainHeight -
-                            source.LocalBounds.min.y *
-                            uniformScale -
-                            0.012f,
-                        point.y);
-                Matrix4x4 placement =
-                    Matrix4x4.TRS(
-                        position,
-                        rotation,
-                        scale);
-                for (int partIndex = 0;
-                     partIndex < source.Parts.Length;
-                     partIndex++)
-                {
-                    batch.Add(
-                        new CombineInstance
+                            Mathf.InverseLerp(
+                                0.67f,
+                                0.79f,
+                                barePatch));
+                    float density =
+                        Mathf.Clamp01(
+                            Mathf.Lerp(
+                                0.975f,
+                                0.035f,
+                                barePatchStrength) +
+                            lowerZone * 0.015f);
+                    float roadBlend =
+                        RoadSurfaceBlendAt(
+                            point.x,
+                            point.y);
+                    density *=
+                        Mathf.Lerp(
+                            1f,
+                            0.11f,
+                            Mathf.Pow(
+                                roadBlend,
+                                1.25f));
+                    if ((float)random.NextDouble() >
+                        density)
+                    {
+                        continue;
+                    }
+
+                    float heightPatch =
+                        Mathf.PerlinNoise(
+                            noiseOffsetB.x * 0.011f +
+                            point.x * 0.034f,
+                            noiseOffsetB.y * 0.011f +
+                            point.y * 0.034f);
+                    int spikyVariantCount =
+                        Mathf.Max(0, sources.Count - 1);
+                    float grassRegionA =
+                        Mathf.PerlinNoise(
+                            noiseOffsetA.x * 0.017f +
+                            point.x * 0.041f,
+                            noiseOffsetA.y * 0.017f +
+                            point.y * 0.041f);
+                    float grassRegionB =
+                        Mathf.PerlinNoise(
+                            noiseOffsetB.x * 0.013f +
+                            point.x * 0.037f + 43.1f,
+                            noiseOffsetB.y * 0.013f +
+                            point.y * 0.037f + 11.9f);
+                    int sourceIndex = 0;
+                    if (spikyVariantCount > 0)
+                    {
+                        if (generatedBaseGrassCount <
+                            spikyVariantCount)
                         {
-                            mesh =
-                                source.Parts[partIndex]
-                                    .Mesh,
-                            transform =
-                                placement *
-                                source.Parts[partIndex]
-                                    .LocalMatrix
-                        });
+                            sourceIndex =
+                                1 + generatedBaseGrassCount;
+                        }
+                        else if (spikyVariantCount == 4)
+                        {
+                            sourceIndex =
+                                1 +
+                                (grassRegionA >= 0.5f ? 1 : 0) +
+                                (grassRegionB >= 0.5f ? 2 : 0);
+                        }
+                        else
+                        {
+                            float selector =
+                                Mathf.Repeat(
+                                    grassRegionA * 0.62f +
+                                    grassRegionB * 0.38f +
+                                    (float)random.NextDouble() *
+                                        0.16f,
+                                    0.9999f);
+                            sourceIndex =
+                                1 +
+                                Mathf.Min(
+                                    spikyVariantCount - 1,
+                                    Mathf.FloorToInt(
+                                        selector *
+                                        spikyVariantCount));
+                        }
+                    }
+
+                    float shapedHeightPatch =
+                        Mathf.SmoothStep(
+                            0f,
+                            1f,
+                            heightPatch);
+                    float baseHeight =
+                        Mathf.Lerp(
+                            0.20f,
+                            0.64f,
+                            shapedHeightPatch) *
+                        Mathf.Lerp(
+                            0.68f,
+                            1.34f,
+                            Mathf.Pow(
+                                (float)random.NextDouble(),
+                                1.12f));
+                    float baseFootprint =
+                        cellSpacing *
+                        Mathf.Lerp(
+                            1.42f,
+                            2.02f,
+                            (float)random.NextDouble());
+                    AppendGrassPlacement(
+                        batch,
+                        sources[sourceIndex],
+                        point,
+                        baseHeight,
+                        baseFootprint,
+                        random);
+                    generatedGrassCount++;
+                    generatedBaseGrassCount++;
+                    if (signedRoadDistance < 0f)
+                    {
+                        generatedTrailTransitionGrassCount++;
+                    }
+                    generatedGrassVariantCounts[
+                        sourceIndex]++;
+                    placementsInBatch++;
+
+                    float leafyPatch =
+                        Mathf.PerlinNoise(
+                            noiseOffsetA.x * 0.014f +
+                            point.x * 0.072f,
+                            noiseOffsetA.y * 0.014f +
+                            point.y * 0.072f);
+                    if (sources.Count > 1 &&
+                        leafyPatch >= 0.72f &&
+                        random.NextDouble() < 0.34)
+                    {
+                        Vector2 accentPoint =
+                            point +
+                            new Vector2(
+                                ((float)random.NextDouble() -
+                                 0.5f) * cellSpacing * 0.44f,
+                                ((float)random.NextDouble() -
+                                 0.5f) * cellSpacing * 0.44f);
+                        float accentHeight =
+                            Mathf.Lerp(
+                                0.14f,
+                                0.29f,
+                                shapedHeightPatch) *
+                            Mathf.Lerp(
+                                0.90f,
+                                1.08f,
+                                (float)random.NextDouble());
+                        AppendGrassPlacement(
+                            batch,
+                            sources[0],
+                            accentPoint,
+                            accentHeight,
+                            cellSpacing *
+                                Mathf.Lerp(
+                                    0.78f,
+                                    1.08f,
+                                    (float)random.NextDouble()),
+                            random);
+                        generatedGrassCount++;
+                        generatedGrassVariantCounts[0]++;
+                        placementsInBatch++;
+                    }
+
+                    if (placementsInBatch >=
+                        GrassPlacementsPerBatch)
+                    {
+                        CreateGrassBatch(
+                            root,
+                            batch,
+                            batchIndex++,
+                            batchStart,
+                            generatedGrassCount);
+                        batch.Clear();
+                        placementsInBatch = 0;
+                        batchStart =
+                            generatedGrassCount + 1;
+                    }
+                }
+            }
+
+            int spikySourceCount =
+                Mathf.Max(
+                    0,
+                    sources.Count - 1);
+            for (int boulderIndex = 0;
+                 boulderIndex <
+                    generatedBoulderPlacements.Count &&
+                 spikySourceCount > 0;
+                 boulderIndex++)
+            {
+                BoulderPlacement boulder =
+                    generatedBoulderPlacements[
+                        boulderIndex];
+                if (boulder.Radius < 0.82f)
+                {
+                    continue;
                 }
 
+                int pocketCount =
+                    Mathf.RoundToInt(
+                        Mathf.Lerp(
+                            12f,
+                            22f,
+                            Mathf.InverseLerp(
+                                0.82f,
+                                1.95f,
+                                boulder.Radius)));
+                float shelterAngle =
+                    (float)random.NextDouble() *
+                    Mathf.PI * 2f;
+                for (int pocketIndex = 0;
+                     pocketIndex < pocketCount;
+                     pocketIndex++)
+                {
+                    float sideAngle =
+                        shelterAngle +
+                        (pocketIndex & 1) *
+                        Mathf.PI;
+                    float angle =
+                        sideAngle +
+                        Mathf.Lerp(
+                            -0.68f,
+                            0.68f,
+                            (float)random.NextDouble());
+                    float distance =
+                        Mathf.Lerp(
+                            boulder.Radius * 0.70f,
+                            boulder.Radius + 0.72f,
+                            Mathf.Sqrt(
+                                (float)random.NextDouble()));
+                    Vector2 point =
+                        boulder.Position +
+                        new Vector2(
+                            Mathf.Cos(angle),
+                            Mathf.Sin(angle)) *
+                        distance;
+                    if (point.sqrMagnitude >
+                            usableRadius * usableRadius ||
+                        SignedDistanceToRoad(point) <
+                            GrassRoadInteriorLimit ||
+                        DistanceToPolyline(
+                            point,
+                            riverSamples) <
+                            riverHalfWidth +
+                            GrassRiverClearance)
+                    {
+                        continue;
+                    }
+
+                    int sourceIndex =
+                        1 + random.Next(
+                            spikySourceCount);
+                    AppendGrassPlacement(
+                        batch,
+                        sources[sourceIndex],
+                        point,
+                        Mathf.Lerp(
+                            0.48f,
+                            0.88f,
+                            (float)random.NextDouble()),
+                        cellSpacing *
+                            Mathf.Lerp(
+                                1.05f,
+                                1.62f,
+                                (float)random.NextDouble()),
+                        random);
+                    generatedGrassCount++;
+                    generatedBoulderGrassCount++;
+                    generatedGrassVariantCounts[
+                        sourceIndex]++;
+                    placementsInBatch++;
+
+                    if (placementsInBatch >=
+                        GrassPlacementsPerBatch)
+                    {
+                        CreateGrassBatch(
+                            root,
+                            batch,
+                            batchIndex++,
+                            batchStart,
+                            generatedGrassCount);
+                        batch.Clear();
+                        placementsInBatch = 0;
+                        batchStart =
+                            generatedGrassCount + 1;
+                    }
+                }
+            }
+
+            for (int treeIndex = 0;
+                 treeIndex < generatedTreePositions.Count;
+                 treeIndex += 3)
+            {
+                generatedTreeBaseGrassCount +=
+                    AppendHabitatGrassPocket(
+                        root,
+                        batch,
+                        sources,
+                        generatedTreePositions[
+                            treeIndex],
+                        0.58f,
+                        random.Next(7, 13),
+                        0.46f,
+                        0.86f,
+                        cellSpacing,
+                        usableRadius,
+                        random,
+                        ref placementsInBatch,
+                        ref batchIndex,
+                        ref batchStart);
+            }
+
+            for (int anchorIndex = 0;
+                 anchorIndex <
+                    generatedFoliageAnchors.Count;
+                 anchorIndex++)
+            {
+                generatedPlantEdgeGrassCount +=
+                    AppendHabitatGrassPocket(
+                        root,
+                        batch,
+                        sources,
+                        generatedFoliageAnchors[
+                            anchorIndex],
+                        0.34f,
+                        random.Next(6, 11),
+                        0.40f,
+                        0.76f,
+                        cellSpacing,
+                        usableRadius,
+                        random,
+                        ref placementsInBatch,
+                        ref batchIndex,
+                        ref batchStart);
+            }
+
+            if (placementsInBatch > 0)
+            {
+                CreateGrassBatch(
+                    root,
+                    batch,
+                    batchIndex,
+                    batchStart,
+                    generatedGrassCount);
+            }
+        }
+
+        private int AppendHabitatGrassPocket(
+            Transform root,
+            List<CombineInstance> batch,
+            List<GrassMeshSource> sources,
+            Vector2 center,
+            float anchorRadius,
+            int placementCount,
+            float minimumHeight,
+            float maximumHeight,
+            float cellSpacing,
+            float usableRadius,
+            System.Random random,
+            ref int placementsInBatch,
+            ref int batchIndex,
+            ref int batchStart)
+        {
+            int spikySourceCount =
+                Mathf.Max(
+                    0,
+                    sources.Count - 1);
+            if (spikySourceCount == 0)
+            {
+                return 0;
+            }
+
+            int placed = 0;
+            float shelterAngle =
+                (float)random.NextDouble() *
+                Mathf.PI * 2f;
+            for (int placementIndex = 0;
+                 placementIndex < placementCount;
+                 placementIndex++)
+            {
+                float angle =
+                    shelterAngle +
+                    (placementIndex & 1) *
+                    Mathf.PI +
+                    Mathf.Lerp(
+                        -0.92f,
+                        0.92f,
+                        (float)random.NextDouble());
+                float distance =
+                    Mathf.Lerp(
+                        anchorRadius * 0.38f,
+                        anchorRadius + 0.82f,
+                        Mathf.Sqrt(
+                            (float)random.NextDouble()));
+                Vector2 point =
+                    center +
+                    new Vector2(
+                        Mathf.Cos(angle),
+                        Mathf.Sin(angle)) *
+                    distance;
+                if (point.sqrMagnitude >
+                        usableRadius * usableRadius ||
+                    SignedDistanceToRoad(point) <
+                        GrassRoadInteriorLimit ||
+                    DistanceToPolyline(
+                        point,
+                        riverSamples) <
+                        riverHalfWidth +
+                        GrassRiverClearance)
+                {
+                    continue;
+                }
+
+                int sourceIndex =
+                    1 + random.Next(
+                        spikySourceCount);
+                AppendGrassPlacement(
+                    batch,
+                    sources[sourceIndex],
+                    point,
+                    Mathf.Lerp(
+                        minimumHeight,
+                        maximumHeight,
+                        (float)random.NextDouble()),
+                    cellSpacing *
+                        Mathf.Lerp(
+                            1.05f,
+                            1.70f,
+                            (float)random.NextDouble()),
+                    random);
                 generatedGrassCount++;
+                generatedGrassVariantCounts[
+                    sourceIndex]++;
                 placementsInBatch++;
+                placed++;
+
                 if (placementsInBatch >=
                     GrassPlacementsPerBatch)
                 {
@@ -1338,15 +2158,70 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         generatedGrassCount + 1;
                 }
             }
+            return placed;
+        }
 
-            if (placementsInBatch > 0)
+        private void AppendGrassPlacement(
+            List<CombineInstance> batch,
+            GrassMeshSource source,
+            Vector2 point,
+            float targetHeight,
+            float desiredFootprint,
+            System.Random random)
+        {
+            float uniformScale =
+                targetHeight /
+                Mathf.Max(
+                    0.001f,
+                    source.LocalBounds.size.y);
+            float sourceFootprint =
+                Mathf.Max(
+                    0.001f,
+                    Mathf.Max(
+                        source.LocalBounds.size.x,
+                        source.LocalBounds.size.z));
+            float footprintScale =
+                desiredFootprint /
+                sourceFootprint;
+            Quaternion rotation =
+                Quaternion.AngleAxis(
+                    (float)random.NextDouble() *
+                    360f,
+                    Vector3.up) *
+                source.ImportedRotation;
+            Vector3 position =
+                new Vector3(
+                    point.x,
+                    TerrainHeight(
+                        point.x,
+                        point.y) -
+                        source.LocalBounds.min.y *
+                        uniformScale -
+                        0.012f,
+                    point.y);
+            Matrix4x4 placement =
+                Matrix4x4.TRS(
+                    position,
+                    rotation,
+                    new Vector3(
+                        footprintScale,
+                        uniformScale,
+                        footprintScale));
+            for (int partIndex = 0;
+                 partIndex < source.Parts.Length;
+                 partIndex++)
             {
-                CreateGrassBatch(
-                    root,
-                    batch,
-                    batchIndex,
-                    batchStart,
-                    generatedGrassCount);
+                batch.Add(
+                    new CombineInstance
+                    {
+                        mesh =
+                            source.Parts[partIndex]
+                                .Mesh,
+                        transform =
+                            placement *
+                            source.Parts[partIndex]
+                                .LocalMatrix
+                    });
             }
         }
 
@@ -1459,6 +2334,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 true,
                 true,
                 false);
+            Vector3[] vertices = mesh.vertices;
+            var colors =
+                new Color[vertices.Length];
+            for (int vertexIndex = 0;
+                 vertexIndex < vertices.Length;
+                 vertexIndex++)
+            {
+                colors[vertexIndex] =
+                    GrassTintAt(
+                        vertices[vertexIndex].x,
+                        vertices[vertexIndex].z);
+            }
+            mesh.colors = colors;
             mesh.RecalculateBounds();
 
             GameObject batch =
@@ -1532,69 +2420,311 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     "Shrubs Flowers and Ground Cover")
                     .transform;
             root.SetParent(generatedRoot, false);
-            var accepted =
-                new List<Vector2>(
-                    undergrowthCount);
-            int attempts =
-                undergrowthCount * 10;
+            var bushes = new List<GameObject>();
+            var flowers = new List<GameObject>();
+            var groundCover = new List<GameObject>();
+            foreach (GameObject prefab in prefabs)
+            {
+                string lowerName =
+                    prefab.name.ToLowerInvariant();
+                if (lowerName.Contains("bush"))
+                {
+                    bushes.Add(prefab);
+                }
+                else if (lowerName.Contains("flower"))
+                {
+                    flowers.Add(prefab);
+                }
+                else
+                {
+                    groundCover.Add(prefab);
+                }
+            }
+
+            var clusterCenters =
+                new List<Vector2>();
+            int generalUndergrowthTarget =
+                Mathf.RoundToInt(
+                    undergrowthCount * 0.70f);
+            int clusterAttempts =
+                undergrowthCount * 6;
+            int clusterIndex = 0;
             for (int attempt = 0;
-                 attempt < attempts &&
+                 attempt < clusterAttempts &&
                  generatedUndergrowthCount <
-                    undergrowthCount;
+                    generalUndergrowthTarget;
                  attempt++)
             {
-                Vector2 point =
+                int clusterType = clusterIndex % 3;
+                List<GameObject> choices =
+                    clusterType == 0 && bushes.Count > 0
+                        ? bushes
+                        : clusterType == 1 &&
+                          flowers.Count > 0
+                            ? flowers
+                            : groundCover.Count > 0
+                                ? groundCover
+                                : prefabs;
+                Vector2 center =
                     RandomDiscPoint(
                         random,
-                        3f);
-                if (SignedDistanceToRoad(point) <
-                        0.85f ||
+                        3.4f);
+                if (SignedDistanceToRoad(center) <
+                        1.15f ||
                     DistanceToPolyline(
-                        point,
+                        center,
                         riverSamples) <
-                        riverHalfWidth + 0.5f ||
+                        riverHalfWidth + 0.72f ||
                     HasNearbyTree(
-                        accepted,
-                        point,
-                        1.35f))
+                        clusterCenters,
+                        center,
+                        3.2f))
                 {
                     continue;
                 }
 
                 GameObject prefab =
-                    prefabs[
-                        generatedUndergrowthCount <
-                            prefabs.Count
-                            ? generatedUndergrowthCount %
-                                prefabs.Count
-                            : random.Next(
-                                prefabs.Count)];
-                float targetHeight =
-                    UndergrowthHeight(
-                        prefab.name,
-                        random);
-                GameObject detail =
-                    CreateSceneryInstance(
-                        prefab,
-                        root,
-                        point,
-                        targetHeight,
-                        true,
-                        plantDetailMaterial,
-                        random,
-                        false,
-                        true);
-                if (detail == null)
+                    choices[
+                        clusterIndex % choices.Count];
+                bool bushCluster =
+                    prefab.name.IndexOf(
+                        "bush",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                bool flowerCluster =
+                    prefab.name.IndexOf(
+                        "flower",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+                int desiredGroupSize =
+                    bushCluster
+                        ? random.Next(5, 9)
+                        : flowerCluster
+                            ? random.Next(10, 17)
+                            : random.Next(8, 15);
+                desiredGroupSize =
+                    Mathf.Min(
+                        desiredGroupSize,
+                        generalUndergrowthTarget -
+                        generatedUndergrowthCount);
+                float clusterRadius =
+                    bushCluster
+                        ? 1.72f
+                        : flowerCluster
+                            ? 2.10f
+                            : 1.68f;
+                int placedInCluster = 0;
+                for (int member = 0;
+                     member < desiredGroupSize;
+                     member++)
                 {
-                    continue;
+                    float angle =
+                        (float)random.NextDouble() *
+                        Mathf.PI * 2f;
+                    float distance =
+                        member == 0
+                            ? 0f
+                            : Mathf.Sqrt(
+                                (float)random.NextDouble()) *
+                              clusterRadius;
+                    Vector2 point =
+                        center +
+                        new Vector2(
+                            Mathf.Cos(angle),
+                            Mathf.Sin(angle)) *
+                        distance;
+                    if (SignedDistanceToRoad(point) <
+                            0.82f ||
+                        DistanceToPolyline(
+                            point,
+                            riverSamples) <
+                            riverHalfWidth + 0.48f ||
+                        IsInsideBoulderCore(point))
+                    {
+                        continue;
+                    }
+
+                    float targetHeight =
+                        UndergrowthHeight(
+                            prefab.name,
+                            random) *
+                        Mathf.Lerp(
+                            0.82f,
+                            1.18f,
+                            (float)random.NextDouble());
+                    GameObject detail =
+                        CreateSceneryInstance(
+                            prefab,
+                            root,
+                            point,
+                            targetHeight,
+                            true,
+                            plantDetailMaterial,
+                            random,
+                            false,
+                            true);
+                    if (detail == null)
+                    {
+                        continue;
+                    }
+
+                    string groupLabel =
+                        bushCluster
+                            ? "Bush Group"
+                            : flowerCluster
+                                ? "Flower Patch"
+                                : "Ground Cover Pocket";
+                    detail.name =
+                        $"{prefab.name} {groupLabel} " +
+                        $"{clusterIndex + 1:00}-" +
+                        $"{placedInCluster + 1:00}";
+                    generatedUndergrowthCount++;
+                    placedInCluster++;
                 }
 
-                detail.name =
-                    $"{prefab.name} " +
-                    $"{generatedUndergrowthCount + 1:000}";
-                accepted.Add(point);
-                generatedUndergrowthCount++;
+                if (placedInCluster > 0)
+                {
+                    clusterCenters.Add(center);
+                    generatedFoliageAnchors.Add(
+                        center);
+                    if (bushCluster &&
+                        placedInCluster >= 3)
+                    {
+                        generatedBushGroupCount++;
+                        generatedBushClusterMemberCount +=
+                            placedInCluster;
+                    }
+                    if (flowerCluster &&
+                        placedInCluster >= 3)
+                    {
+                        generatedFlowerPatchCount++;
+                        generatedFlowerClusterMemberCount +=
+                            placedInCluster;
+                    }
+                    if (!bushCluster &&
+                        !flowerCluster &&
+                        placedInCluster >= 4)
+                    {
+                        generatedGroundCoverPatchCount++;
+                    }
+                    clusterIndex++;
+                }
             }
+
+            int treeStart =
+                generatedTreePositions.Count > 0
+                    ? random.Next(
+                        generatedTreePositions.Count)
+                    : 0;
+            int treeAttempts =
+                generatedTreePositions.Count * 2;
+            for (int attempt = 0;
+                 attempt < treeAttempts &&
+                 generatedUndergrowthCount <
+                    undergrowthCount;
+                 attempt++)
+            {
+                Vector2 treeCenter =
+                    generatedTreePositions[
+                        (treeStart + attempt * 7) %
+                        generatedTreePositions.Count];
+                List<GameObject> choices =
+                    bushes.Count > 0 &&
+                    random.NextDouble() < 0.62
+                        ? bushes
+                        : groundCover.Count > 0
+                            ? groundCover
+                            : prefabs;
+                GameObject prefab =
+                    choices[random.Next(choices.Count)];
+                int groupSize =
+                    Mathf.Min(
+                        random.Next(3, 6),
+                        undergrowthCount -
+                        generatedUndergrowthCount);
+                int placedAtTree = 0;
+                for (int member = 0;
+                     member < groupSize;
+                     member++)
+                {
+                    float angle =
+                        (float)random.NextDouble() *
+                        Mathf.PI * 2f;
+                    float distance =
+                        Mathf.Lerp(
+                            0.38f,
+                            1.28f,
+                            Mathf.Sqrt(
+                                (float)random.NextDouble()));
+                    Vector2 point =
+                        treeCenter +
+                        new Vector2(
+                            Mathf.Cos(angle),
+                            Mathf.Sin(angle)) *
+                        distance;
+                    if (SignedDistanceToRoad(point) <
+                            0.78f ||
+                        DistanceToPolyline(
+                            point,
+                            riverSamples) <
+                            riverHalfWidth + 0.45f ||
+                        IsInsideBoulderCore(point))
+                    {
+                        continue;
+                    }
+
+                    float targetHeight =
+                        UndergrowthHeight(
+                            prefab.name,
+                            random) *
+                        Mathf.Lerp(
+                            0.88f,
+                            1.28f,
+                            (float)random.NextDouble());
+                    GameObject detail =
+                        CreateSceneryInstance(
+                            prefab,
+                            root,
+                            point,
+                            targetHeight,
+                            true,
+                            plantDetailMaterial,
+                            random,
+                            false,
+                            true);
+                    if (detail == null)
+                    {
+                        continue;
+                    }
+
+                    detail.name =
+                        $"{prefab.name} Tree Base " +
+                        $"{attempt + 1:000}-" +
+                        $"{placedAtTree + 1:00}";
+                    generatedUndergrowthCount++;
+                    generatedTreeBaseFoliageCount++;
+                    placedAtTree++;
+                }
+            }
+        }
+
+        private bool IsInsideBoulderCore(
+            Vector2 point)
+        {
+            for (int index = 0;
+                 index <
+                    generatedBoulderPlacements.Count;
+                 index++)
+            {
+                BoulderPlacement boulder =
+                    generatedBoulderPlacements[index];
+                if (Vector2.Distance(
+                        point,
+                        boulder.Position) <
+                    boulder.Radius * 0.72f)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void CreateBoulders(
@@ -1661,6 +2791,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         rockMaterial,
                         random,
                         true,
+                        true,
                         true);
                 if (boulder == null)
                 {
@@ -1670,6 +2801,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 boulder.name =
                     $"{prefab.name} Boulder " +
                     $"{generatedBoulderCount + 1:00}";
+                Renderer[] boulderRenderers =
+                    boulder.GetComponentsInChildren<
+                        Renderer>(true);
+                if (TryGetRendererBounds(
+                        boulderRenderers,
+                        out Bounds boulderBounds))
+                {
+                    generatedBoulderPlacements.Add(
+                        new BoulderPlacement
+                        {
+                            Position = point,
+                            Radius = Mathf.Max(
+                                boulderBounds.extents.x,
+                                boulderBounds.extents.z)
+                        });
+                }
                 accepted.Add(point);
                 generatedBoulderCount++;
             }
@@ -1761,7 +2908,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         rockMaterial,
                         random,
                         false,
-                        false);
+                        false,
+                        true);
                 if (stone == null)
                 {
                     continue;
@@ -1783,7 +2931,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Material material,
             System.Random random,
             bool addCollider,
-            bool castShadows)
+            bool castShadows,
+            bool conformToSlope = false)
         {
             if (prefab == null)
             {
@@ -1798,6 +2947,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Instantiate(
                     prefab,
                     parent);
+            RemoveAllColliders(instance);
             instance.transform.position =
                 new Vector3(
                     point.x,
@@ -1805,12 +2955,40 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     point.y);
             Quaternion importedRotation =
                 instance.transform.rotation;
-            instance.transform.rotation =
-                Quaternion.AngleAxis(
-                    (float)random.NextDouble() *
-                    360f,
-                    Vector3.up) *
-                importedRotation;
+            float yaw =
+                (float)random.NextDouble() *
+                360f;
+            if (conformToSlope)
+            {
+                Vector3 terrainNormal =
+                    TerrainNormalAt(
+                        point.x,
+                        point.y);
+                terrainNormal =
+                    Vector3.RotateTowards(
+                        Vector3.up,
+                        terrainNormal,
+                        Mathf.Deg2Rad * 22f,
+                        0f).normalized;
+                Quaternion slopeAlignment =
+                    Quaternion.FromToRotation(
+                        Vector3.up,
+                        terrainNormal);
+                instance.transform.rotation =
+                    Quaternion.AngleAxis(
+                        yaw,
+                        terrainNormal) *
+                    slopeAlignment *
+                    importedRotation;
+            }
+            else
+            {
+                instance.transform.rotation =
+                    Quaternion.AngleAxis(
+                        yaw,
+                        Vector3.up) *
+                    importedRotation;
+            }
 
             Renderer[] importedRenderers =
                 instance.GetComponentsInChildren<
@@ -1880,41 +3058,259 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             TryGetRendererBounds(
                 renderers,
                 out Bounds scaledBounds);
+            float groundedBaseHeight =
+                terrainHeight - 0.015f;
+            if (conformToSlope)
+            {
+                float footprintRadiusX =
+                    Mathf.Max(
+                        0.06f,
+                        scaledBounds.extents.x * 0.72f);
+                float footprintRadiusZ =
+                    Mathf.Max(
+                        0.06f,
+                        scaledBounds.extents.z * 0.72f);
+                float settlingDepth =
+                    Mathf.Min(
+                        0.12f,
+                        scaledBounds.size.y * 0.045f);
+                groundedBaseHeight =
+                    MinimumTerrainHeightUnderFootprint(
+                        point,
+                        footprintRadiusX,
+                        footprintRadiusZ,
+                        12) -
+                    settlingDepth;
+            }
             instance.transform.position +=
                 Vector3.up *
-                (terrainHeight -
-                 scaledBounds.min.y -
-                 0.015f);
+                (groundedBaseHeight -
+                 scaledBounds.min.y);
 
-            if (addCollider &&
-                TryGetRendererBounds(
-                    renderers,
-                    out Bounds finalBounds))
+            if (addCollider)
             {
-                BoxCollider collider =
-                    instance.AddComponent<BoxCollider>();
-                collider.center =
-                    instance.transform
-                        .InverseTransformPoint(
-                            finalBounds.center);
-                Vector3 scale =
-                    instance.transform.lossyScale;
-                collider.size =
-                    new Vector3(
-                        finalBounds.size.x /
-                            Mathf.Max(
-                                0.0001f,
-                                Mathf.Abs(scale.x)),
-                        finalBounds.size.y /
-                            Mathf.Max(
-                                0.0001f,
-                                Mathf.Abs(scale.y)),
-                        finalBounds.size.z /
-                            Mathf.Max(
-                                0.0001f,
-                                Mathf.Abs(scale.z)));
+                AddExactVisibleMeshColliders(
+                    renderers);
             }
             return instance;
+        }
+
+        private void AddExactTreeWoodColliders(
+            GameObject tree,
+            Renderer[] visibleRenderers)
+        {
+            int added = 0;
+            for (int rendererIndex = 0;
+                 rendererIndex < visibleRenderers.Length;
+                 rendererIndex++)
+            {
+                Renderer renderer =
+                    visibleRenderers[rendererIndex];
+                MeshFilter filter =
+                    renderer.GetComponent<MeshFilter>();
+                if (filter == null ||
+                    filter.sharedMesh == null)
+                {
+                    continue;
+                }
+
+                bool[] woodSubmeshes =
+                    ResolveWoodSubmeshes(
+                        renderer,
+                        filter.sharedMesh.subMeshCount);
+                Mesh collisionMesh =
+                    GetOrCreateTreeCollisionMesh(
+                        filter.sharedMesh,
+                        woodSubmeshes);
+                if (collisionMesh == null)
+                {
+                    continue;
+                }
+
+                MeshCollider collider =
+                    renderer.gameObject
+                        .AddComponent<MeshCollider>();
+                collider.sharedMesh = collisionMesh;
+                collider.convex = false;
+                added++;
+            }
+
+            if (added > 0)
+            {
+                return;
+            }
+
+            // A non-readable third-party mesh can still use its authored UCX
+            // helper. This is a narrow solid hull, never the old broad capsule.
+            MeshFilter[] filters =
+                tree.GetComponentsInChildren<MeshFilter>(true);
+            for (int index = 0; index < filters.Length; index++)
+            {
+                MeshFilter filter = filters[index];
+                if (filter.sharedMesh == null ||
+                    !filter.name.StartsWith(
+                        "UCX_",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                MeshCollider collider =
+                    filter.gameObject
+                        .AddComponent<MeshCollider>();
+                collider.sharedMesh = filter.sharedMesh;
+                collider.convex = false;
+            }
+        }
+
+        private Mesh GetOrCreateTreeCollisionMesh(
+            Mesh source,
+            bool[] woodSubmeshes)
+        {
+            if (treeCollisionMeshCache.TryGetValue(
+                    source,
+                    out Mesh existing))
+            {
+                return existing;
+            }
+            if (!source.isReadable)
+            {
+                return null;
+            }
+
+            var sourceIndices = new List<int>();
+            int submeshCount = Mathf.Min(
+                source.subMeshCount,
+                woodSubmeshes.Length);
+            for (int submesh = 0;
+                 submesh < submeshCount;
+                 submesh++)
+            {
+                if (woodSubmeshes[submesh])
+                {
+                    sourceIndices.AddRange(
+                        source.GetTriangles(submesh));
+                }
+            }
+            if (sourceIndices.Count == 0)
+            {
+                return null;
+            }
+
+            Vector3[] sourceVertices = source.vertices;
+            var remap = new Dictionary<int, int>();
+            var vertices = new List<Vector3>();
+            var triangles = new int[sourceIndices.Count];
+            for (int index = 0;
+                 index < sourceIndices.Count;
+                 index++)
+            {
+                int sourceIndex = sourceIndices[index];
+                if (!remap.TryGetValue(
+                        sourceIndex,
+                        out int collisionIndex))
+                {
+                    collisionIndex = vertices.Count;
+                    remap.Add(
+                        sourceIndex,
+                        collisionIndex);
+                    vertices.Add(
+                        sourceVertices[sourceIndex]);
+                }
+                triangles[index] = collisionIndex;
+            }
+
+            Mesh collisionMesh = new Mesh
+            {
+                name =
+                    $"{source.name} Exact Wood Collision",
+                indexFormat = vertices.Count > 65535
+                    ? IndexFormat.UInt32
+                    : IndexFormat.UInt16
+            };
+            collisionMesh.SetVertices(vertices);
+            collisionMesh.SetTriangles(
+                triangles,
+                0);
+            collisionMesh.RecalculateBounds();
+            treeCollisionMeshCache.Add(
+                source,
+                collisionMesh);
+            return collisionMesh;
+        }
+
+        private static bool[] ResolveWoodSubmeshes(
+            Renderer renderer,
+            int submeshCount)
+        {
+            var result = new bool[submeshCount];
+            Material[] materials =
+                renderer.sharedMaterials;
+            int count = Mathf.Min(
+                materials.Length,
+                submeshCount);
+            for (int index = 0; index < count; index++)
+            {
+                Material material = materials[index];
+                string materialName =
+                    material != null
+                        ? material.name
+                        : string.Empty;
+                result[index] =
+                    materialName.IndexOf(
+                        "bark",
+                        StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    materialName.IndexOf(
+                        "barck",
+                        StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            return result;
+        }
+
+        private static void AddExactVisibleMeshColliders(
+            Renderer[] renderers)
+        {
+            for (int index = 0;
+                 index < renderers.Length;
+                 index++)
+            {
+                MeshFilter filter =
+                    renderers[index]
+                        .GetComponent<MeshFilter>();
+                if (filter == null ||
+                    filter.sharedMesh == null)
+                {
+                    continue;
+                }
+
+                MeshCollider collider =
+                    filter.gameObject
+                        .AddComponent<MeshCollider>();
+                collider.sharedMesh = filter.sharedMesh;
+                collider.convex = false;
+            }
+        }
+
+        private static void RemoveAllColliders(
+            GameObject root)
+        {
+            Collider[] colliders =
+                root.GetComponentsInChildren<Collider>(true);
+            for (int index = 0;
+                 index < colliders.Length;
+                 index++)
+            {
+                Collider collider = colliders[index];
+                collider.enabled = false;
+                if (Application.isPlaying)
+                {
+                    Destroy(collider);
+                }
+                else
+                {
+                    DestroyImmediate(collider);
+                }
+            }
         }
 
         private static List<GameObject>
@@ -1993,18 +3389,127 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 t);
         }
 
-        private static void ConfigureRaidFog()
+        private static void ConfigureRaidAtmosphere()
         {
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor =
                 new Color(
-                    0.72f,
-                    0.74f,
-                    0.75f,
+                    0.46f,
+                    0.52f,
+                    0.58f,
                     1f);
-            RenderSettings.fogStartDistance = 14f;
-            RenderSettings.fogEndDistance = 62f;
+            RenderSettings.fogStartDistance = 28f;
+            RenderSettings.fogEndDistance = 105f;
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor =
+                new Color(0.40f, 0.47f, 0.54f, 1f);
+            RenderSettings.ambientEquatorColor =
+                new Color(0.25f, 0.30f, 0.34f, 1f);
+            RenderSettings.ambientGroundColor =
+                new Color(0.16f, 0.18f, 0.19f, 1f);
+            RenderSettings.ambientIntensity = 1.05f;
+            RenderSettings.reflectionIntensity = 0.42f;
+
+            Light[] lights =
+                FindObjectsByType<Light>(
+                    FindObjectsSortMode.None);
+            foreach (Light light in lights)
+            {
+                if (light.type != LightType.Directional)
+                {
+                    continue;
+                }
+                light.color =
+                    new Color(0.94f, 0.86f, 0.72f, 1f);
+                light.intensity = 1.35f;
+                light.shadowStrength = 0.82f;
+                light.transform.rotation =
+                    Quaternion.Euler(62f, -42f, 0f);
+            }
+
+            Camera camera = Camera.main;
+            if (camera != null)
+            {
+                camera.clearFlags =
+                    CameraClearFlags.SolidColor;
+                camera.backgroundColor =
+                    RenderSettings.fogColor;
+                UniversalAdditionalCameraData cameraData =
+                    camera.GetUniversalAdditionalCameraData();
+                cameraData.renderPostProcessing = true;
+            }
+
+            GameObject gradeObject =
+                GameObject.Find("Raid Atmosphere Grade");
+            if (gradeObject == null)
+            {
+                gradeObject =
+                    new GameObject(
+                        "Raid Atmosphere Grade");
+            }
+            Volume volume =
+                gradeObject.GetComponent<Volume>();
+            if (volume == null)
+            {
+                volume = gradeObject.AddComponent<Volume>();
+            }
+            volume.isGlobal = true;
+            volume.priority = 20f;
+            VolumeProfile profile = volume.profile;
+            if (!profile.TryGet(
+                    out ColorAdjustments color))
+            {
+                color = profile.Add<ColorAdjustments>();
+            }
+            color.active = true;
+            color.postExposure.Override(0.62f);
+            color.contrast.Override(5f);
+            color.saturation.Override(-27f);
+            color.colorFilter.Override(
+                new Color(0.88f, 0.94f, 1f, 1f));
+
+            if (!profile.TryGet(out Tonemapping tone))
+            {
+                tone = profile.Add<Tonemapping>();
+            }
+            tone.active = true;
+            tone.mode.Override(TonemappingMode.ACES);
+
+            if (!profile.TryGet(out Vignette vignette))
+            {
+                vignette = profile.Add<Vignette>();
+            }
+            vignette.active = true;
+            vignette.color.Override(
+                new Color(0.015f, 0.020f, 0.022f, 1f));
+            vignette.intensity.Override(0.025f);
+            vignette.smoothness.Override(0.56f);
+
+            if (!profile.TryGet(
+                    out ShadowsMidtonesHighlights tonalShape))
+            {
+                tonalShape =
+                    profile.Add<ShadowsMidtonesHighlights>();
+            }
+            tonalShape.active = true;
+            tonalShape.shadows.Override(
+                new Vector4(0.92f, 0.97f, 1.04f, 0f));
+            tonalShape.midtones.Override(
+                new Vector4(1f, 1f, 1f, 0f));
+            tonalShape.highlights.Override(
+                new Vector4(1.05f, 1.01f, 0.94f, 0f));
+
+            if (!profile.TryGet(out Bloom bloom))
+            {
+                bloom = profile.Add<Bloom>();
+            }
+            bloom.active = true;
+            bloom.threshold.Override(1.05f);
+            bloom.intensity.Override(0.08f);
+            bloom.scatter.Override(0.55f);
+            bloom.tint.Override(
+                new Color(1f, 0.94f, 0.84f, 1f));
         }
 
         private static bool IsCollisionHelper(
@@ -2132,6 +3637,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     {
                         continue;
                     }
+
+                    EnemyDamageProfile damageProfile =
+                        enemy.GetComponent<EnemyDamageProfile>();
+                    if (damageProfile == null)
+                    {
+                        damageProfile =
+                            enemy.gameObject.AddComponent<
+                                EnemyDamageProfile>();
+                    }
+                    damageProfile.Configure(
+                        EnemyCombatVariant.RaidEnemy);
 
                     float t =
                         Mathf.Clamp01(
@@ -2330,6 +3846,83 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     1.8f;
             }
             return height;
+        }
+
+        private Vector3 TerrainNormalAt(
+            float x,
+            float z)
+        {
+            const float SampleDistance = 0.45f;
+            float left =
+                TerrainHeight(
+                    x - SampleDistance,
+                    z);
+            float right =
+                TerrainHeight(
+                    x + SampleDistance,
+                    z);
+            float back =
+                TerrainHeight(
+                    x,
+                    z - SampleDistance);
+            float forward =
+                TerrainHeight(
+                    x,
+                    z + SampleDistance);
+            return new Vector3(
+                    left - right,
+                    SampleDistance * 2f,
+                    back - forward)
+                .normalized;
+        }
+
+        private float MinimumTerrainHeightUnderFootprint(
+            Vector2 center,
+            float radiusX,
+            float radiusZ,
+            int perimeterSamples)
+        {
+            float minimumHeight =
+                TerrainHeight(
+                    center.x,
+                    center.y);
+            int sampleCount =
+                Mathf.Max(
+                    4,
+                    perimeterSamples);
+            for (int ring = 1;
+                 ring <= 2;
+                 ring++)
+            {
+                float radiusScale = ring * 0.5f;
+                for (int sample = 0;
+                     sample < sampleCount;
+                     sample++)
+                {
+                    float angle =
+                        sample *
+                        Mathf.PI * 2f /
+                        sampleCount;
+                    float sampleX =
+                        center.x +
+                        Mathf.Cos(angle) *
+                        radiusX *
+                        radiusScale;
+                    float sampleZ =
+                        center.y +
+                        Mathf.Sin(angle) *
+                        radiusZ *
+                        radiusScale;
+                    minimumHeight =
+                        Mathf.Min(
+                            minimumHeight,
+                            TerrainHeight(
+                                sampleX,
+                                sampleZ));
+                }
+            }
+
+            return minimumHeight;
         }
 
         private float RawLandHeight(
@@ -2594,6 +4187,72 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return indexA >= 0;
         }
 
+        private static bool TryFindPolylineIntersection(
+            List<Vector3> road,
+            List<Vector3> river,
+            out Vector3 intersection,
+            out Vector3 roadDirection)
+        {
+            intersection = Vector3.zero;
+            roadDirection = Vector3.forward;
+            for (int roadIndex = 0;
+                 roadIndex < road.Count - 1;
+                 roadIndex++)
+            {
+                Vector2 roadStart = ToXZ(road[roadIndex]);
+                Vector2 roadDelta =
+                    ToXZ(road[roadIndex + 1]) - roadStart;
+                for (int riverIndex = 0;
+                     riverIndex < river.Count - 1;
+                     riverIndex++)
+                {
+                    Vector2 riverStart = ToXZ(river[riverIndex]);
+                    Vector2 riverDelta =
+                        ToXZ(river[riverIndex + 1]) - riverStart;
+                    float denominator = Cross2D(
+                        roadDelta,
+                        riverDelta);
+                    if (Mathf.Abs(denominator) <= 0.00001f)
+                    {
+                        continue;
+                    }
+
+                    Vector2 separation = riverStart - roadStart;
+                    float roadT = Cross2D(
+                        separation,
+                        riverDelta) / denominator;
+                    float riverT = Cross2D(
+                        separation,
+                        roadDelta) / denominator;
+                    if (roadT < 0f || roadT > 1f ||
+                        riverT < 0f || riverT > 1f)
+                    {
+                        continue;
+                    }
+
+                    Vector2 point = roadStart + roadDelta * roadT;
+                    intersection = new Vector3(
+                        point.x,
+                        Mathf.Lerp(
+                            road[roadIndex].y,
+                            road[roadIndex + 1].y,
+                            roadT),
+                        point.y);
+                    roadDirection = new Vector3(
+                        roadDelta.x,
+                        0f,
+                        roadDelta.y).normalized;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static float Cross2D(Vector2 a, Vector2 b)
+        {
+            return a.x * b.y - a.y * b.x;
+        }
+
         private static void SampleSpline(
             Vector3[] controlPoints,
             int samplesPerSegment,
@@ -2698,7 +4357,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int seed,
             Color dark,
             Color light,
-            float textureScale)
+            float textureScale,
+            bool preserveSourceTint)
         {
             Material material =
                 source != null
@@ -2721,7 +4381,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             material.mainTexture = texture;
             material.mainTextureScale =
                 Vector2.one * textureScale;
-            material.color = Color.white;
+            Color materialTint =
+                preserveSourceTint && source != null
+                    ? source.color
+                    : Color.white;
+            material.color = materialTint;
             if (material.HasProperty("_BaseMap"))
             {
                 material.SetTexture(
@@ -2735,9 +4399,340 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 material.SetColor(
                     "_BaseColor",
-                    Color.white);
+                    materialTint);
             }
             return material;
+        }
+
+        private static Material CreateTerrainBlendMaterial(
+            Material ground,
+            Material road)
+        {
+            Shader shader =
+                Shader.Find(
+                    "WorldBuilder/Terrain Road Blend Lit");
+            if (shader == null)
+            {
+                return ground;
+            }
+
+            Material material = new Material(shader)
+            {
+                name = "Procedural Ground And Trail Blend"
+            };
+            Texture groundTexture =
+                ground != null
+                    ? ground.mainTexture
+                    : Texture2D.whiteTexture;
+            Texture roadTexture =
+                road != null
+                    ? road.mainTexture
+                    : Texture2D.whiteTexture;
+            material.SetTexture(
+                "_GroundMap",
+                groundTexture);
+            material.SetTexture(
+                "_RoadMap",
+                roadTexture);
+            material.SetTextureScale(
+                "_GroundMap",
+                ground != null
+                    ? ground.mainTextureScale
+                    : Vector2.one);
+            material.SetTextureOffset(
+                "_GroundMap",
+                ground != null
+                    ? ground.mainTextureOffset
+                    : Vector2.zero);
+            material.SetTextureScale(
+                "_RoadMap",
+                road != null
+                    ? road.mainTextureScale
+                    : Vector2.one);
+            material.SetTextureOffset(
+                "_RoadMap",
+                road != null
+                    ? road.mainTextureOffset
+                    : Vector2.zero);
+            material.SetColor(
+                "_GroundColor",
+                ground != null
+                    ? ground.color
+                    : Color.white);
+            material.SetColor(
+                "_RoadColor",
+                road != null
+                    ? road.color
+                    : Color.white);
+            return material;
+        }
+
+        private Material CreateRiverMaterial(
+            Material source,
+            int seed)
+        {
+            Material material =
+                source != null
+                    ? new Material(source)
+                    : new Material(
+                        Shader.Find(
+                            "Universal Render Pipeline/Lit"));
+            material.name =
+                source != null
+                    ? $"{source.name} Runtime"
+                    : "Procedural River Material";
+
+            float flowDirection = 1f;
+            if (riverSamples.Count >= 2)
+            {
+                Vector3 start = riverSamples[0];
+                Vector3 end =
+                    riverSamples[
+                        riverSamples.Count - 1];
+                float startHeight =
+                    TerrainHeight(
+                        start.x,
+                        start.z);
+                float endHeight =
+                    TerrainHeight(
+                        end.x,
+                        end.z);
+                flowDirection =
+                    Mathf.Abs(
+                        startHeight - endHeight) >
+                    0.025f
+                        ? startHeight > endHeight
+                            ? 1f
+                            : -1f
+                        : (seed & 1) == 0
+                            ? 1f
+                            : -1f;
+            }
+
+            if (material.HasProperty(
+                    "_FlowDirection"))
+            {
+                material.SetFloat(
+                    "_FlowDirection",
+                    flowDirection);
+            }
+            if (material.HasProperty("_FlowPhase"))
+            {
+                var random =
+                    new System.Random(seed);
+                material.SetFloat(
+                    "_FlowPhase",
+                    (float)random.NextDouble());
+            }
+            return material;
+        }
+
+        private float MeadowDrynessAt(
+            float worldX,
+            float worldZ)
+        {
+            float broad =
+                Mathf.PerlinNoise(
+                    noiseOffsetA.x * 0.0019f +
+                    worldX * 0.036f +
+                    11.4f,
+                    noiseOffsetA.y * 0.0019f +
+                    worldZ * 0.036f +
+                    27.8f);
+            float detail =
+                Mathf.PerlinNoise(
+                    noiseOffsetB.x * 0.0031f +
+                    worldX * 0.082f,
+                    noiseOffsetB.y * 0.0031f +
+                    worldZ * 0.082f);
+            float dryness =
+                Mathf.InverseLerp(
+                    0.53f,
+                    0.76f,
+                    broad * 0.78f +
+                    detail * 0.22f);
+            return Mathf.SmoothStep(
+                0f,
+                1f,
+                dryness);
+        }
+
+        private Color TerrainTintAt(
+            float worldX,
+            float worldZ)
+        {
+            float dryness =
+                MeadowDrynessAt(
+                    worldX,
+                    worldZ);
+            Color healthyEarth =
+                new Color(
+                    0.62f,
+                    0.56f,
+                    0.43f,
+                    1f);
+            Color wheatEarth =
+                new Color(
+                    0.69f,
+                    0.58f,
+                    0.39f,
+                    1f);
+            Color brown =
+                new Color(
+                    0.42f,
+                    0.34f,
+                    0.27f,
+                    1f);
+            return dryness < 0.72f
+                ? Color.Lerp(
+                    healthyEarth,
+                    wheatEarth,
+                    dryness / 0.72f)
+                : Color.Lerp(
+                    wheatEarth,
+                    brown,
+                    Mathf.InverseLerp(
+                        0.72f,
+                        1f,
+                        dryness));
+        }
+
+        private Color TerrainBlendTintAt(
+            float worldX,
+            float worldZ)
+        {
+            float roadBlend =
+                RoadSurfaceBlendAt(
+                    worldX,
+                    worldZ);
+            Color meadowTint =
+                TerrainTintAt(
+                    worldX,
+                    worldZ);
+            Color blendedTint =
+                Color.Lerp(
+                    meadowTint,
+                    Color.white,
+                    roadBlend * 0.92f);
+            blendedTint.a = roadBlend;
+            return blendedTint;
+        }
+
+        private float RoadSurfaceBlendAt(
+            float worldX,
+            float worldZ)
+        {
+            float signedDistance =
+                SignedDistanceToRoad(
+                    new Vector2(
+                        worldX,
+                        worldZ));
+            if (float.IsPositiveInfinity(
+                    signedDistance))
+            {
+                return 0f;
+            }
+
+            float broadEdge =
+                Mathf.PerlinNoise(
+                    noiseOffsetA.x * 0.009f +
+                    worldX * 0.19f +
+                    6.7f,
+                    noiseOffsetA.y * 0.009f +
+                    worldZ * 0.19f +
+                    19.2f);
+            float brokenEdge =
+                Mathf.PerlinNoise(
+                    noiseOffsetB.x * 0.014f +
+                    worldX * 0.52f +
+                    31.8f,
+                    noiseOffsetB.y * 0.014f +
+                    worldZ * 0.52f +
+                    12.4f);
+            float irregularDistance =
+                signedDistance +
+                (broadEdge - 0.5f) * 0.82f +
+                (brokenEdge - 0.5f) * 0.34f;
+            float transition =
+                Mathf.InverseLerp(
+                    -0.78f,
+                    1.38f,
+                    irregularDistance);
+            return 1f -
+                Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    transition);
+        }
+
+        private Color GrassTintAt(
+            float worldX,
+            float worldZ)
+        {
+            float dryness =
+                MeadowDrynessAt(
+                    worldX,
+                    worldZ);
+            Color mutedOlive =
+                new Color(
+                    0.69f,
+                    0.72f,
+                    0.57f,
+                    1f);
+            Color deadStraw =
+                new Color(
+                    0.76f,
+                    0.68f,
+                    0.46f,
+                    1f);
+            Color dryBrown =
+                new Color(
+                    0.48f,
+                    0.42f,
+                    0.31f,
+                    1f);
+            Color meadowTint = dryness < 0.72f
+                ? Color.Lerp(
+                    mutedOlive,
+                    deadStraw,
+                    dryness / 0.72f)
+                : Color.Lerp(
+                    deadStraw,
+                    dryBrown,
+                    Mathf.InverseLerp(
+                        0.72f,
+                        1f,
+                        dryness));
+            float trailVariation =
+                Mathf.PerlinNoise(
+                    noiseOffsetB.x * 0.012f +
+                    worldX * 0.23f,
+                    noiseOffsetB.y * 0.012f +
+                    worldZ * 0.23f);
+            Color trailGrassTint =
+                Color.Lerp(
+                    new Color(
+                        0.68f,
+                        0.50f,
+                        0.31f,
+                        1f),
+                    new Color(
+                        0.83f,
+                        0.66f,
+                        0.43f,
+                        1f),
+                    trailVariation);
+            float roadBlend =
+                RoadSurfaceBlendAt(
+                    worldX,
+                    worldZ);
+            return Color.Lerp(
+                meadowTint,
+                trailGrassTint,
+                Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    roadBlend));
         }
 
         private static Texture2D CreateNoiseTexture(

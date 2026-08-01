@@ -23,27 +23,61 @@ namespace WorldBuilder.Gameplay.Combat
         private Quaternion stuckLocalRotation;
         private Vector3 launchWorldScale;
         private Quaternion lastFlightRotation;
+        private Vector3 flightVelocity;
+        private Vector3 flightTipPosition;
         private float damage;
         private AudioClip impactClip;
+        private AudioClip enemyHitFeedbackClip;
+        private AudioClip headshotFeedbackClip;
+        private AudioSource playerFeedbackAudioSource;
+        private bool playerHitFeedbackEnabled;
         private float launchedAt;
         private bool stuck;
 
         public bool IsStuck => stuck;
         public Vector3 HitPoint { get; private set; }
         public Vector3 ImpactDirection { get; private set; }
+        public Vector3 FlightTipPosition => flightTipPosition;
         public Vector3 LaunchWorldScale => launchWorldScale;
         public float SurfaceIntersectionDistance { get; private set; }
         public TrailRenderer FlightTrail => flightTrail;
+        public Transform StuckTo => stuckTo;
+        public AudioClip EnemyHitFeedbackClip =>
+            enemyHitFeedbackClip;
+        public AudioClip HeadshotFeedbackClip =>
+            headshotFeedbackClip;
+        public bool LastImpactDamagedEnemy
+        {
+            get;
+            private set;
+        }
+        public bool LastImpactWasHeadshot
+        {
+            get;
+            private set;
+        }
+
 
         public void Launch(
             GameObject instigator,
             Vector3 velocity,
             float shotDamage,
-            AudioClip hitClip = null)
+            AudioClip hitClip = null,
+            AudioClip enemyHitClip = null,
+            AudioClip headshotClip = null,
+            AudioSource feedbackSource = null,
+            bool enablePlayerHitFeedback = false)
         {
             owner = instigator;
             damage = Mathf.Max(0f, shotDamage);
             impactClip = hitClip;
+            enemyHitFeedbackClip = enemyHitClip;
+            headshotFeedbackClip = headshotClip;
+            playerFeedbackAudioSource =
+                feedbackSource;
+            playerHitFeedbackEnabled =
+                enablePlayerHitFeedback ||
+                IsOwnedByPlayer(instigator);
             launchedAt = Time.time;
             launchWorldScale = transform.lossyScale;
             lastFlightRotation = transform.rotation;
@@ -51,6 +85,9 @@ namespace WorldBuilder.Gameplay.Combat
                 velocity.sqrMagnitude > 0.0001f
                     ? velocity.normalized
                     : transform.forward;
+            flightVelocity = velocity;
+            flightTipPosition = transform.TransformPoint(
+                Vector3.forward * SurfaceIntersectionLocalZ);
 
             CreateFlightTrail();
 
@@ -59,16 +96,16 @@ namespace WorldBuilder.Gameplay.Combat
             arrowCollider.center = new Vector3(0f, 0f, 0.53f);
             arrowCollider.height = 0.16f;
             arrowCollider.radius = 0.025f;
+            arrowCollider.enabled = false;
 
             body = gameObject.AddComponent<Rigidbody>();
             body.mass = 0.075f;
-            body.useGravity = true;
+            body.useGravity = false;
             body.linearDamping = 0.01f;
             body.angularDamping = 0.05f;
-            body.collisionDetectionMode =
-                CollisionDetectionMode.ContinuousDynamic;
+            body.isKinematic = true;
+            body.detectCollisions = false;
             body.interpolation = RigidbodyInterpolation.Interpolate;
-            body.linearVelocity = velocity;
 
             if (owner != null)
             {
@@ -86,27 +123,147 @@ namespace WorldBuilder.Gameplay.Combat
             }
         }
 
-        private void FixedUpdate()
+        private void Update()
         {
-            if (stuck || body == null)
+            AdvanceFlight(Time.deltaTime);
+        }
+
+        private void AdvanceFlight(float step)
+        {
+            if (stuck ||
+                body == null ||
+                step <= 0f)
             {
                 return;
             }
 
-            Vector3 velocity = body.linearVelocity;
-            if (velocity.sqrMagnitude > 0.04f)
+            Vector3 startTip = flightTipPosition;
+            Vector3 displacement =
+                flightVelocity * step +
+                Physics.gravity * (0.5f * step * step);
+            Vector3 segmentDirection =
+                displacement.sqrMagnitude > 0.000001f
+                    ? displacement.normalized
+                    : ImpactDirection;
+            Quaternion segmentRotation =
+                CalculateFlightRotation(
+                    segmentDirection,
+                    lastFlightRotation * Vector3.up);
+            if (TryGetFirstFlightHit(
+                    startTip,
+                    displacement,
+                    out RaycastHit hit))
             {
-                transform.rotation = Quaternion.LookRotation(
-                    velocity.normalized,
-                    transform.up);
-                lastFlightRotation = transform.rotation;
-                ImpactDirection = velocity.normalized;
+                flightTipPosition = hit.point;
+                lastFlightRotation = segmentRotation;
+                ImpactDirection = segmentDirection;
+                ResolveImpact(
+                    hit.collider,
+                    hit.point);
+                return;
+            }
+
+            flightTipPosition += displacement;
+            flightVelocity += Physics.gravity * step;
+            if (flightVelocity.sqrMagnitude > 0.04f)
+            {
+                Quaternion flightRotation = CalculateFlightRotation(
+                    flightVelocity.normalized,
+                    segmentRotation * Vector3.up);
+                PlaceTipAt(
+                    flightTipPosition,
+                    flightRotation);
+                lastFlightRotation = flightRotation;
+                ImpactDirection = flightVelocity.normalized;
             }
 
             if (Time.time - launchedAt >= FlyingLifetime)
             {
                 Destroy(gameObject);
             }
+        }
+
+        private bool TryGetFirstFlightHit(
+            Vector3 origin,
+            Vector3 displacement,
+            out RaycastHit closestHit)
+        {
+            closestHit = default;
+            float distance = displacement.magnitude;
+            if (distance < 0.000001f)
+            {
+                return false;
+            }
+
+            RaycastHit[] hits = Physics.RaycastAll(
+                origin,
+                displacement / distance,
+                distance,
+                Physics.AllLayers,
+                QueryTriggerInteraction.Ignore);
+            float closestDistance = float.PositiveInfinity;
+            for (int index = 0; index < hits.Length; index++)
+            {
+                Collider candidate = hits[index].collider;
+                if (candidate == null ||
+                    candidate.transform.IsChildOf(transform) ||
+                    (owner != null &&
+                        candidate.transform.IsChildOf(
+                            owner.transform)) ||
+                    hits[index].distance <= 0.001f ||
+                    hits[index].distance >= closestDistance)
+                {
+                    continue;
+                }
+
+                closestDistance = hits[index].distance;
+                closestHit = hits[index];
+            }
+
+            return closestDistance < float.PositiveInfinity;
+        }
+
+        public static Quaternion CalculateFlightRotation(
+            Vector3 direction,
+            Vector3 preferredUp)
+        {
+            Vector3 forward = direction.sqrMagnitude > 0.000001f
+                ? direction.normalized
+                : Vector3.forward;
+            Vector3 stableUp = Vector3.ProjectOnPlane(
+                preferredUp,
+                forward);
+            if (stableUp.sqrMagnitude < 0.000001f)
+            {
+                stableUp = Vector3.ProjectOnPlane(
+                    Vector3.forward,
+                    forward);
+            }
+            if (stableUp.sqrMagnitude < 0.000001f)
+            {
+                stableUp = Vector3.ProjectOnPlane(
+                    Vector3.right,
+                    forward);
+            }
+
+            return Quaternion.LookRotation(
+                forward,
+                stableUp.normalized);
+        }
+
+        private void PlaceTipAt(
+            Vector3 tipPosition,
+            Quaternion rotation)
+        {
+            float tipDistance =
+                SurfaceIntersectionLocalZ *
+                Mathf.Abs(launchWorldScale.z);
+            Vector3 rootPosition =
+                tipPosition -
+                rotation * Vector3.forward * tipDistance;
+            transform.SetPositionAndRotation(
+                rootPosition,
+                rotation);
         }
 
         private void LateUpdate()
@@ -124,38 +281,119 @@ namespace WorldBuilder.Gameplay.Combat
                 stuckTo.TransformPoint(stuckLocalHitPoint);
         }
 
-        private void OnCollisionEnter(Collision collision)
+        private void ResolveImpact(
+            Collider hitCollider,
+            Vector3 hitPoint)
         {
-            if (stuck ||
-                collision.collider == null ||
-                (owner != null &&
-                    collision.collider.transform.IsChildOf(owner.transform)))
-            {
-                return;
-            }
-
-            ContactPoint contact = collision.contactCount > 0
-                ? collision.GetContact(0)
-                : default;
-            Vector3 hitPoint = collision.contactCount > 0
-                ? contact.point
-                : transform.position + transform.forward * 0.60f;
             HitPoint = hitPoint;
             ImpactDirection =
                 lastFlightRotation * Vector3.forward;
-            DamageService.TryApply(
-                collision.collider,
+            HumanoidDamageZone damageZone =
+                hitCollider.GetComponentInParent<
+                    HumanoidDamageZone>(true);
+            EnemyDamageProfile enemyProfile =
+                hitCollider.GetComponentInParent<
+                    EnemyDamageProfile>(true);
+            HumanoidHitRegion hitRegion =
+                damageZone != null
+                    ? damageZone.Region
+                    : enemyProfile != null
+                        ? enemyProfile.ResolveHitRegion(
+                            hitPoint)
+                        : HumanoidHitRegion.Torso;
+            Transform attachment =
+                damageZone != null
+                    ? damageZone.ResolveAttachmentTransform(
+                        hitPoint)
+                    : enemyProfile != null
+                        ? enemyProfile.ResolveAttachmentTransform(
+                            hitPoint)
+                        : hitCollider.transform;
+            // Start the world impact and player confirmation before damage/death
+            // callbacks can build a ragdoll. Both sounds now begin in this same
+            // collision callback at the arrow contact time.
+            PlayImpactAudio();
+            bool damageApplied = DamageService.TryApply(
+                hitCollider,
                 new DamageRequest(
                     owner,
                     damage,
                     hitPoint,
                     ImpactDirection,
                     "prototype-bow"));
-            PlayImpactAudio();
+            LastImpactDamagedEnemy =
+                damageApplied &&
+                enemyProfile != null;
+            LastImpactWasHeadshot =
+                LastImpactDamagedEnemy &&
+                hitRegion == HumanoidHitRegion.Head;
             StickTo(
-                collision.collider.transform,
+                attachment,
                 hitPoint,
                 lastFlightRotation);
+        }
+
+        private void PlayPlayerHitFeedback(
+            bool headshot)
+        {
+            AudioClip selectedClip =
+                headshot &&
+                headshotFeedbackClip != null
+                    ? headshotFeedbackClip
+                    : enemyHitFeedbackClip;
+            if (selectedClip == null)
+            {
+                return;
+            }
+
+            AudioSource source =
+                playerFeedbackAudioSource;
+            if (source == null)
+            {
+                source =
+                    gameObject.AddComponent<AudioSource>();
+            }
+            source.playOnAwake = false;
+            source.loop = false;
+            source.spatialBlend = 0f;
+            source.dopplerLevel = 0f;
+            source.volume = 1f;
+            source.mute = false;
+            source.ignoreListenerPause = true;
+            EnsureAudioDataLoaded(enemyHitFeedbackClip);
+            EnsureAudioDataLoaded(headshotFeedbackClip);
+            source.PlayOneShot(
+                selectedClip,
+                PlayerHitFeedbackEmitter.
+                    FeedbackVolume);
+        }
+
+        private static bool IsOwnedByPlayer(
+            GameObject instigator)
+        {
+            for (Transform current =
+                     instigator != null
+                         ? instigator.transform
+                         : null;
+                 current != null;
+                 current = current.parent)
+            {
+                if (current.CompareTag("Player"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static void EnsureAudioDataLoaded(
+            AudioClip clip)
+        {
+            if (clip != null &&
+                clip.loadState == AudioDataLoadState.Unloaded)
+            {
+                clip.LoadAudioData();
+            }
         }
 
         private void PlayImpactAudio()
@@ -278,8 +516,6 @@ namespace WorldBuilder.Gameplay.Combat
             stuck = true;
             if (body != null)
             {
-                body.linearVelocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
                 body.isKinematic = true;
                 body.detectCollisions = false;
             }
@@ -325,7 +561,10 @@ namespace WorldBuilder.Gameplay.Combat
                 hitTransform != null
                     ? hitTransform.name
                     : "unknown");
-            Destroy(gameObject, StuckLifetime);
+            if (Application.isPlaying)
+            {
+                Destroy(gameObject, StuckLifetime);
+            }
         }
     }
 }

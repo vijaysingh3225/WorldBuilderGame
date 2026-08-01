@@ -41,7 +41,7 @@ namespace WorldBuilder.Tests
             Assert.That(brain.IsActivated, Is.False);
             Assert.That(brain.IsAlerted, Is.False);
             Assert.That(brain.HasVisualContact, Is.False);
-            Assert.That(enemyHealth.Current, Is.EqualTo(78f));
+            Assert.That(enemyHealth.Current, Is.EqualTo(90f));
 
             SetPrivateField(
                 brain,
@@ -79,7 +79,7 @@ namespace WorldBuilder.Tests
             Assert.That(brain.IsActivated, Is.True);
             Assert.That(brain.IsAlerted, Is.True);
             Assert.That(brain.HasVisualContact, Is.False);
-            Assert.That(enemyHealth.Current, Is.EqualTo(78f));
+            Assert.That(enemyHealth.Current, Is.EqualTo(90f));
             Assert.That(
                 brain.LastKnownPosition.z,
                 Is.EqualTo(-10f).Within(0.01f));

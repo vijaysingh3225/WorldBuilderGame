@@ -251,6 +251,16 @@ namespace WorldBuilder.Gameplay.Combat
                 hitboxObject.AddComponent<CapsuleCollider>();
             collider.direction = 1;
             collider.center = Vector3.zero;
+            HumanoidDamageZone zone =
+                hitboxObject.AddComponent<HumanoidDamageZone>();
+            bool pelvis = name.Contains("Pelvis");
+            bool spansBothSides =
+                name.Contains("Shoulders");
+            zone.Configure(
+                ResolveRegion(name),
+                pelvis ? null : start,
+                spansBothSides ? end : null,
+                spansBothSides);
             capsules.Add(new TrackedCapsule
             {
                 Start = start,
@@ -279,6 +289,11 @@ namespace WorldBuilder.Gameplay.Combat
             SphereCollider collider =
                 hitboxObject.AddComponent<SphereCollider>();
             collider.center = Vector3.zero;
+            HumanoidDamageZone zone =
+                hitboxObject.AddComponent<HumanoidDamageZone>();
+            zone.Configure(
+                ResolveRegion(name),
+                bone);
             spheres.Add(new TrackedSphere
             {
                 Bone = bone,
@@ -287,6 +302,24 @@ namespace WorldBuilder.Gameplay.Combat
                 BoneLocalOffset = boneLocalOffset,
                 Radius = radius
             });
+        }
+
+        private static HumanoidHitRegion ResolveRegion(string name)
+        {
+            if (name.Contains("Head") || name.Contains("Skull"))
+            {
+                return HumanoidHitRegion.Head;
+            }
+
+            if (name.Contains("Abdomen") ||
+                name.Contains("Chest") ||
+                name.Contains("Shoulders") ||
+                name.Contains("Pelvis"))
+            {
+                return HumanoidHitRegion.Torso;
+            }
+
+            return HumanoidHitRegion.Limb;
         }
 
         private void UpdateHitboxes()

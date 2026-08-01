@@ -90,7 +90,18 @@ namespace WorldBuilder.Gameplay.Presentation
             GUI.color = fill;
             GUI.DrawTexture(new Rect(rect.x + 2f, rect.y + 2f, (rect.width - 4f) * normalized, rect.height - 4f), whiteTexture);
             GUI.color = previous;
-            GUI.Label(new Rect(rect.x, rect.y - 20f, rect.width, 20f), label, textStyle);
+            string healthText = health != null
+                ? $"{label}  {Mathf.CeilToInt(health.Current)} / " +
+                  $"{Mathf.CeilToInt(health.Maximum)}"
+                : label;
+            GUI.Label(
+                new Rect(
+                    rect.x,
+                    rect.y - 20f,
+                    rect.width,
+                    20f),
+                healthText,
+                textStyle);
         }
 
         private void DrawBowCharge(Rect rect)

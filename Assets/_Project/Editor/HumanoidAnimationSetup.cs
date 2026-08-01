@@ -354,11 +354,19 @@ namespace WorldBuilder.Editor
                 .Select(child => child.state)
                 .FirstOrDefault(state =>
                     state.name == StandingStateName);
+            AnimatorState crouchingState = states
+                .Select(child => child.state)
+                .FirstOrDefault(state =>
+                    state.name == TacticalCrouchStateName);
             AvatarMask expectedGripMask =
                 AssetDatabase.LoadAssetAtPath<AvatarMask>(ShortSwordGripMaskPath);
             return standingState != null &&
                 standingState.speedParameterActive &&
                 standingState.speedParameter ==
+                    HumanoidAnimatorPresenter.GaitPlaybackParameter &&
+                crouchingState != null &&
+                crouchingState.speedParameterActive &&
+                crouchingState.speedParameter ==
                     HumanoidAnimatorPresenter.GaitPlaybackParameter &&
                 controller.parameters.Any(parameter =>
                     parameter.name ==
@@ -374,7 +382,6 @@ namespace WorldBuilder.Editor
                 blockStates.Length == 1 &&
                 blockStates[0].state.name == ShortSwordBlockStateName &&
                 !controller.layers[3].iKPass &&
-                states.Any(state => state.state.name == TacticalCrouchStateName) &&
                 states.Any(state => state.state.name == NaturalJumpRiseStateName) &&
                 comboStates.Any(state =>
                     state.state.name == ShortSwordAttackPresenter.Hit1StateName) &&
@@ -631,6 +638,9 @@ namespace WorldBuilder.Editor
                 HumanoidAnimatorPresenter.GaitPlaybackParameter;
             AnimatorState crouching = stateMachine.AddState(TacticalCrouchStateName, new Vector3(240f, 160f));
             crouching.motion = CreateCrouchBlendTree(controller, crouchIdle, crouchForward);
+            crouching.speedParameterActive = true;
+            crouching.speedParameter =
+                HumanoidAnimatorPresenter.GaitPlaybackParameter;
             AnimatorState rising = stateMachine.AddState(NaturalJumpRiseStateName, new Vector3(520f, 20f));
             rising.motion = CreateJumpRiseBlendTree(controller, jumpRise, movingJumpRise);
             AnimatorState falling = stateMachine.AddState("Natural Jump Fall V2", new Vector3(720f, 110f));

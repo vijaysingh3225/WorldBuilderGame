@@ -34,6 +34,10 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Audio/SFX/Bow Pullback.wav";
         private const string ArrowImpactAudioPath =
             "Assets/_Project/Audio/SFX/Arrow Impact.wav";
+        private const string ArrowHitFeedbackAudioPath =
+            "Assets/_Project/Audio/SFX/ArrowHit.mp3";
+        private const string HeadshotFeedbackAudioPath =
+            "Assets/_Project/Audio/SFX/HeadShot.mp3";
         private static readonly Vector3 ShortSwordGuardLocalPosition =
             new Vector3(0.035220847f, -0.066798866f, -0.038464874f);
         private static readonly Quaternion ShortSwordGuardLocalRotation =
@@ -72,7 +76,7 @@ namespace WorldBuilder.Editor
             Material accentMaterial = GetOrCreateMaterial("MossAccent", new Color(0.30f, 0.40f, 0.27f));
             Material playerMaterial = GetOrCreateMaterial(
                 "Player",
-                new Color(0.22f, 0.22f, 0.22f),
+                new Color(0.36f, 0.36f, 0.36f),
                 0.05f,
                 0f,
                 true);
@@ -122,6 +126,7 @@ namespace WorldBuilder.Editor
                 bladeMaterial,
                 guardMaterial,
                 gripMaterial,
+                EnemyCombatVariant.CombatLabDummy,
                 out Health enemyHealth);
             CreateCamera(player.transform, playerInput);
 
@@ -248,7 +253,7 @@ namespace WorldBuilder.Editor
         {
             Material body = GetOrCreateMaterial(
                 "Player",
-                new Color(0.22f, 0.22f, 0.22f),
+                new Color(0.36f, 0.36f, 0.36f),
                 0.05f,
                 0f,
                 true);
@@ -274,8 +279,29 @@ namespace WorldBuilder.Editor
                 out input);
         }
 
-        internal static GameObject CreateStandardEnemy(
+        internal static GameObject CreateCombatLabDummy(
             Vector3 position,
+            out Health health)
+        {
+            return CreateConfiguredEnemy(
+                position,
+                EnemyCombatVariant.CombatLabDummy,
+                out health);
+        }
+
+        internal static GameObject CreateRaidEnemy(
+            Vector3 position,
+            out Health health)
+        {
+            return CreateConfiguredEnemy(
+                position,
+                EnemyCombatVariant.RaidEnemy,
+                out health);
+        }
+
+        private static GameObject CreateConfiguredEnemy(
+            Vector3 position,
+            EnemyCombatVariant variant,
             out Health health)
         {
             Material body = GetOrCreateMaterial(
@@ -302,6 +328,7 @@ namespace WorldBuilder.Editor
                     "ShortSwordGrip",
                     new Color(0.21f, 0.105f, 0.045f),
                     0.22f),
+                variant,
                 out health);
         }
 
@@ -599,7 +626,11 @@ namespace WorldBuilder.Editor
                         AssetDatabase.LoadAssetAtPath<AudioClip>(
                             BowPullbackAudioPath),
                         AssetDatabase.LoadAssetAtPath<AudioClip>(
-                            ArrowImpactAudioPath));
+                            ArrowImpactAudioPath),
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(
+                            ArrowHitFeedbackAudioPath),
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(
+                            HeadshotFeedbackAudioPath));
                     TwoSlotWeaponPresenter loadoutPresenter =
                         animator.gameObject.AddComponent<TwoSlotWeaponPresenter>();
                     loadoutPresenter.Configure(
@@ -1359,6 +1390,7 @@ namespace WorldBuilder.Editor
             Material bladeMaterial,
             Material guardMaterial,
             Material gripMaterial,
+            EnemyCombatVariant variant,
             out Health health)
         {
             GameObject enemy = new GameObject("Raider Prototype");
@@ -1375,7 +1407,9 @@ namespace WorldBuilder.Editor
             StableId stableId = enemy.AddComponent<StableId>();
             stableId.EnsureAssigned();
             health = enemy.AddComponent<Health>();
-            health.ConfigureWithFloor(88f, 1f);
+            EnemyDamageProfile damageProfile =
+                enemy.AddComponent<EnemyDamageProfile>();
+            damageProfile.Configure(variant);
             enemy.AddComponent<PlayerInputSource>();
             enemy.AddComponent<CharacterAimSource>();
             ThirdPersonMotor motor =

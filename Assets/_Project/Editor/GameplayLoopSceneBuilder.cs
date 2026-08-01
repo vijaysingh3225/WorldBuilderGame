@@ -20,6 +20,8 @@ namespace WorldBuilder.Editor
             "Gameplay Loop Infrastructure - V1";
         private const string EnvironmentMeshFolder =
             "Assets/_Project/Art/Prototype/Environment";
+        private const string EnvironmentAssetGalleryScenePath =
+            "Assets/_Project/Scenes/EnvironmentAssetGallery.unity";
         private const string RaidTreeTrunkMeshPath =
             EnvironmentMeshFolder + "/RaidTreeTrunk.asset";
         private const string RaidTreeCanopyMeshPath =
@@ -81,6 +83,10 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Art/Environment/Chest/Chest_Diffuse.png";
         private const string ChestNormalPath =
             "Assets/_Project/Art/Environment/Chest/Chest_Normal_OpenGL.png";
+        private const string BridgeModelPath =
+            "Assets/_Project/Art/Environment/StylizedBridge/source/Bridge_low.fbx";
+        private const string BridgeTextureFolder =
+            "Assets/_Project/Art/Environment/StylizedBridge/textures";
 
         [MenuItem("WorldBuilder/Build Gameplay Loop")]
         public static void BuildAll()
@@ -128,6 +134,103 @@ namespace WorldBuilder.Editor
         public static void BuildRaidPrototypeFromCommandLine()
         {
             BuildRaidPrototype();
+        }
+
+        [MenuItem("WorldBuilder/Build/Environment Asset Gallery")]
+        public static void BuildEnvironmentAssetGalleryOnly()
+        {
+            BuildSingleScene(
+                "Environment Asset Gallery",
+                EnvironmentAssetGalleryScenePath,
+                BuildEnvironmentAssetGallery);
+        }
+
+        public static void BuildEnvironmentAssetGalleryFromCommandLine()
+        {
+            BuildEnvironmentAssetGallery();
+            AssetDatabase.SaveAssets();
+        }
+
+        [MenuItem("WorldBuilder/Open/Environment Asset Gallery")]
+        public static void OpenEnvironmentAssetGallery()
+        {
+            EditorSceneManager.OpenScene(
+                EnvironmentAssetGalleryScenePath,
+                OpenSceneMode.Single);
+        }
+
+        [MenuItem("WorldBuilder/Capture/Environment Asset Gallery Preview")]
+        public static void CaptureEnvironmentAssetGalleryPreview()
+        {
+            EditorSceneManager.OpenScene(
+                EnvironmentAssetGalleryScenePath,
+                OpenSceneMode.Single);
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                throw new System.InvalidOperationException(
+                    "Environment asset gallery camera is missing.");
+            }
+            string outputPath =
+                System.Environment.GetEnvironmentVariable(
+                    "ENVIRONMENT_GALLERY_CAPTURE");
+            if (string.IsNullOrEmpty(outputPath))
+            {
+                outputPath = Path.GetFullPath(
+                    Path.Combine(
+                        Application.dataPath,
+                        "../Artifacts/" +
+                        "EnvironmentAssetGallery.png"));
+            }
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(outputPath));
+            RenderTexture target =
+                RenderTexture.GetTemporary(
+                    1600,
+                    900,
+                    24,
+                    RenderTextureFormat.ARGB32,
+                    RenderTextureReadWrite.sRGB);
+            RenderTexture previous =
+                RenderTexture.active;
+            try
+            {
+                camera.targetTexture = target;
+                camera.Render();
+                RenderTexture.active = target;
+                Texture2D image =
+                    new Texture2D(
+                        1600,
+                        900,
+                        TextureFormat.RGB24,
+                        false);
+                image.ReadPixels(
+                    new Rect(
+                        0f,
+                        0f,
+                        1600f,
+                        900f),
+                    0,
+                    0);
+                image.Apply(false, false);
+                File.WriteAllBytes(
+                    outputPath,
+                    image.EncodeToPNG());
+                Object.DestroyImmediate(image);
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(target);
+            }
+            Debug.Log(
+                $"Environment asset gallery captured: {outputPath}");
+        }
+
+        public static void CaptureEnvironmentAssetGalleryFromCommandLine()
+        {
+            CaptureEnvironmentAssetGalleryPreview();
         }
 
         public static void BuildHomeBaseFromCommandLine()
@@ -576,12 +679,36 @@ namespace WorldBuilder.Editor
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor =
                 new Color(
-                    0.72f,
-                    0.74f,
-                    0.75f,
+                    0.46f,
+                    0.52f,
+                    0.58f,
                     1f);
-            RenderSettings.fogStartDistance = 14f;
-            RenderSettings.fogEndDistance = 62f;
+            RenderSettings.fogStartDistance = 28f;
+            RenderSettings.fogEndDistance = 105f;
+            RenderSettings.ambientMode =
+                UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor =
+                new Color(0.40f, 0.47f, 0.54f, 1f);
+            RenderSettings.ambientEquatorColor =
+                new Color(0.25f, 0.30f, 0.34f, 1f);
+            RenderSettings.ambientGroundColor =
+                new Color(0.16f, 0.18f, 0.19f, 1f);
+            RenderSettings.ambientIntensity = 1.05f;
+            RenderSettings.reflectionIntensity = 0.42f;
+            GameObject raidSun = GameObject.Find("Sun");
+            Light raidSunLight =
+                raidSun != null
+                    ? raidSun.GetComponent<Light>()
+                    : null;
+            if (raidSunLight != null)
+            {
+                raidSunLight.color =
+                    new Color(0.94f, 0.86f, 0.72f, 1f);
+                raidSunLight.intensity = 1.35f;
+                raidSunLight.shadowStrength = 0.82f;
+                raidSun.transform.rotation =
+                    Quaternion.Euler(62f, -42f, 0f);
+            }
             CreateSceneBootstrap(
                 GameLaunchMode.RaidSandbox,
                 initializeOnAwake: true);
@@ -592,72 +719,85 @@ namespace WorldBuilder.Editor
                     "Stylized_forest_tga/" +
                     "T_Landscape_grass_BaseColor.TGA",
                     false,
-                    Color.white);
+                    new Color(0.72f, 0.64f, 0.50f, 1f));
             Material road =
                 GetOrCreateStylizedForestMaterial(
                     "RaidDirtRoad",
                     "Stylized_forest_tga/" +
                     "T_Landscape_dirt_BaseColor.TGA",
                     false,
-                    Color.white);
-            Material water = CombatLabSceneBuilder.GetStandardMaterial(
-                "RaidWater",
-                new Color(0.07f, 0.32f, 0.42f),
-                0.82f,
-                0.08f);
-            Material bridge = CombatLabSceneBuilder.GetStandardMaterial(
-                "RaidBridge",
-                new Color(0.31f, 0.19f, 0.095f),
-                0.12f);
+                    new Color(0.72f, 0.61f, 0.49f, 1f));
+            Material water = GetOrCreateRiverMaterial();
+            Material bridge = GetOrCreateBridgeMaterial();
+            GameObject bridgePrefab = LoadBridgePrefab();
             Material treeBark =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestBark",
                     "Stylized_forest_tga/T_bark_BaseColor.TGA",
                     false,
-                    Color.white);
+                    new Color(0.58f, 0.56f, 0.52f, 1f));
             Material birchBark =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestBirchBark",
                     "Stylized_forest_tga/T_bark_birch_BaseColor.TGA",
                     false,
-                    Color.white);
+                    new Color(0.72f, 0.72f, 0.68f, 1f));
             Material treeLeaves =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestLeaves",
                     "T_leaves_BaseColor_Unity.TGA",
                     true,
-                    Color.white);
+                    new Color(0.57f, 0.63f, 0.58f, 1f));
             Material pineLeaves =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestPineLeaves",
                     "T_pine_leaves_BaseColor_Unity.TGA",
                     true,
                     new Color(
-                        0.48f,
-                        0.82f,
-                        1.35f,
+                        0.50f,
+                        0.59f,
+                        0.63f,
                         1f));
+            ApplyFoliageWindShader(
+                treeLeaves,
+                0.28f,
+                0.042f,
+                0.82f,
+                4.8f);
+            ApplyFoliageWindShader(
+                pineLeaves,
+                0.22f,
+                0.034f,
+                0.78f,
+                4.5f);
             Material grassDetails =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestGrassDetails",
                     "Stylized_forest_tga/" +
                     "T_grass_BaseColor.TGA",
                     true,
-                    Color.white);
+                    new Color(0.72f, 0.75f, 0.62f, 1f));
+            ApplyVertexTintShader(
+                ground);
+            ApplyVertexTintShader(
+                grassDetails);
+            ApplyMatteSurface(ground);
+            ApplyMatteSurface(road);
+            ApplyMatteSurface(grassDetails);
             Material plantDetails =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestPlantDetails",
                     "Stylized_forest_tga/" +
                     "T_plants_BaseColor.TGA",
                     true,
-                    Color.white);
+                    new Color(0.64f, 0.66f, 0.55f, 1f));
             Material rocks =
                 GetOrCreateStylizedForestMaterial(
                     "StylizedForestRocks",
                     "Stylized_forest_tga/" +
                     "T_rocks_BaseColor.TGA",
                     false,
-                    Color.white);
+                    new Color(0.62f, 0.64f, 0.64f, 1f));
             Material extraction = CombatLabSceneBuilder.GetStandardMaterial(
                 "Extraction",
                 new Color(0.18f, 0.72f, 0.54f),
@@ -687,7 +827,7 @@ namespace WorldBuilder.Editor
             for (int index = 0; index < enemyPositions.Length; index++)
             {
                 GameObject enemy =
-                    CombatLabSceneBuilder.CreateStandardEnemy(
+                    CombatLabSceneBuilder.CreateRaidEnemy(
                         enemyPositions[index],
                         out Health _);
                 enemy.name = $"Raider {index + 1}";
@@ -744,6 +884,7 @@ namespace WorldBuilder.Editor
                     StylizedForestUndergrowthNames),
                 LoadStylizedForestPrefabs(
                     StylizedForestRockNames),
+                bridgePrefab,
                 ground,
                 road,
                 water,
@@ -760,6 +901,423 @@ namespace WorldBuilder.Editor
                 "Far Trail Extraction");
 
             SaveScene(scene, GameplaySceneRegistry.RaidPrototypeScenePath);
+        }
+
+        private static void BuildEnvironmentAssetGallery()
+        {
+            EnsureSceneFolder();
+            Scene scene = EditorSceneManager.NewScene(
+                NewSceneSetup.EmptyScene,
+                NewSceneMode.Single);
+            CombatLabSceneBuilder.CreateStandardLighting();
+            RenderSettings.fog = false;
+
+            Material ground =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/RaidGround.mat");
+            Material bark =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestBark.mat");
+            Material birch =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestBirchBark.mat");
+            Material leaves =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestLeaves.mat");
+            Material pineLeaves =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestPineLeaves.mat");
+            Material plants =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestPlantDetails.mat");
+            Material rocks =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestRocks.mat");
+            Material grass =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/StylizedForestGrassDetails.mat");
+            grass =
+                GetOrCreateGalleryGrassMaterial(
+                    grass);
+
+            CreateGalleryGround(ground);
+            Transform treesRoot =
+                new GameObject("01 - All Trees").transform;
+            Transform plantsRoot =
+                new GameObject(
+                    "02 - Bushes Flowers and Plants").transform;
+            Transform rocksRoot =
+                new GameObject("03 - All Rocks").transform;
+            Transform grassRoot =
+                new GameObject("04 - All Grass").transform;
+
+            GameObject[] treePrefabs =
+                LoadStylizedForestTreePrefabs();
+            for (int index = 0;
+                 index < treePrefabs.Length;
+                 index++)
+            {
+                float x =
+                    (index -
+                     (treePrefabs.Length - 1) * 0.5f) *
+                    5.25f;
+                float targetHeight =
+                    treePrefabs[index].name.Contains("pine")
+                        ? 10.5f
+                        : 8.5f;
+                CreateGalleryInstance(
+                    scene,
+                    treePrefabs[index],
+                    treesRoot,
+                    new Vector3(x, 0f, 10f),
+                    targetHeight,
+                    null,
+                    bark,
+                    birch,
+                    leaves,
+                    pineLeaves);
+            }
+
+            GameObject[] plantPrefabs =
+                LoadStylizedForestPrefabs(
+                    StylizedForestUndergrowthNames);
+            for (int index = 0;
+                 index < plantPrefabs.Length;
+                 index++)
+            {
+                float x =
+                    (index -
+                     (plantPrefabs.Length - 1) * 0.5f) *
+                    5.1f;
+                string lower =
+                    plantPrefabs[index].name.ToLowerInvariant();
+                float targetHeight =
+                    lower.Contains("bush")
+                        ? 2.25f
+                        : lower.Contains("flower")
+                            ? 1.45f
+                            : lower.Contains("clover")
+                                ? 0.90f
+                                : 1.55f;
+                CreateGalleryInstance(
+                    scene,
+                    plantPrefabs[index],
+                    plantsRoot,
+                    new Vector3(x, 0f, 2.5f),
+                    targetHeight,
+                    plants,
+                    null,
+                    null,
+                    null,
+                    null);
+            }
+
+            GameObject[] rockPrefabs =
+                LoadStylizedForestPrefabs(
+                    StylizedForestRockNames);
+            for (int index = 0;
+                 index < rockPrefabs.Length;
+                 index++)
+            {
+                float x =
+                    (index -
+                     (rockPrefabs.Length - 1) * 0.5f) *
+                    5.6f;
+                CreateGalleryInstance(
+                    scene,
+                    rockPrefabs[index],
+                    rocksRoot,
+                    new Vector3(x, 0f, -4.5f),
+                    1.8f,
+                    rocks,
+                    null,
+                    null,
+                    null,
+                    null);
+            }
+
+            GameObject[] grassPrefabs =
+                LoadStylizedForestPrefabs(
+                    StylizedForestGrassNames);
+            for (int index = 0;
+                 index < grassPrefabs.Length;
+                 index++)
+            {
+                float x =
+                    (index -
+                     (grassPrefabs.Length - 1) * 0.5f) *
+                    6.2f;
+                CreateGalleryInstance(
+                    scene,
+                    grassPrefabs[index],
+                    grassRoot,
+                    new Vector3(x, 0f, -11.5f),
+                    0.90f + index * 0.14f,
+                    grass,
+                    null,
+                    null,
+                    null,
+                    null);
+            }
+
+            GameObject cameraObject =
+                new GameObject("Gallery Camera");
+            cameraObject.tag = "MainCamera";
+            Camera camera =
+                cameraObject.AddComponent<Camera>();
+            cameraObject.AddComponent<AudioListener>();
+            camera.transform.position =
+                new Vector3(0f, 15f, -40f);
+            camera.transform.LookAt(
+                new Vector3(0f, 3.2f, 0f));
+            camera.fieldOfView = 50f;
+            camera.nearClipPlane = 0.1f;
+            camera.farClipPlane = 120f;
+            camera.clearFlags =
+                CameraClearFlags.Skybox;
+
+            SaveScene(
+                scene,
+                EnvironmentAssetGalleryScenePath);
+        }
+
+        private static void CreateGalleryGround(
+            Material material)
+        {
+            var mesh = new Mesh
+            {
+                name = "Environment Gallery Ground"
+            };
+            mesh.vertices = new[]
+            {
+                new Vector3(-34f, 0f, -20f),
+                new Vector3(-34f, 0f, 18f),
+                new Vector3(34f, 0f, 18f),
+                new Vector3(34f, 0f, -20f)
+            };
+            mesh.uv = new[]
+            {
+                new Vector2(0f, 0f),
+                new Vector2(0f, 5f),
+                new Vector2(10f, 5f),
+                new Vector2(10f, 0f)
+            };
+            mesh.colors = new[]
+            {
+                Color.white,
+                Color.white,
+                Color.white,
+                Color.white
+            };
+            mesh.triangles =
+                new[] { 0, 1, 2, 0, 2, 3 };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            GameObject ground =
+                new GameObject("Raid Green Ground");
+            ground.AddComponent<MeshFilter>()
+                .sharedMesh = mesh;
+            ground.AddComponent<MeshRenderer>()
+                .sharedMaterial = material;
+            ground.AddComponent<MeshCollider>()
+                .sharedMesh = mesh;
+        }
+
+        private static GameObject CreateGalleryInstance(
+            Scene scene,
+            GameObject prefab,
+            Transform parent,
+            Vector3 groundPosition,
+            float targetHeight,
+            Material fixedMaterial,
+            Material bark,
+            Material birch,
+            Material leaves,
+            Material pineLeaves)
+        {
+            GameObject instance =
+                PrefabUtility.InstantiatePrefab(
+                    prefab,
+                    scene) as GameObject;
+            instance.name = prefab.name;
+            instance.transform.SetParent(parent, true);
+            instance.transform.position =
+                Vector3.zero;
+            Renderer[] renderers =
+                instance.GetComponentsInChildren<Renderer>(
+                    true);
+            var visible =
+                new System.Collections.Generic.List<Renderer>();
+            for (int rendererIndex = 0;
+                 rendererIndex < renderers.Length;
+                 rendererIndex++)
+            {
+                Renderer renderer =
+                    renderers[rendererIndex];
+                if (renderer.name.StartsWith(
+                        "UCX_",
+                        System.StringComparison
+                            .OrdinalIgnoreCase))
+                {
+                    renderer.enabled = false;
+                    continue;
+                }
+                visible.Add(renderer);
+                Material[] materials =
+                    renderer.sharedMaterials;
+                for (int materialIndex = 0;
+                     materialIndex < materials.Length;
+                     materialIndex++)
+                {
+                    materials[materialIndex] =
+                        fixedMaterial != null
+                            ? fixedMaterial
+                            : ResolveGalleryTreeMaterial(
+                                materials[materialIndex],
+                                prefab.name,
+                                bark,
+                                birch,
+                                leaves,
+                                pineLeaves);
+                }
+                renderer.sharedMaterials = materials;
+            }
+            if (!TryGetRendererBounds(
+                    visible.ToArray(),
+                    out Bounds initialBounds))
+            {
+                return instance;
+            }
+            float scale =
+                targetHeight /
+                Mathf.Max(
+                    0.001f,
+                    initialBounds.size.y);
+            instance.transform.localScale *= scale;
+            TryGetRendererBounds(
+                visible.ToArray(),
+                out Bounds finalBounds);
+            instance.transform.position =
+                groundPosition +
+                Vector3.up *
+                    (groundPosition.y -
+                     finalBounds.min.y);
+            return instance;
+        }
+
+        private static Material ResolveGalleryTreeMaterial(
+            Material source,
+            string prefabName,
+            Material bark,
+            Material birch,
+            Material leaves,
+            Material pineLeaves)
+        {
+            string materialName =
+                source != null
+                    ? source.name.ToLowerInvariant()
+                    : string.Empty;
+            string treeName =
+                prefabName.ToLowerInvariant();
+            if (materialName.Contains("birch"))
+            {
+                return birch;
+            }
+            if (materialName.Contains("pine") ||
+                treeName.Contains("_pine_") &&
+                !materialName.Contains("barck") &&
+                !materialName.Contains("bark"))
+            {
+                return pineLeaves;
+            }
+            if (materialName.Contains("foliage") ||
+                materialName.Contains("leaves"))
+            {
+                return leaves;
+            }
+            return treeName.Contains("birch")
+                ? birch
+                : bark;
+        }
+
+        private static Material GetOrCreateGalleryGrassMaterial(
+            Material source)
+        {
+            const string path =
+                "Assets/_Project/Art/Prototype/Materials/" +
+                "StylizedForestGrassGallery.mat";
+            Material material =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    path);
+            Shader shader =
+                Shader.Find(
+                    "Universal Render Pipeline/Unlit");
+            if (material == null)
+            {
+                material = new Material(shader)
+                {
+                    name = "StylizedForestGrassGallery"
+                };
+                AssetDatabase.CreateAsset(
+                    material,
+                    path);
+            }
+            else if (shader != null)
+            {
+                material.shader = shader;
+            }
+            Texture texture =
+                source != null
+                    ? source.mainTexture
+                    : null;
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture(
+                    "_BaseMap",
+                    texture);
+            }
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor(
+                    "_BaseColor",
+                    new Color(
+                        1.18f,
+                        1.34f,
+                        1.08f,
+                        1f));
+            }
+            if (material.HasProperty("_AlphaClip"))
+            {
+                material.SetFloat(
+                    "_AlphaClip",
+                    1f);
+            }
+            if (material.HasProperty("_Cutoff"))
+            {
+                material.SetFloat(
+                    "_Cutoff",
+                    0.35f);
+            }
+            if (material.HasProperty("_Cull"))
+            {
+                material.SetFloat(
+                    "_Cull",
+                    0f);
+            }
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.renderQueue =
+                (int)UnityEngine.Rendering
+                    .RenderQueue.AlphaTest;
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         private static GameObject[] LoadStylizedForestTreePrefabs()
@@ -783,6 +1341,183 @@ namespace WorldBuilder.Editor
                         $"{prefabNames[index]}.FBX");
             }
             return prefabs;
+        }
+
+        private static Material GetOrCreateRiverMaterial()
+        {
+            const string materialPath =
+                "Assets/_Project/Art/Prototype/Materials/" +
+                "RaidWater.mat";
+            const string texturePath =
+                "Assets/_Project/Art/Prototype/Textures/" +
+                "StylizedRiverFlow.png";
+            Shader shader =
+                Shader.Find(
+                    "WorldBuilder/Stylized River Flow");
+            if (shader == null)
+            {
+                shader = Shader.Find(
+                    "Universal Render Pipeline/Lit");
+            }
+            Material material =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    materialPath);
+            if (material == null)
+            {
+                material = new Material(shader)
+                {
+                    name = "RaidWater"
+                };
+                AssetDatabase.CreateAsset(
+                    material,
+                    materialPath);
+            }
+            else if (shader != null)
+            {
+                material.shader = shader;
+            }
+
+            TextureImporter importer =
+                AssetImporter.GetAtPath(
+                    texturePath) as TextureImporter;
+            if (importer != null &&
+                (importer.wrapMode !=
+                    TextureWrapMode.Repeat ||
+                 !importer.mipmapEnabled ||
+                 importer.anisoLevel != 4))
+            {
+                importer.wrapMode =
+                    TextureWrapMode.Repeat;
+                importer.mipmapEnabled = true;
+                importer.anisoLevel = 4;
+                importer.SaveAndReimport();
+            }
+
+            Texture2D flowTexture =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    texturePath);
+            material.SetTexture(
+                "_BaseMap",
+                flowTexture);
+            material.SetTextureScale(
+                "_BaseMap",
+                new Vector2(1.1f, 0.72f));
+            material.SetColor(
+                "_DeepColor",
+                new Color(
+                    0.035f,
+                    0.09f,
+                    0.145f,
+                    1f));
+            material.SetColor(
+                "_CurrentColor",
+                new Color(
+                    0.18f,
+                    0.32f,
+                    0.42f,
+                    1f));
+            material.SetColor(
+                "_FoamColor",
+                new Color(
+                    0.95f,
+                    0.96f,
+                    0.93f,
+                    1f));
+            material.SetFloat("_Opacity", 0.99f);
+            material.SetFloat("_FlowSpeed", 0.22f);
+            material.SetFloat(
+                "_SecondarySpeed",
+                0.22f);
+            material.SetFloat("_FoamStrength", 1f);
+            material.SetFloat("_WaveHeight", 0.22f);
+            material.SetFloat("_NormalStrength", 10f);
+            material.SetFloat("_StreamSeparation", 0.20f);
+            material.SetFloat("_BankEddyStrength", 0.055f);
+            material.renderQueue =
+                (int)UnityEngine.Rendering
+                    .RenderQueue.Transparent;
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        private static Material GetOrCreateBridgeMaterial()
+        {
+            const string materialPath =
+                "Assets/_Project/Art/Prototype/Materials/RaidBridge.mat";
+            const string baseColorPath = BridgeTextureFolder +
+                "/Bridge_low_Bridge_BaseColor.png";
+            const string normalPath = BridgeTextureFolder +
+                "/Bridge_low_Bridge_Normal.png";
+            TextureImporter normalImporter =
+                AssetImporter.GetAtPath(normalPath) as TextureImporter;
+            if (normalImporter != null &&
+                normalImporter.textureType != TextureImporterType.NormalMap)
+            {
+                normalImporter.textureType = TextureImporterType.NormalMap;
+                normalImporter.SaveAndReimport();
+            }
+
+            Shader shader = Shader.Find(
+                "Universal Render Pipeline/Lit");
+            Material material =
+                AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            if (material == null)
+            {
+                material = new Material(shader)
+                {
+                    name = "RaidBridge"
+                };
+                AssetDatabase.CreateAsset(material, materialPath);
+            }
+            else if (shader != null)
+            {
+                material.shader = shader;
+            }
+
+            Texture2D baseColor =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(baseColorPath);
+            Texture2D normal =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", baseColor);
+            }
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor(
+                    "_BaseColor",
+                    new Color(0.76f, 0.72f, 0.66f, 1f));
+            }
+            if (material.HasProperty("_BumpMap"))
+            {
+                material.SetTexture("_BumpMap", normal);
+                material.SetFloat("_BumpScale", 0.78f);
+                material.EnableKeyword("_NORMALMAP");
+            }
+            if (material.HasProperty("_Metallic"))
+            {
+                material.SetFloat("_Metallic", 0.03f);
+            }
+            if (material.HasProperty("_Smoothness"))
+            {
+                material.SetFloat("_Smoothness", 0.16f);
+            }
+            EditorUtility.SetDirty(material);
+            AssetDatabase.SaveAssets();
+            return material;
+        }
+
+        private static GameObject LoadBridgePrefab()
+        {
+            ModelImporter importer =
+                AssetImporter.GetAtPath(BridgeModelPath) as ModelImporter;
+            if (importer != null && !importer.isReadable)
+            {
+                importer.isReadable = true;
+                importer.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<GameObject>(
+                BridgeModelPath);
         }
 
         private static Material GetOrCreateStylizedForestMaterial(
@@ -892,6 +1627,84 @@ namespace WorldBuilder.Editor
 
             EditorUtility.SetDirty(material);
             return material;
+        }
+
+        private static void ApplyVertexTintShader(
+            Material material)
+        {
+            Shader shader =
+                Shader.Find(
+                    "WorldBuilder/Vertex Tint Lit");
+            if (material != null && shader != null)
+            {
+                material.shader = shader;
+                EditorUtility.SetDirty(material);
+            }
+        }
+
+        private static void ApplyFoliageWindShader(
+            Material material,
+            float swayStrength,
+            float rustleStrength,
+            float windSpeed,
+            float rustleSpeed)
+        {
+            Shader shader =
+                Shader.Find(
+                    "WorldBuilder/Foliage Wind Lit");
+            if (material == null || shader == null)
+            {
+                return;
+            }
+
+            material.shader = shader;
+            material.SetFloat(
+                "_WindStrength",
+                swayStrength);
+            material.SetFloat(
+                "_WindSpeed",
+                windSpeed);
+            material.SetFloat(
+                "_RustleStrength",
+                rustleStrength);
+            material.SetFloat(
+                "_RustleSpeed",
+                rustleSpeed);
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.renderQueue =
+                (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+            material.doubleSidedGI = true;
+            material.enableInstancing = true;
+            EditorUtility.SetDirty(material);
+        }
+
+        private static void ApplyMatteSurface(
+            Material material)
+        {
+            if (material == null)
+            {
+                return;
+            }
+
+            if (material.HasProperty("_Metallic"))
+            {
+                material.SetFloat("_Metallic", 0f);
+            }
+            if (material.HasProperty("_Smoothness"))
+            {
+                material.SetFloat("_Smoothness", 0.01f);
+            }
+            if (material.HasProperty("_SpecularHighlights"))
+            {
+                material.SetFloat("_SpecularHighlights", 0f);
+            }
+            if (material.HasProperty("_EnvironmentReflections"))
+            {
+                material.SetFloat("_EnvironmentReflections", 0f);
+            }
+            material.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            material.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+            EditorUtility.SetDirty(material);
         }
 
         private static Material GetOrCreateChestMaterial()

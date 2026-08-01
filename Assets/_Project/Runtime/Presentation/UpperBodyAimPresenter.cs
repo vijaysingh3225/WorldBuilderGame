@@ -58,6 +58,7 @@ namespace WorldBuilder.Gameplay.Presentation
         private AimStanceLocomotionPresenter stancePresenter;
 
         public float CurrentYaw => currentYaw;
+        public float MaximumYaw => maximumYaw;
         public float BowDrawTorsoYaw => bowDrawTorsoYaw;
 
         public Vector3 PredictFullDrawHeadPosition()

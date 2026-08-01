@@ -18,6 +18,7 @@ namespace WorldBuilder.Gameplay.Input
         public bool DiagnosticOverrideActive => diagnosticOverrideActive;
         public bool UserInterfaceCaptureActive =>
             userInterfaceCaptureActive;
+        public bool CameraOrbitHeld { get; private set; }
         public event Action<int> WeaponSlotRequested;
 
         public void SetUserInterfaceCapture(bool captured)
@@ -26,6 +27,7 @@ namespace WorldBuilder.Gameplay.Input
             if (captured)
             {
                 CurrentIntent = default;
+                CameraOrbitHeld = false;
             }
         }
 
@@ -54,6 +56,7 @@ namespace WorldBuilder.Gameplay.Input
             diagnosticIntent = default;
             crouchToggled = false;
             userInterfaceCaptureActive = false;
+            CameraOrbitHeld = false;
             CurrentIntent = default;
         }
 
@@ -62,12 +65,14 @@ namespace WorldBuilder.Gameplay.Input
             if (userInterfaceCaptureActive)
             {
                 CurrentIntent = default;
+                CameraOrbitHeld = false;
                 return;
             }
 
             if (diagnosticOverrideActive)
             {
                 CurrentIntent = diagnosticIntent;
+                CameraOrbitHeld = false;
                 return;
             }
 
@@ -101,6 +106,10 @@ namespace WorldBuilder.Gameplay.Input
             }
 
             bool cursorLocked = Cursor.lockState == CursorLockMode.Locked;
+            CameraOrbitHeld =
+                cursorLocked &&
+                mouse != null &&
+                mouse.middleButton.isPressed;
             Vector2 look = cursorLocked && mouse != null ? mouse.delta.ReadValue() * lookScale : Vector2.zero;
             bool attackPressed = primaryClickPressed;
             bool blockHeld =

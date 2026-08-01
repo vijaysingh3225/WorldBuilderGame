@@ -4,6 +4,7 @@ using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Characters
 {
+    [DefaultExecutionOrder(-100)]
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(PlayerInputSource))]
     public sealed class ThirdPersonMotor : MonoBehaviour
@@ -56,6 +57,10 @@ namespace WorldBuilder.Gameplay.Characters
         private float targetHorizontalSpeed;
         private float runtimeSpeedBonus;
         private MonoBehaviour[] facingOverrideBehaviours;
+        private bool movementCameraBasisLocked;
+        private Vector3 lockedMovementCameraForward;
+        private Vector3 lockedMovementCameraRight;
+        private bool movementCameraUnlockPending;
 
         public Vector3 HorizontalVelocity => horizontalVelocity;
         public Vector3 LocalHorizontalVelocity => transform.InverseTransformDirection(horizontalVelocity);
@@ -87,6 +92,8 @@ namespace WorldBuilder.Gameplay.Characters
         public float ReversalBrakeDot => reversalBrakeDot;
         public float ReversalRestartAngle => reversalRestartAngle;
         public float CrouchTransitionSpeed => crouchTransitionSpeed;
+        public bool MovementCameraBasisLocked =>
+            movementCameraBasisLocked;
 
         public void SetRuntimeSpeedBonus(float bonus)
         {
@@ -114,6 +121,8 @@ namespace WorldBuilder.Gameplay.Characters
             targetHorizontalSpeed = 0f;
             airborneSpeedLimit = standingJumpAirSpeedLimit;
             isBrakingForReversal = false;
+            movementCameraBasisLocked = false;
+            movementCameraUnlockPending = false;
             lastGroundedTime = Time.time;
             lastJumpRequestedTime = float.NegativeInfinity;
             isGrounded = HasSupportedGroundContact();
@@ -155,6 +164,7 @@ namespace WorldBuilder.Gameplay.Characters
 
             PlayerIntent intent = input.CurrentIntent;
             UpdateCrouch(intent.CrouchHeld);
+            UpdateMovementCameraBasis(input.CameraOrbitHeld);
             Vector3 desiredDirection = ToWorldDirection(intent.Move);
             bool facingOverridden =
                 TryGetFacingOverride(out Vector3 overrideFacingDirection);
@@ -164,9 +174,14 @@ namespace WorldBuilder.Gameplay.Characters
             {
                 // Aim-locked movement keeps the deliberate walk gait even
                 // when the player is holding the sprint input.
-                bool sprintAllowed =
-                    !facingOverridden &&
-                    intent.SprintHeld;
+                bool inspectionMovementOrbit =
+                    input.CameraOrbitHeld ||
+                    movementCameraBasisLocked;
+                bool sprintAllowed = CalculateSprintAllowed(
+                    facingOverridden,
+                    inspectionMovementOrbit,
+                    intent.BlockHeld,
+                    intent.SprintHeld);
                 float targetSpeed = isCrouched
                     ? CrouchSpeed
                     : sprintAllowed
@@ -215,9 +230,73 @@ namespace WorldBuilder.Gameplay.Characters
                 return new Vector3(move.x, 0f, move.y);
             }
 
-            Vector3 forward = Vector3.ProjectOnPlane(cameraTransform.forward, Vector3.up).normalized;
-            Vector3 right = Vector3.ProjectOnPlane(cameraTransform.right, Vector3.up).normalized;
+            Vector3 forward = movementCameraBasisLocked
+                ? lockedMovementCameraForward
+                : Vector3.ProjectOnPlane(
+                    cameraTransform.forward,
+                    Vector3.up).normalized;
+            Vector3 right = movementCameraBasisLocked
+                ? lockedMovementCameraRight
+                : Vector3.ProjectOnPlane(
+                    cameraTransform.right,
+                    Vector3.up).normalized;
             return Vector3.ClampMagnitude(forward * move.y + right * move.x, 1f);
+        }
+
+        public static bool CalculateSprintAllowed(
+            bool facingOverridden,
+            bool inspectionOrbitHeld,
+            bool combatAimHeld,
+            bool sprintHeld)
+        {
+            bool inspectionOnlyFacingLock =
+                inspectionOrbitHeld &&
+                !combatAimHeld;
+            return sprintHeld &&
+                (!facingOverridden || inspectionOnlyFacingLock);
+        }
+
+        private void UpdateMovementCameraBasis(bool orbitHeld)
+        {
+            if (!orbitHeld)
+            {
+                if (movementCameraBasisLocked &&
+                    !movementCameraUnlockPending)
+                {
+                    movementCameraUnlockPending = true;
+                    return;
+                }
+
+                movementCameraBasisLocked = false;
+                movementCameraUnlockPending = false;
+                return;
+            }
+
+            movementCameraUnlockPending = false;
+
+            if (movementCameraBasisLocked ||
+                cameraTransform == null)
+            {
+                return;
+            }
+
+            lockedMovementCameraForward =
+                Vector3.ProjectOnPlane(
+                    cameraTransform.forward,
+                    Vector3.up).normalized;
+            lockedMovementCameraRight =
+                Vector3.ProjectOnPlane(
+                    cameraTransform.right,
+                    Vector3.up).normalized;
+            if (lockedMovementCameraForward.sqrMagnitude < 0.001f)
+            {
+                lockedMovementCameraForward = transform.forward;
+            }
+            if (lockedMovementCameraRight.sqrMagnitude < 0.001f)
+            {
+                lockedMovementCameraRight = transform.right;
+            }
+            movementCameraBasisLocked = true;
         }
 
         private Vector3 GetGroundTargetVelocity(

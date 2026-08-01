@@ -50,26 +50,30 @@ ribbon. Ground and road triangles are separate material regions of the same
 textures. The path is 3.6 m wide, recessed 0.18 m at its center, and blends
 back into the surrounding terrain over a 2.2 m shoulder.
 
-## Equipped-sword stalking posture candidate
+## Equipped-weapon high-alert posture candidate
 
 Creator review clarified that the desired forward intention belongs to
-locomotion while the short sword is equipped, not to the unarmed gait clips.
-The rejected V7/V15 gait rewrite remains rolled back. A presentation-only
-sword-ready stance now blends from a 5.5-degree stalking walk lean to an
-11-degree run lean across the hips, spine, chest, and upper chest while
-preserving the authored leg rotations. The head largely preserves its
-evaluated world orientation. Both shoulders close toward the target, the free
-arm is partially contained, and the sword shoulder, upper arm, forearm, and
-hand blend strongly toward a stable rearward ready reference instead of
-following the full run-arm oscillation.
+locomotion while either weapon is equipped, not to the unarmed gait clips.
+The rejected V7/V15 gait rewrite remains rolled back. Research on acceleration,
+postural threat, and weapon carriage supports a compact forward-intent pose,
+increased postural preparation, restricted free arm swing, and closer
+pelvis-trunk organization without turning the gait into a deep crouch. A
+presentation-only alert stance now blends from an 8-degree walk lean to a
+16-degree run lean across the hips, spine, chest, and upper chest while
+preserving the authored leg rotations and foot timing. Shoulder protraction
+increases from 7.5 to 11 degrees with speed, while partial head recovery keeps
+the gaze useful without restoring the previous straight-backed silhouette.
 
-The stance activates only while the sword is equipped, grounded, moving, and
-not crouched. It drops immediately for the approved two-handed guard, bow aim,
-or an active sword attack so those authored presentations remain untouched.
-Runtime sword and guard state come directly from their owning presenters, and
-Humanoid bone resolution retries if the first setup frame occurs before the
-Avatar is ready. Unity compilation passes. Full-scene creator and diagnostic
-validation remain pending.
+The stance activates while the sword or bow is equipped, grounded, moving,
+and not crouched. It drops for the approved two-handed guard, active bow aim,
+an active sword attack, jumps, and crouching so those presentations remain
+untouched. The sword retains its stronger ready-arm stabilization; the later
+bow contact solve remains authoritative over bow hands and arms. Eight focused
+presentation tests pass. Graphics-enabled deterministic run
+`20260801-031632-078-deterministic-full-suite` recorded the walk at about 20.3
+degrees maximum spine-upright deviation and sprint at about 27.0 degrees
+before aborting on the pre-existing sword-block strafe assertion; bow-phase
+capture and creator visual approval remain pending.
 
 ## Walk posture V4 candidate
 
@@ -222,6 +226,68 @@ progressive partial-draw turn, at least 70 degrees of full-draw torso yaw,
 stable yaw/pitch aiming, outside elbow clearance, stable aimed movement, and
 accurate release. All 21 EditMode regression tests passed. No diagnostic
 baseline was promoted.
+
+## 2026-08-01 universal crosshair surface alignment
+
+Player arrows now choose their initial zero-gravity target from the first
+valid non-trigger surface exactly under the camera crosshair, regardless of
+whether that surface belongs to an enemy, terrain, tree, rock, or other world
+geometry. Shooter-owned colliders and camera hits that are not safely ahead of
+the bow are ignored. If the crosshair ray reaches no surface, the shot uses the
+far crosshair point. The arrow still spawns at the visible bow, travels on one
+straight initial launch vector, and receives ordinary gravity only after
+release; objects merely near the reticle no longer provide enemy-specific
+steering depth. All 10 focused bow-composition tests pass, including close
+forward surfaces, non-enemy geometry, vertical shots, and behind-bow camera
+hits. Full run `20260801-032645-683-deterministic-full-suite` again aborted at
+the pre-existing sword-block strafe gate before reaching any bow phase.
+
+An intermediate selected-enemy-hitbox exception attempted to ignore earlier
+sibling hitboxes until the camera-selected depth. Creator testing rejected that
+approach: walls remained accurate, but AI shots could miss down-left and appear
+to redirect at contact. The exception has been removed completely. Enemy
+colliders now use the same closest physical centerline contact as every wall,
+rock, tree, and terrain surface; enemy-specific work begins only after impact
+for damage region and attachment. Full run
+`20260801-033714-952-deterministic-full-suite` captured 1,530 samples but again
+aborted at the pre-existing sword-block strafe gate (`shuffle=0.000`,
+`yaw=0.0`) before any bow phase, so no full-scene bow pass is inferred.
+
+## 2026-08-01 continuous arrow-tip ballistic authority
+
+The fired arrow now has one continuous authoritative point: its visible tip.
+At release, the camera crosshair selects one fixed world point and the visible
+bow tip receives one immutable initial velocity toward that point. Every later
+tip position is integrated only from that velocity and ordinary gravity. The
+shaft rotates behind the tip instead of rotating around a separately translated
+root, removing the per-step lateral tip displacement that previously created a
+small hook near impact and made consecutive collision sweeps discontinuous.
+The kinematic integration now advances at rendered-frame cadence rather than
+presenting only at the 50 Hz physics cadence; continuous segment raycasts retain
+tunneling protection at every frame.
+
+Each traveled tip segment uses an exact centerline raycast. The former 0.018 m
+swept radius is gone, so nearby geometry cannot pull a near miss sideways onto
+its surface. The accepted `RaycastHit.point` is both the gameplay damage point
+and the visible embedded tip position; impact preserves the incoming segment
+direction and never aligns to a surface normal. Shooter colliders are ignored,
+then the closest centerline collider wins without checking whether it belongs
+to an enemy or scenery. No target position is sampled again after release and
+there is no homing, reflection, or post-launch correction.
+
+All 10 bow composition/crosshair tests and all 8 arrow trajectory, collision,
+and sticking tests pass. The full 101-test EditMode run passes 97 tests; its four
+remaining failures are the pre-existing mannequin/material and dormant-dummy
+health expectations. Full run
+`20260801-035453-444-deterministic-full-suite` again aborted at the existing
+sword-block strafe gate after 1,530 samples, before any bow phase.
+
+The enemy-only selected-hitbox state and flight filter were then deleted after
+the creator isolated the remaining error to AI targets. The projectile now has
+no enemy query anywhere in its flight or first-contact selection. All 10
+crosshair tests, all 8 trajectory tests, and all 6 impact/feedback tests pass.
+Full run `20260801-041431-869-deterministic-full-suite` again stopped at the
+unchanged sword-block strafe gate before reaching bow validation.
 
 ## 2026-07-31 close bow camera and outward holding elbow
 

@@ -7986,6 +7986,8 @@ MonoBehaviour:
   nockedArrow: {fileID: 2078409140}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
+  enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
+  headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
   bowAudioSource: {fileID: 1724167692}
   pullbackVolume: 0.3
   aimTarget: {fileID: 0}
@@ -9218,6 +9220,8 @@ MonoBehaviour:
   nockedArrow: {fileID: 2082791329}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
+  enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
+  headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
   bowAudioSource: {fileID: 1820471686}
   pullbackVolume: 0.3
   aimTarget: {fileID: 0}

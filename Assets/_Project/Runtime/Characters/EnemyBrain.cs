@@ -64,6 +64,7 @@ namespace WorldBuilder.Gameplay.Characters
 
         private CharacterController controller;
         private Health health;
+        private EnemyDamageProfile damageProfile;
         private Health observedTargetHealth;
         private HumanoidDamageHitboxRig damageHitboxes;
         private PlayerInputSource input;
@@ -186,6 +187,7 @@ namespace WorldBuilder.Gameplay.Characters
             lostSightWaitTimer = 0f;
             patrolWhenIdle = false;
             ResolveReferences();
+            damageProfile?.ConfigureDormantTrainingDummy();
             if (input != null)
             {
                 input.SetDiagnosticOverride(default);
@@ -206,6 +208,7 @@ namespace WorldBuilder.Gameplay.Characters
         private void Awake()
         {
             ResolveReferences();
+            EnsureDamageProfile();
             health.Damaged += HandleDamaged;
             health.Died += HandleDeath;
             if (trainingDummy)
@@ -374,7 +377,15 @@ namespace WorldBuilder.Gameplay.Characters
             }
             if (!preserveCurrentHealth)
             {
-                health.ConfigureWithFloor(88f, 0f);
+                if (damageProfile != null)
+                {
+                    damageProfile.Configure(
+                        damageProfile.Variant);
+                }
+                else
+                {
+                    health.ConfigureWithFloor(88f, 0f);
+                }
             }
             if (animator != null)
             {
@@ -1145,6 +1156,8 @@ namespace WorldBuilder.Gameplay.Characters
         {
             controller ??= GetComponent<CharacterController>();
             health ??= GetComponent<Health>();
+            damageProfile ??=
+                GetComponent<EnemyDamageProfile>();
             input ??= GetComponent<PlayerInputSource>();
             motor ??= GetComponent<ThirdPersonMotor>();
             aimSource ??= GetComponent<CharacterAimSource>();
@@ -1175,6 +1188,25 @@ namespace WorldBuilder.Gameplay.Characters
             stancePresenter ??=
                 GetComponentInChildren<AimStanceLocomotionPresenter>(true);
             animator ??= GetComponentInChildren<Animator>(true);
+        }
+
+        private void EnsureDamageProfile()
+        {
+            if (damageProfile != null)
+            {
+                return;
+            }
+
+            damageProfile =
+                gameObject.AddComponent<EnemyDamageProfile>();
+            bool isRaidEnemy =
+                gameObject.scene.name.IndexOf(
+                    "Raid",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+            damageProfile.Configure(
+                isRaidEnemy
+                    ? EnemyCombatVariant.RaidEnemy
+                    : EnemyCombatVariant.CombatLabDummy);
         }
 
         private void SetDormantPresenterState(bool dormant)
