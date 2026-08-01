@@ -15,6 +15,17 @@ The prototype supports two workflows through the same runtime contracts:
 | `RaidPrototype` | Minimal forest terrain, hard-cover trees, enemies, loot, extraction, death, and return flow. |
 | `CombatLab` | Dedicated combat/animation test scene with the same Weapon Grid toolkit. |
 
+The Raid prototype now generates a deterministic 144 m-radius forest disc,
+which is four times the area of the former 72 m-radius map. Its seeded player
+entry lies on a trail within a protected outer annulus rather than at the disc
+edge. One or two primary trails cross the map, one to three connected branch
+trails reach the perimeter, and bridges are placed at every unique crossing
+with the single winding primary river. Twelve dormant guards are distributed
+as periodic trail patrol groups, including at least one side-by-side pair.
+Raid-only trilight ambient fill and a 0.68 directional shadow strength keep the
+forest floor readable beneath the enlarged canopy without removing sun/shade
+separation or changing Combat Lab and Home Base lighting.
+
 Use `WorldBuilder > Build Gameplay Loop` to regenerate all four scenes. For
 modular work, rebuild only the selected scene under `WorldBuilder > Build`:
 Bootstrap, Home Base, Raid Prototype, or Combat Lab. The registered build order

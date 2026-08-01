@@ -688,12 +688,12 @@ namespace WorldBuilder.Editor
             RenderSettings.ambientMode =
                 UnityEngine.Rendering.AmbientMode.Trilight;
             RenderSettings.ambientSkyColor =
-                new Color(0.40f, 0.47f, 0.54f, 1f);
+                new Color(0.48f, 0.55f, 0.62f, 1f);
             RenderSettings.ambientEquatorColor =
-                new Color(0.25f, 0.30f, 0.34f, 1f);
+                new Color(0.34f, 0.39f, 0.44f, 1f);
             RenderSettings.ambientGroundColor =
-                new Color(0.16f, 0.18f, 0.19f, 1f);
-            RenderSettings.ambientIntensity = 1.05f;
+                new Color(0.24f, 0.27f, 0.29f, 1f);
+            RenderSettings.ambientIntensity = 1.18f;
             RenderSettings.reflectionIntensity = 0.42f;
             GameObject raidSun = GameObject.Find("Sun");
             Light raidSunLight =
@@ -705,7 +705,7 @@ namespace WorldBuilder.Editor
                 raidSunLight.color =
                     new Color(0.94f, 0.86f, 0.72f, 1f);
                 raidSunLight.intensity = 1.35f;
-                raidSunLight.shadowStrength = 0.82f;
+                raidSunLight.shadowStrength = 0.68f;
                 raidSun.transform.rotation =
                     Quaternion.Euler(62f, -42f, 0f);
             }
@@ -816,12 +816,22 @@ namespace WorldBuilder.Editor
                 player.transform,
                 input);
 
-            Vector3[] enemyPositions =
+            const int RaidGuardCount = 12;
+            var enemyPositions =
+                new Vector3[RaidGuardCount];
+            for (int index = 0;
+                 index < enemyPositions.Length;
+                 index++)
             {
-                new Vector3(0f, 1f, -25f),
-                new Vector3(0f, 1f, 0f),
-                new Vector3(0f, 1f, 25f)
-            };
+                enemyPositions[index] = new Vector3(
+                    0f,
+                    1f,
+                    Mathf.Lerp(
+                        -40f,
+                        55f,
+                        index /
+                        (enemyPositions.Length - 1f)));
+            }
             EnemyBrain[] raidEnemies =
                 new EnemyBrain[enemyPositions.Length];
             for (int index = 0; index < enemyPositions.Length; index++)

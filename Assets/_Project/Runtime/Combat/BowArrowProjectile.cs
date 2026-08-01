@@ -206,6 +206,8 @@ namespace WorldBuilder.Gameplay.Combat
             {
                 Collider candidate = hits[index].collider;
                 if (candidate == null ||
+                    HumanoidDamageHitboxRig.
+                        IsRedundantMovementCollider(candidate) ||
                     candidate.transform.IsChildOf(transform) ||
                     (owner != null &&
                         candidate.transform.IsChildOf(

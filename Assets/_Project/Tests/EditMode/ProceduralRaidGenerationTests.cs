@@ -161,11 +161,11 @@ namespace WorldBuilder.Tests
             ProceduralRaidGenerator.RaidLayout first =
                 ProceduralRaidGenerator.CreateLayout(
                     17381,
-                    72f);
+                    144f);
             ProceduralRaidGenerator.RaidLayout second =
                 ProceduralRaidGenerator.CreateLayout(
                     17381,
-                    72f);
+                    144f);
 
             Assert.That(
                 second.HasRoadFork,
@@ -180,62 +180,119 @@ namespace WorldBuilder.Tests
                 second.ForkRoad,
                 Is.EqualTo(first.ForkRoad));
             Assert.That(
+                second.BranchRoadA,
+                Is.EqualTo(first.BranchRoadA));
+            Assert.That(
+                second.BranchRoadB,
+                Is.EqualTo(first.BranchRoadB));
+            Assert.That(
+                second.BranchRoadC,
+                Is.EqualTo(first.BranchRoadC));
+            Assert.That(
                 second.River,
                 Is.EqualTo(first.River));
+            Assert.That(
+                second.PlayerSpawnRoadT,
+                Is.EqualTo(first.PlayerSpawnRoadT));
+            Assert.That(
+                second.ExtractionRoadT,
+                Is.EqualTo(first.ExtractionRoadT));
         }
 
         [Test]
-        public void MainRoadConnectsOppositeSidesOfTheDisc()
+        public void ExpandedMainRoadTouchesBoundaryButSpawnUsesSafeOuterAnnulus()
         {
+            const float Radius = 144f;
             ProceduralRaidGenerator.RaidLayout layout =
                 ProceduralRaidGenerator.CreateLayout(
                     90210,
-                    72f);
+                    Radius);
 
             Assert.That(
                 layout.MainRoad,
                 Has.Length.GreaterThanOrEqualTo(12));
             Assert.That(
-                layout.PlayerStart.z,
-                Is.LessThan(-60f));
+                XzMagnitude(layout.MainRoad[0]),
+                Is.InRange(Radius - 2.1f, Radius));
             Assert.That(
-                layout.Extraction.z,
-                Is.GreaterThan(60f));
+                XzMagnitude(
+                    layout.MainRoad[
+                        layout.MainRoad.Length - 1]),
+                Is.InRange(Radius - 2.1f, Radius));
             Assert.That(
-                new Vector2(
-                    layout.PlayerStart.x,
-                    layout.PlayerStart.z).magnitude,
-                Is.LessThanOrEqualTo(72f));
+                XzMagnitude(layout.PlayerStart) / Radius,
+                Is.InRange(0.70f, 0.88f),
+                "The player should spawn in a broad outer donut with enough terrain behind them to hide the disc edge.");
             Assert.That(
-                new Vector2(
-                    layout.Extraction.x,
-                    layout.Extraction.z).magnitude,
-                Is.LessThanOrEqualTo(72f));
+                XzMagnitude(layout.Extraction) / Radius,
+                Is.InRange(0.70f, 0.93f));
         }
 
         [Test]
-        public void SeedsProduceBothForkedAndSingleRoadVariants()
+        public void SeedsProduceOneOrTwoPrimaryTrailsAndSeveralEdgeBranches()
         {
-            bool foundFork = false;
-            bool foundSingle = false;
-            bool foundCrossing = false;
-            bool foundAlongside = false;
+            bool foundOnePrimary = false;
+            bool foundTwoPrimaries = false;
+            bool foundTwoBranches = false;
+            bool foundThreeBranches = false;
             for (int seed = 1; seed <= 40; seed++)
             {
                 ProceduralRaidGenerator.RaidLayout layout =
                     ProceduralRaidGenerator.CreateLayout(
                         seed,
-                        72f);
-                foundFork |= layout.HasRoadFork;
-                foundSingle |= !layout.HasRoadFork;
-                foundCrossing |= layout.RiverCrossesRoad;
-                foundAlongside |= !layout.RiverCrossesRoad;
+                        144f);
+                foundOnePrimary |= layout.ForkRoad.Length == 0;
+                foundTwoPrimaries |= layout.ForkRoad.Length > 0;
+                int branchCount =
+                    1 +
+                    (layout.BranchRoadB.Length > 0 ? 1 : 0) +
+                    (layout.BranchRoadC.Length > 0 ? 1 : 0);
+                foundTwoBranches |= branchCount >= 2;
+                foundThreeBranches |= branchCount >= 3;
+
+                Assert.That(
+                    XzMagnitude(
+                        layout.BranchRoadA[
+                            layout.BranchRoadA.Length - 1]),
+                    Is.GreaterThan(140f));
+                Assert.That(layout.RiverCrossesRoad, Is.True);
             }
 
-            Assert.That(foundFork, Is.True);
-            Assert.That(foundSingle, Is.True);
-            Assert.That(foundCrossing, Is.True);
-            Assert.That(foundAlongside, Is.True);
+            Assert.That(foundOnePrimary, Is.True);
+            Assert.That(foundTwoPrimaries, Is.True);
+            Assert.That(foundTwoBranches, Is.True);
+            Assert.That(foundThreeBranches, Is.True);
+        }
+
+        [Test]
+        public void PrimaryRiverCrossesTheExpandedMapWithVisibleMeanders()
+        {
+            ProceduralRaidGenerator.RaidLayout layout =
+                ProceduralRaidGenerator.CreateLayout(
+                    41721,
+                    144f);
+            float pathLength = 0f;
+            for (int index = 1;
+                 index < layout.River.Length;
+                 index++)
+            {
+                pathLength += Vector3.Distance(
+                    layout.River[index - 1],
+                    layout.River[index]);
+            }
+            float directDistance = Vector3.Distance(
+                layout.River[0],
+                layout.River[layout.River.Length - 1]);
+
+            Assert.That(layout.River, Has.Length.GreaterThanOrEqualTo(25));
+            Assert.That(XzMagnitude(layout.River[0]), Is.GreaterThan(140f));
+            Assert.That(
+                XzMagnitude(layout.River[layout.River.Length - 1]),
+                Is.GreaterThan(140f));
+            Assert.That(
+                pathLength,
+                Is.GreaterThan(directDistance * 1.025f),
+                "The primary river should visibly wind rather than read as a straight ribbon.");
         }
 
         [Test]
@@ -786,11 +843,11 @@ namespace WorldBuilder.Tests
                 "Grass must share the meadow's healthy-to-dry tint variation.");
             Assert.That(
                 grassBounds.size.x,
-                Is.InRange(125f, 150f),
+                Is.InRange(270f, 290f),
                 $"Grass batches should span the raid disc, actual bounds were {grassBounds}.");
             Assert.That(
                 grassBounds.size.z,
-                Is.InRange(125f, 150f),
+                Is.InRange(270f, 290f),
                 $"Grass batches should span the raid disc, actual bounds were {grassBounds}.");
             Assert.That(
                 grassVertexCount,
@@ -984,14 +1041,18 @@ namespace WorldBuilder.Tests
                 Is.EqualTo(105f));
             Assert.That(
                 RenderSettings.ambientIntensity,
-                Is.EqualTo(1.05f));
+                Is.EqualTo(1.18f));
             Assert.That(
                 RenderSettings.ambientGroundColor.r,
-                Is.EqualTo(0.16f).Within(0.001f));
+                Is.EqualTo(0.24f).Within(0.001f));
             Light raidSun =
                 GameObject.Find("Sun")
                     .GetComponent<Light>();
             Assert.That(raidSun, Is.Not.Null);
+            Assert.That(
+                raidSun.shadowStrength,
+                Is.EqualTo(0.68f).Within(0.001f),
+                "Tree shadows should retain shape without crushing the forest floor to black.");
             Assert.That(
                 Vector3.Dot(
                     raidSun.transform.forward,
@@ -1056,6 +1117,9 @@ namespace WorldBuilder.Tests
             if (generator.CurrentLayout.RiverCrossesRoad)
             {
                 Assert.That(
+                    generator.GeneratedBridgeCount,
+                    Is.GreaterThanOrEqualTo(1));
+                Assert.That(
                     generator.BridgePrefab,
                     Is.Not.Null,
                     "River crossings should use the imported bridge asset.");
@@ -1105,6 +1169,23 @@ namespace WorldBuilder.Tests
                         Is.Not.EqualTo("Cube"),
                         "The old primitive cube bridge should be replaced.");
                 }
+
+                int generatedBridgeObjects = 0;
+                Transform generatedRoot = bridge.parent;
+                for (int childIndex = 0;
+                     childIndex < generatedRoot.childCount;
+                     childIndex++)
+                {
+                    if (generatedRoot.GetChild(childIndex).name
+                        .StartsWith("Road Bridge"))
+                    {
+                        generatedBridgeObjects++;
+                    }
+                }
+                Assert.That(
+                    generatedBridgeObjects,
+                    Is.EqualTo(generator.GeneratedBridgeCount),
+                    "Every unique trail/river crossing should receive a bridge.");
             }
 
             GameObject player =
@@ -1144,7 +1225,7 @@ namespace WorldBuilder.Tests
                 Is.True,
                 "The raid player should use the brighter player material.");
             Assert.That(extraction, Is.Not.Null);
-            Assert.That(enemies, Has.Length.EqualTo(3));
+            Assert.That(enemies, Has.Length.EqualTo(12));
             foreach (EnemyBrain enemy in enemies)
             {
                 EnemyDamageProfile damageProfile =
@@ -1159,19 +1240,39 @@ namespace WorldBuilder.Tests
                     "Raid enemies must never retain the legacy immortal dummy floor.");
             }
             Assert.That(
-                player.transform.position.z,
-                Is.LessThan(-55f));
+                XzMagnitude(player.transform.position) /
+                    generator.MapRadius,
+                Is.InRange(0.70f, 0.88f));
             Assert.That(
-                extraction.transform.position.z,
-                Is.GreaterThan(55f));
+                XzMagnitude(extraction.transform.position) /
+                    generator.MapRadius,
+                Is.InRange(0.70f, 0.93f));
+            Assert.That(
+                generator.GeneratedGuardGroupCount,
+                Is.InRange(6, 11));
+            Assert.That(
+                generator.GeneratedGuardPairCount,
+                Is.GreaterThanOrEqualTo(1));
             Assert.That(
                 enemies,
                 Has.All.Matches<EnemyBrain>(
                     enemy =>
-                        enemy.transform.position.z >
-                            player.transform.position.z &&
-                        enemy.transform.position.z <
-                            extraction.transform.position.z));
+                        generator.DistanceToNearestTrail(
+                            enemy.transform.position) < 1.1f),
+                "Every guard should spawn directly on one of the generated trails.");
+            float nearestGuardDistance = float.PositiveInfinity;
+            foreach (EnemyBrain enemy in enemies)
+            {
+                nearestGuardDistance = Mathf.Min(
+                    nearestGuardDistance,
+                    Vector3.Distance(
+                        enemy.transform.position,
+                        player.transform.position));
+            }
+            Assert.That(
+                nearestGuardDistance,
+                Is.GreaterThanOrEqualTo(30f),
+                "No trail guard should spawn inside the player's protected entry area.");
         }
 
         private static void AssertUnityFoliageTexture(
@@ -1235,6 +1336,11 @@ namespace WorldBuilder.Tests
                 Is.True,
                 $"{root.name} should contain visible renderers.");
             return bounds;
+        }
+
+        private static float XzMagnitude(Vector3 point)
+        {
+            return new Vector2(point.x, point.z).magnitude;
         }
 
         private static float MinimumTerrainHeight(

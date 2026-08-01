@@ -3,7 +3,11 @@ using UnityEngine;
 
 namespace WorldBuilder.Gameplay.Combat
 {
-    [DefaultExecutionOrder(-50)]
+    // The aim, stance, and weapon presenters finish adjusting humanoid bones
+    // in LateUpdate (up through order 900). Keep the physical damage shapes
+    // on the final rendered pose so moving Raid enemies use the same precise
+    // target geometry as the stationary Combat Lab dummy.
+    [DefaultExecutionOrder(950)]
     [DisallowMultipleComponent]
     public sealed class HumanoidDamageHitboxRig : MonoBehaviour
     {
@@ -31,6 +35,18 @@ namespace WorldBuilder.Gameplay.Combat
         private Animator animator;
 
         public int HitboxCount => capsules.Count + spheres.Count;
+
+        public static bool IsRedundantMovementCollider(
+            Collider candidate)
+        {
+            if (candidate is not CharacterController controller)
+            {
+                return false;
+            }
+
+            return controller.GetComponentInChildren<
+                HumanoidDamageZone>() != null;
+        }
 
         public void SetHitboxesEnabled(bool value)
         {

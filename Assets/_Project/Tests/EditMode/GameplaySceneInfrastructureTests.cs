@@ -207,7 +207,7 @@ namespace WorldBuilder.Tests.EditMode
                 Object.FindObjectsByType<EnemyBrain>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
-            Assert.That(enemies, Has.Length.EqualTo(3));
+            Assert.That(enemies, Has.Length.EqualTo(12));
             Assert.That(
                 enemies.All(enemy => !enemy.enabled),
                 Is.True,
@@ -352,7 +352,13 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 serialized.FindProperty("mapRadius")
                     .floatValue,
-                Is.GreaterThanOrEqualTo(70f));
+                Is.EqualTo(144f).Within(0.01f),
+                "Doubling the old 72 m radius produces four times its playable area.");
+            Assert.That(
+                serialized.FindProperty("terrainResolution")
+                    .intValue,
+                Is.EqualTo(256),
+                "The expanded disc should preserve the old terrain sampling scale.");
         }
 
         private static Scene Open(string path)

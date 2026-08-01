@@ -26,6 +26,8 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField] private CameraAimTarget aimTarget;
         [SerializeField] private CharacterAimSource characterAimSource;
         [SerializeField, Min(10f)] private float maximumAimDistance = 150f;
+        [SerializeField, Range(0.05f, 0.45f)]
+        private float elevatedTargetDepthSearch = 0.30f;
         [SerializeField, Min(0.05f)] private float minimumHoldDuration = 0.18f;
         [SerializeField, Min(0.1f)] private float fullDrawDuration = 1.08f;
         [SerializeField, Min(1f)] private float minimumArrowSpeed = 6f;
@@ -46,6 +48,8 @@ namespace WorldBuilder.Gameplay.Combat
         private int firedArrowCount;
         private float lastShotCharge;
         private bool playerOwned;
+        private bool pendingRelease;
+        private float pendingReleaseCharge;
 
         public event Action<float> ArrowFired;
 
@@ -85,6 +89,7 @@ namespace WorldBuilder.Gameplay.Combat
         public float LastCrosshairAlignmentDistance { get; private set; }
         public Vector3 LastCrosshairPoint { get; private set; }
         public Vector3 LastZeroGravityImpactPoint { get; private set; }
+        public bool LastUsedElevatedTargetDepth { get; private set; }
         public bool AudioConfigured =>
             pullbackClip != null &&
             arrowImpactClip != null &&
@@ -172,11 +177,20 @@ namespace WorldBuilder.Gameplay.Combat
                     ? characterRoot.GetComponent<CharacterAimSource>()
                     : GetComponentInParent<CharacterAimSource>();
             aimTarget ??= FindFirstObjectByType<CameraAimTarget>();
+            BowShotReleaseCommitter releaseCommitter =
+                GetComponent<BowShotReleaseCommitter>();
+            if (releaseCommitter == null)
+            {
+                releaseCommitter =
+                    gameObject.AddComponent<BowShotReleaseCommitter>();
+            }
+            releaseCommitter.Configure(this);
             ConfigureAudio();
         }
 
         private void OnDisable()
         {
+            pendingRelease = false;
             CancelDraw(false);
         }
 
@@ -227,7 +241,7 @@ namespace WorldBuilder.Gameplay.Combat
             }
             else if (drawHeldLastFrame)
             {
-                ReleaseDraw();
+                QueueRelease();
             }
 
             drawHeldLastFrame = drawHeld;
@@ -248,12 +262,15 @@ namespace WorldBuilder.Gameplay.Combat
             }
         }
 
-        private void ReleaseDraw()
+        private void QueueRelease()
         {
             StopPullbackAudio();
             if (CanFire)
             {
-                FireArrow();
+                // Preserve charge now, but resolve the rendered camera ray at
+                // the end of the frame after Cinemachine has updated it.
+                pendingRelease = true;
+                pendingReleaseCharge = DrawNormalized;
             }
             else
             {
@@ -268,14 +285,29 @@ namespace WorldBuilder.Gameplay.Combat
             heldDuration = 0f;
         }
 
-        private void FireArrow()
+        public void CommitPendingReleaseAtRenderedCamera()
+        {
+            if (!pendingRelease)
+            {
+                return;
+            }
+
+            pendingRelease = false;
+            if (!isActiveAndEnabled || !weaponEquipped || !arrowReady)
+            {
+                return;
+            }
+
+            FireArrow(pendingReleaseCharge);
+        }
+
+        private void FireArrow(float charge)
         {
             if (nockedArrow == null)
             {
                 return;
             }
 
-            float charge = DrawNormalized;
             float ballisticPower = Mathf.Pow(
                 charge,
                 Mathf.Max(1f, partialVelocityExponent));
@@ -404,12 +436,28 @@ namespace WorldBuilder.Gameplay.Combat
             bool useCrosshairSurfaceDepth)
         {
             float alignmentDistance = maximumAimDistance;
+            LastUsedElevatedTargetDepth = false;
             if (useCrosshairSurfaceDepth)
             {
                 TryResolveCrosshairSurfaceDistance(
                     launchOrigin,
                     aimRay,
                     out alignmentDistance);
+
+                // When the player intentionally aims above a humanoid to
+                // compensate for gravity, the center ray no longer hits that
+                // humanoid. Keep the vertical aim untouched, but borrow the
+                // depth of a body intersecting the same screen-space vertical
+                // column so over-shoulder parallax converges at its range.
+                if (TryResolveElevatedHumanoidDepth(
+                        launchOrigin,
+                        aimRay,
+                        out float humanoidDepth) &&
+                    humanoidDepth < alignmentDistance - 0.25f)
+                {
+                    alignmentDistance = humanoidDepth;
+                    LastUsedElevatedTargetDepth = true;
+                }
             }
 
             LastCrosshairAlignmentDistance = alignmentDistance;
@@ -420,6 +468,117 @@ namespace WorldBuilder.Gameplay.Combat
                 launchOrigin,
                 aimRay,
                 alignmentDistance);
+        }
+
+        private bool TryResolveElevatedHumanoidDepth(
+            Vector3 launchOrigin,
+            Ray aimRay,
+            out float alignmentDistance)
+        {
+            alignmentDistance = maximumAimDistance;
+            Camera aimCamera = Camera.main;
+            if (aimCamera == null)
+            {
+                return false;
+            }
+
+            Ray renderedCenterRay = aimCamera.ViewportPointToRay(
+                new Vector3(0.5f, 0.5f, 0f));
+            if (Vector3.Distance(
+                    renderedCenterRay.origin,
+                    aimRay.origin) > 0.05f ||
+                Vector3.Angle(
+                    renderedCenterRay.direction,
+                    aimRay.direction) > 0.1f)
+            {
+                return false;
+            }
+
+            HumanoidDamageZone[] zones =
+                FindObjectsByType<HumanoidDamageZone>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.None);
+            float closestDepth = float.PositiveInfinity;
+            for (int index = 0; index < zones.Length; index++)
+            {
+                HumanoidDamageZone zone = zones[index];
+                Collider candidate =
+                    zone != null ? zone.GetComponent<Collider>() : null;
+                if (candidate == null ||
+                    !candidate.enabled ||
+                    (characterRoot != null &&
+                        candidate.transform.IsChildOf(characterRoot)) ||
+                    !TryGetVerticalColumnBounds(
+                        aimCamera,
+                        candidate.bounds,
+                        out float minimumX,
+                        out float maximumX,
+                        out float maximumY) ||
+                    0.5f < minimumX - 0.0015f ||
+                    0.5f > maximumX + 0.0015f ||
+                    maximumY > 0.505f ||
+                    0.5f - maximumY > elevatedTargetDepthSearch)
+                {
+                    continue;
+                }
+
+                float candidateDepth = Vector3.Dot(
+                    candidate.bounds.center - aimRay.origin,
+                    aimRay.direction.normalized);
+                if (candidateDepth >= closestDepth ||
+                    candidateDepth > maximumAimDistance ||
+                    !IsAimHitAheadOfLaunch(
+                        launchOrigin,
+                        aimRay,
+                        aimRay.GetPoint(candidateDepth)))
+                {
+                    continue;
+                }
+
+                closestDepth = candidateDepth;
+            }
+
+            if (float.IsPositiveInfinity(closestDepth))
+            {
+                return false;
+            }
+
+            alignmentDistance = closestDepth;
+            return true;
+        }
+
+        private static bool TryGetVerticalColumnBounds(
+            Camera camera,
+            Bounds bounds,
+            out float minimumX,
+            out float maximumX,
+            out float maximumY)
+        {
+            minimumX = float.PositiveInfinity;
+            maximumX = float.NegativeInfinity;
+            maximumY = float.NegativeInfinity;
+            Vector3 center = bounds.center;
+            Vector3 extents = bounds.extents;
+            bool foundForwardCorner = false;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 point = center + new Vector3(
+                    (corner & 1) == 0 ? -extents.x : extents.x,
+                    (corner & 2) == 0 ? -extents.y : extents.y,
+                    (corner & 4) == 0 ? -extents.z : extents.z);
+                Vector3 viewport = camera.WorldToViewportPoint(point);
+                if (viewport.z <= 0f)
+                {
+                    continue;
+                }
+
+                foundForwardCorner = true;
+                minimumX = Mathf.Min(minimumX, viewport.x);
+                maximumX = Mathf.Max(maximumX, viewport.x);
+                maximumY = Mathf.Max(maximumY, viewport.y);
+            }
+
+            return foundForwardCorner;
         }
 
         private bool TryResolveCrosshairSurfaceDistance(
@@ -438,6 +597,8 @@ namespace WorldBuilder.Gameplay.Combat
             {
                 Collider candidate = hits[index].collider;
                 if (candidate == null ||
+                    HumanoidDamageHitboxRig.
+                        IsRedundantMovementCollider(candidate) ||
                     hits[index].distance <= 0.001f ||
                     hits[index].distance >= closestDistance ||
                     (characterRoot != null &&
@@ -523,6 +684,7 @@ namespace WorldBuilder.Gameplay.Combat
             }
 
             drawHeldLastFrame = false;
+            pendingRelease = false;
             heldDuration = 0f;
             readyWeight = 0f;
             StopPullbackAudio();

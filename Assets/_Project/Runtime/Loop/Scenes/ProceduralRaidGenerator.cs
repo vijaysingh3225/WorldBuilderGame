@@ -21,16 +21,25 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public bool RiverCrossesRoad;
             public Vector3[] MainRoad;
             public Vector3[] ForkRoad;
+            public Vector3[] BranchRoadA;
+            public Vector3[] BranchRoadB;
+            public Vector3[] BranchRoadC;
             public Vector3[] River;
+            public float PlayerSpawnRoadT;
+            public float ExtractionRoadT;
 
             public Vector3 PlayerStart =>
                 MainRoad != null && MainRoad.Length > 0
-                    ? MainRoad[0]
+                    ? PointOnPolyline(
+                        MainRoad,
+                        PlayerSpawnRoadT)
                     : Vector3.zero;
 
             public Vector3 Extraction =>
                 MainRoad != null && MainRoad.Length > 0
-                    ? MainRoad[MainRoad.Length - 1]
+                    ? PointOnPolyline(
+                        MainRoad,
+                        ExtractionRoadT)
                     : Vector3.zero;
         }
 
@@ -56,13 +65,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private Material plantDetailMaterial;
         [SerializeField] private Material rockMaterial;
         [Header("Generation")]
-        [SerializeField, Min(30f)] private float mapRadius = 72f;
-        [SerializeField, Range(24, 128)] private int terrainResolution = 128;
-        [SerializeField, Range(80, 700)] private int treeCount = 320;
-        [SerializeField, Range(8000, 42000)] private int grassCount = 32000;
-        [SerializeField, Range(40, 600)] private int undergrowthCount = 420;
-        [SerializeField, Range(10, 120)] private int boulderCount = 48;
-        [SerializeField, Range(10, 120)] private int trailStoneCount = 42;
+        [SerializeField, Min(30f)] private float mapRadius = 144f;
+        [SerializeField, Range(24, 384)] private int terrainResolution = 256;
+        [SerializeField, Range(80, 1600)] private int treeCount = 640;
+        [SerializeField, Range(8000, 140000)] private int grassCount = 64000;
+        [SerializeField, Range(40, 1800)] private int undergrowthCount = 760;
+        [SerializeField, Range(10, 260)] private int boulderCount = 96;
+        [SerializeField, Range(10, 240)] private int trailStoneCount = 80;
         [SerializeField, Min(1f)] private float roadHalfWidth = 1.8f;
         [SerializeField, Min(1f)] private float riverHalfWidth = 3.1f;
         [SerializeField, Min(0.5f)] private float treeClearance = 5.8f;
@@ -76,7 +85,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float BridgeCrossSectionScale = 0.46f;
         private const float BridgeExtraWidthScale = 1.65f;
         private const float BridgeDeckLift = 0.35f;
-        private const int GrassPlacementsPerBatch = 320;
+        private const int GrassPlacementsPerBatch = 768;
 
         private sealed class GrassMeshSource
         {
@@ -98,9 +107,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public float Radius;
         }
 
+        private struct TrailRiverCrossing
+        {
+            public Vector3 Point;
+            public Vector3 RoadDirection;
+        }
+
         private readonly List<Vector3> mainRoadSamples =
             new List<Vector3>();
         private readonly List<Vector3> forkRoadSamples =
+            new List<Vector3>();
+        private readonly List<Vector3> branchRoadASamples =
+            new List<Vector3>();
+        private readonly List<Vector3> branchRoadBSamples =
+            new List<Vector3>();
+        private readonly List<Vector3> branchRoadCSamples =
             new List<Vector3>();
         private readonly List<Vector3> riverSamples =
             new List<Vector3>();
@@ -135,6 +156,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private int generatedFlowerClusterMemberCount;
         private int generatedGroundCoverPatchCount;
         private int generatedTrailTransitionGrassCount;
+        private int generatedGuardGroupCount;
+        private int generatedGuardPairCount;
+        private int generatedBridgeCount;
         private Vector2 noiseOffsetA;
         private Vector2 noiseOffsetB;
 
@@ -197,8 +221,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             generatedGroundCoverPatchCount;
         public int GeneratedTrailTransitionGrassCount =>
             generatedTrailTransitionGrassCount;
+        public int GeneratedGuardGroupCount =>
+            generatedGuardGroupCount;
+        public int GeneratedGuardPairCount =>
+            generatedGuardPairCount;
+        public int GeneratedBridgeCount =>
+            generatedBridgeCount;
         public RaidLayout CurrentLayout => layout;
         public GameObject BridgePrefab => bridgePrefab;
+        public float MapRadius => mapRadius;
+
+        public float DistanceToNearestTrail(
+            Vector3 worldPoint)
+        {
+            return DistanceToRoad(
+                new Vector2(
+                    worldPoint.x,
+                    worldPoint.z));
+        }
 
         public void Configure(
             Transform playerRoot,
@@ -273,18 +313,33 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             mainRoadSamples.Clear();
             forkRoadSamples.Clear();
+            branchRoadASamples.Clear();
+            branchRoadBSamples.Clear();
+            branchRoadCSamples.Clear();
             riverSamples.Clear();
             SampleSpline(
                 layout.MainRoad,
-                5,
+                2,
                 mainRoadSamples);
             SampleSpline(
                 layout.ForkRoad,
-                5,
+                2,
                 forkRoadSamples);
             SampleSpline(
+                layout.BranchRoadA,
+                2,
+                branchRoadASamples);
+            SampleSpline(
+                layout.BranchRoadB,
+                2,
+                branchRoadBSamples);
+            SampleSpline(
+                layout.BranchRoadC,
+                2,
+                branchRoadCSamples);
+            SampleSpline(
                 layout.River,
-                5,
+                3,
                 riverSamples);
 
             if (generatedRoot == null)
@@ -334,10 +389,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     RiverWaterBankOverlap,
                 waterRuntime,
                 false);
-            if (layout.RiverCrossesRoad)
-            {
-                CreateBridge();
-            }
+            CreateBridges();
 
             CreateForest(random);
             CreateGroundScenery(random);
@@ -350,6 +402,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 $"undergrowth={generatedUndergrowthCount}; " +
                 $"boulders={generatedBoulderCount}; " +
                 $"trailStones={generatedTrailStoneCount}; " +
+                $"guardGroups={generatedGuardGroupCount}; " +
+                $"guardPairs={generatedGuardPairCount}; " +
                 $"fork={layout.HasRoadFork}; " +
                 $"crossing={layout.RiverCrossesRoad}");
         }
@@ -377,169 +431,267 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float radius)
         {
             var random = new System.Random(seed);
-            const int roadPointCount = 17;
-            var road = new Vector3[roadPointCount];
-            float phase =
-                Mathf.Lerp(
-                    -1.1f,
-                    1.1f,
-                    (float)random.NextDouble());
-            float secondaryPhase =
+            float mainAngle =
                 Mathf.Lerp(
                     0f,
                     Mathf.PI * 2f,
                     (float)random.NextDouble());
-            for (int index = 0;
-                 index < roadPointCount;
-                 index++)
-            {
-                float t =
-                    index /
-                    (roadPointCount - 1f);
-                float z =
-                    Mathf.Lerp(
-                        -radius + 7f,
-                        radius - 7f,
-                        t);
-                float x =
-                    Mathf.Sin(t * Mathf.PI * 2.15f + phase) *
-                    7.5f +
-                    Mathf.Sin(
-                        t * Mathf.PI * 4.1f +
-                        secondaryPhase) *
-                    2.4f;
-                x += Mathf.Lerp(
-                    -3.5f,
-                    3.5f,
-                    t);
-                road[index] = new Vector3(x, 0f, z);
-            }
+            Vector3[] road = CreateBoundaryRoad(
+                random,
+                radius,
+                mainAngle,
+                25,
+                0f);
 
-            bool hasFork =
-                random.NextDouble() < 0.52;
-            Vector3[] fork = Array.Empty<Vector3>();
-            if (hasFork)
-            {
-                const int forkPoints = 9;
-                fork = new Vector3[forkPoints];
-                int forkStart = 5;
-                int forkEnd = 12;
-                float side =
-                    random.NextDouble() < 0.5
-                        ? -1f
-                        : 1f;
-                float offset =
-                    Mathf.Lerp(
-                        9f,
-                        14f,
-                        (float)random.NextDouble());
-                for (int index = 0;
-                     index < forkPoints;
-                     index++)
-                {
-                    float t =
-                        index /
-                        (forkPoints - 1f);
-                    Vector3 basePoint =
-                        Vector3.Lerp(
-                            road[forkStart],
-                            road[forkEnd],
-                            t);
-                    float bow =
-                        Mathf.Sin(t * Mathf.PI) *
-                        offset *
-                        side;
-                    fork[index] =
-                        basePoint +
-                        Vector3.right * bow;
-                }
-            }
-
-            bool crosses =
-                random.NextDouble() < 0.62;
-            Vector3[] river;
-            if (crosses)
-            {
-                const int riverPointCount = 15;
-                river =
-                    new Vector3[riverPointCount];
-                float crossingZ =
-                    Mathf.Lerp(
-                        -radius * 0.22f,
-                        radius * 0.30f,
-                        (float)random.NextDouble());
-                float riverPhase =
-                    Mathf.Lerp(
-                        0f,
-                        Mathf.PI * 2f,
-                        (float)random.NextDouble());
-                for (int index = 0;
-                     index < riverPointCount;
-                     index++)
-                {
-                    float t =
-                        index /
-                        (riverPointCount - 1f);
-                    float x =
+            bool hasSecondPrimary =
+                random.NextDouble() < 0.68;
+            Vector3[] fork = hasSecondPrimary
+                ? CreateBoundaryRoad(
+                    random,
+                    radius,
+                    mainAngle +
                         Mathf.Lerp(
-                            -radius + 2f,
-                            radius - 2f,
-                            t);
-                    float z =
-                        crossingZ +
-                        Mathf.Sin(
-                            t * Mathf.PI * 2f +
-                            riverPhase) *
-                        5.5f;
-                    river[index] =
-                        new Vector3(x, 0f, z);
-                }
-            }
-            else
-            {
-                const int riverPointCount = 17;
-                river =
-                    new Vector3[riverPointCount];
-                float side =
-                    random.NextDouble() < 0.5
-                        ? -1f
-                        : 1f;
-                float separation =
+                            0.95f,
+                            1.78f,
+                            (float)random.NextDouble()),
+                    23,
                     Mathf.Lerp(
-                        13f,
-                        18f,
-                        (float)random.NextDouble());
-                for (int index = 0;
-                     index < riverPointCount;
-                     index++)
-                {
-                    float t =
-                        index /
-                        (riverPointCount - 1f);
-                    Vector3 basePoint =
-                        road[index];
-                    float meander =
-                        Mathf.Sin(t * Mathf.PI * 3f) *
-                        3.5f;
-                    river[index] =
-                        new Vector3(
-                            basePoint.x +
-                            side *
-                            (separation + meander),
-                            0f,
-                            basePoint.z);
-                }
-            }
+                        -radius * 0.12f,
+                        radius * 0.12f,
+                        (float)random.NextDouble()))
+                : Array.Empty<Vector3>();
+
+            Vector3[] branchA = CreateBranchRoad(
+                random,
+                radius,
+                road,
+                Mathf.Lerp(
+                    0.26f,
+                    0.43f,
+                    (float)random.NextDouble()),
+                random.NextDouble() < 0.5 ? -1f : 1f);
+            Vector3[] branchB =
+                random.NextDouble() < 0.78
+                    ? CreateBranchRoad(
+                        random,
+                        radius,
+                        hasSecondPrimary ? fork : road,
+                        Mathf.Lerp(
+                            0.52f,
+                            0.72f,
+                            (float)random.NextDouble()),
+                        random.NextDouble() < 0.5 ? -1f : 1f)
+                    : Array.Empty<Vector3>();
+            Vector3[] branchC =
+                random.NextDouble() < 0.38
+                    ? CreateBranchRoad(
+                        random,
+                        radius,
+                        road,
+                        Mathf.Lerp(
+                            0.58f,
+                            0.78f,
+                            (float)random.NextDouble()),
+                        random.NextDouble() < 0.5 ? -1f : 1f)
+                    : Array.Empty<Vector3>();
+
+            Vector3[] river = CreateBoundaryRiver(
+                random,
+                radius,
+                mainAngle +
+                    Mathf.PI * 0.5f +
+                    Mathf.Lerp(
+                        -0.22f,
+                        0.22f,
+                        (float)random.NextDouble()));
+
+            float playerSpawnT =
+                Mathf.Lerp(
+                    0.085f,
+                    0.135f,
+                    (float)random.NextDouble());
+            float extractionT =
+                Mathf.Lerp(
+                    0.875f,
+                    0.925f,
+                    (float)random.NextDouble());
 
             return new RaidLayout
             {
                 Seed = seed,
-                HasRoadFork = hasFork,
-                RiverCrossesRoad = crosses,
+                HasRoadFork = true,
+                RiverCrossesRoad = true,
                 MainRoad = road,
                 ForkRoad = fork,
-                River = river
+                BranchRoadA = branchA,
+                BranchRoadB = branchB,
+                BranchRoadC = branchC,
+                River = river,
+                PlayerSpawnRoadT = playerSpawnT,
+                ExtractionRoadT = extractionT
             };
+        }
+
+        private static Vector3[] CreateBoundaryRoad(
+            System.Random random,
+            float radius,
+            float angle,
+            int pointCount,
+            float centerOffset)
+        {
+            var points = new Vector3[pointCount];
+            Vector3 forward = new Vector3(
+                Mathf.Sin(angle),
+                0f,
+                Mathf.Cos(angle));
+            Vector3 right = new Vector3(
+                forward.z,
+                0f,
+                -forward.x);
+            float edge = Mathf.Max(1f, radius - 2f);
+            float phaseA =
+                Mathf.Lerp(
+                    0f,
+                    Mathf.PI * 2f,
+                    (float)random.NextDouble());
+            float phaseB =
+                Mathf.Lerp(
+                    0f,
+                    Mathf.PI * 2f,
+                    (float)random.NextDouble());
+            for (int index = 0; index < pointCount; index++)
+            {
+                float t = index / (pointCount - 1f);
+                float envelope = Mathf.Sin(t * Mathf.PI);
+                float lateral =
+                    centerOffset * envelope +
+                    Mathf.Sin(
+                        t * Mathf.PI * 2.2f + phaseA) *
+                    radius * 0.055f * envelope +
+                    Mathf.Sin(
+                        t * Mathf.PI * 5.1f + phaseB) *
+                    radius * 0.018f * envelope;
+                points[index] =
+                    forward * Mathf.Lerp(-edge, edge, t) +
+                    right * lateral;
+            }
+            return points;
+        }
+
+        private static Vector3[] CreateBranchRoad(
+            System.Random random,
+            float radius,
+            Vector3[] sourceRoad,
+            float sourceT,
+            float side)
+        {
+            const int PointCount = 13;
+            var points = new Vector3[PointCount];
+            Vector3 start = PointOnPolyline(
+                sourceRoad,
+                sourceT);
+            float startAngle = Mathf.Atan2(
+                start.x,
+                start.z);
+            float exitAngle =
+                startAngle +
+                side *
+                Mathf.Lerp(
+                    0.72f,
+                    1.35f,
+                    (float)random.NextDouble());
+            Vector3 end = new Vector3(
+                Mathf.Sin(exitAngle) * (radius - 2f),
+                0f,
+                Mathf.Cos(exitAngle) * (radius - 2f));
+            Vector3 midpointDirection =
+                (start + end).sqrMagnitude > 0.001f
+                    ? (start + end).normalized
+                    : new Vector3(
+                        Mathf.Sin(exitAngle),
+                        0f,
+                        Mathf.Cos(exitAngle));
+            Vector3 control =
+                midpointDirection * radius * 0.58f +
+                Vector3.Cross(
+                    Vector3.up,
+                    midpointDirection) *
+                side *
+                radius * 0.08f;
+            for (int index = 0; index < PointCount; index++)
+            {
+                float t = index / (PointCount - 1f);
+                float inverse = 1f - t;
+                points[index] =
+                    inverse * inverse * start +
+                    2f * inverse * t * control +
+                    t * t * end;
+            }
+            return points;
+        }
+
+        private static Vector3[] CreateBoundaryRiver(
+            System.Random random,
+            float radius,
+            float angle)
+        {
+            const int PointCount = 31;
+            var points = new Vector3[PointCount];
+            Vector3 forward = new Vector3(
+                Mathf.Sin(angle),
+                0f,
+                Mathf.Cos(angle));
+            Vector3 right = new Vector3(
+                forward.z,
+                0f,
+                -forward.x);
+            float centerOffset = Mathf.Lerp(
+                -radius * 0.09f,
+                radius * 0.09f,
+                (float)random.NextDouble());
+            float edge = Mathf.Sqrt(
+                Mathf.Max(
+                    1f,
+                    (radius - 1.5f) * (radius - 1.5f) -
+                    centerOffset * centerOffset));
+            float phase = Mathf.Lerp(
+                0f,
+                Mathf.PI * 2f,
+                (float)random.NextDouble());
+            for (int index = 0; index < PointCount; index++)
+            {
+                float t = index / (PointCount - 1f);
+                float envelope = Mathf.Sin(t * Mathf.PI);
+                float meander =
+                    Mathf.Sin(
+                        t * Mathf.PI * 3.25f + phase) *
+                    radius * 0.085f * envelope +
+                    Mathf.Sin(
+                        t * Mathf.PI * 7.1f + phase * 0.47f) *
+                    radius * 0.026f * envelope;
+                points[index] =
+                    forward * Mathf.Lerp(-edge, edge, t) +
+                    right * (centerOffset + meander);
+            }
+            return points;
+        }
+
+        private static Vector3 PointOnPolyline(
+            Vector3[] points,
+            float t)
+        {
+            if (points == null || points.Length == 0)
+            {
+                return Vector3.zero;
+            }
+            float scaled =
+                Mathf.Clamp01(t) * (points.Length - 1);
+            int first = Mathf.FloorToInt(scaled);
+            int second = Mathf.Min(points.Length - 1, first + 1);
+            return Vector3.Lerp(
+                points[first],
+                points[second],
+                scaled - first);
         }
 
         private int ResolveSeed()
@@ -1091,26 +1243,59 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
-        private void CreateBridge()
+        private void CreateBridges()
         {
-            Vector3 point;
-            Vector3 direction;
-            if (TryFindPolylineIntersection(
-                    mainRoadSamples,
-                    riverSamples,
-                    out Vector3 intersection,
-                    out Vector3 roadDirection))
+            generatedBridgeCount = 0;
+            var bridgePoints = new List<Vector3>();
+            var crossings = new List<TrailRiverCrossing>();
+            foreach (List<Vector3> road in AllRoads())
             {
-                point = intersection;
-                direction = roadDirection;
+                crossings.Clear();
+                FindPolylineIntersections(
+                    road,
+                    riverSamples,
+                    crossings);
+                for (int crossingIndex = 0;
+                     crossingIndex < crossings.Count;
+                     crossingIndex++)
+                {
+                    TrailRiverCrossing crossing =
+                        crossings[crossingIndex];
+                    bool duplicate = false;
+                    for (int index = 0;
+                         index < bridgePoints.Count;
+                         index++)
+                    {
+                        if (Vector3.Distance(
+                                bridgePoints[index],
+                                crossing.Point) <
+                            riverHalfWidth * 2.5f)
+                        {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (duplicate)
+                    {
+                        continue;
+                    }
+
+                    bridgePoints.Add(crossing.Point);
+                    CreateBridgeAt(
+                        crossing.Point,
+                        crossing.RoadDirection,
+                        bridgePoints.Count);
+                }
             }
-            else if (TryFindClosestPair(
+
+            if (bridgePoints.Count == 0 &&
+                TryFindClosestPair(
                          mainRoadSamples,
                          riverSamples,
                          out int roadIndex,
                          out int riverIndex))
             {
-                point = (mainRoadSamples[roadIndex] +
+                Vector3 point = (mainRoadSamples[roadIndex] +
                     riverSamples[riverIndex]) * 0.5f;
                 Vector3 previous =
                     mainRoadSamples[Mathf.Max(0, roadIndex - 1)];
@@ -1118,18 +1303,25 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     mainRoadSamples[Mathf.Min(
                         mainRoadSamples.Count - 1,
                         roadIndex + 1)];
-                direction = Vector3.ProjectOnPlane(
+                Vector3 direction = Vector3.ProjectOnPlane(
                     next - previous,
                     Vector3.up).normalized;
+                CreateBridgeAt(point, direction, 1);
             }
-            else
-            {
-                return;
-            }
+        }
+
+        private void CreateBridgeAt(
+            Vector3 point,
+            Vector3 direction,
+            int bridgeNumber)
+        {
+            generatedBridgeCount++;
             GameObject bridge = bridgePrefab != null
                 ? Instantiate(bridgePrefab)
                 : GameObject.CreatePrimitive(PrimitiveType.Cube);
-            bridge.name = "Road Bridge";
+            bridge.name = bridgeNumber == 1
+                ? "Road Bridge"
+                : $"Road Bridge {bridgeNumber}";
             bridge.transform.SetParent(
                 generatedRoot,
                 false);
@@ -3403,12 +3595,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             RenderSettings.fogEndDistance = 105f;
             RenderSettings.ambientMode = AmbientMode.Trilight;
             RenderSettings.ambientSkyColor =
-                new Color(0.40f, 0.47f, 0.54f, 1f);
+                new Color(0.48f, 0.55f, 0.62f, 1f);
             RenderSettings.ambientEquatorColor =
-                new Color(0.25f, 0.30f, 0.34f, 1f);
+                new Color(0.34f, 0.39f, 0.44f, 1f);
             RenderSettings.ambientGroundColor =
-                new Color(0.16f, 0.18f, 0.19f, 1f);
-            RenderSettings.ambientIntensity = 1.05f;
+                new Color(0.24f, 0.27f, 0.29f, 1f);
+            RenderSettings.ambientIntensity = 1.18f;
             RenderSettings.reflectionIntensity = 0.42f;
 
             Light[] lights =
@@ -3423,7 +3615,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 light.color =
                     new Color(0.94f, 0.86f, 0.72f, 1f);
                 light.intensity = 1.35f;
-                light.shadowStrength = 0.82f;
+                light.shadowStrength = 0.68f;
                 light.transform.rotation =
                     Quaternion.Euler(62f, -42f, 0f);
             }
@@ -3463,8 +3655,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 color = profile.Add<ColorAdjustments>();
             }
             color.active = true;
-            color.postExposure.Override(0.62f);
-            color.contrast.Override(5f);
+            color.postExposure.Override(0.68f);
+            color.contrast.Override(4f);
             color.saturation.Override(-27f);
             color.colorFilter.Override(
                 new Color(0.88f, 0.94f, 1f, 1f));
@@ -3494,7 +3686,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
             tonalShape.active = true;
             tonalShape.shadows.Override(
-                new Vector4(0.92f, 0.97f, 1.04f, 0f));
+                new Vector4(1.06f, 1.08f, 1.10f, 0f));
             tonalShape.midtones.Override(
                 new Vector4(1f, 1f, 1f, 0f));
             tonalShape.highlights.Override(
@@ -3592,16 +3784,27 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             System.Random random)
         {
             Vector3 start =
-                RoadPointAt(0.02f);
+                RoadPointAt(
+                    layout != null
+                        ? layout.PlayerSpawnRoadT
+                        : 0.11f);
             Vector3 extraction =
-                RoadPointAt(0.98f);
+                RoadPointAt(
+                    layout != null
+                        ? layout.ExtractionRoadT
+                        : 0.90f);
             MoveActor(
                 player,
                 RoadSurfacePoint(start, 1f));
             if (player != null)
             {
                 Vector3 forward =
-                    RoadPointAt(0.04f) -
+                    RoadPointAt(
+                        Mathf.Min(
+                            1f,
+                            (layout != null
+                                ? layout.PlayerSpawnRoadT
+                                : 0.11f) + 0.025f)) -
                     start;
                 player.rotation =
                     Quaternion.LookRotation(
@@ -3621,64 +3824,114 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             if (enemies != null)
             {
-                float[] positions =
+                generatedGuardGroupCount = 0;
+                generatedGuardPairCount = 0;
+                var roads = new List<List<Vector3>>();
+                foreach (List<Vector3> road in AllRoads())
                 {
-                    0.28f,
-                    0.51f,
-                    0.74f
-                };
-                for (int index = 0;
-                     index < enemies.Length &&
-                     index < positions.Length;
-                     index++)
-                {
-                    EnemyBrain enemy = enemies[index];
-                    if (enemy == null)
-                    {
-                        continue;
-                    }
+                    roads.Add(road);
+                }
 
-                    EnemyDamageProfile damageProfile =
-                        enemy.GetComponent<EnemyDamageProfile>();
-                    if (damageProfile == null)
+                int enemyIndex = 0;
+                while (enemyIndex < enemies.Length &&
+                       roads.Count > 0)
+                {
+                    int remaining = enemies.Length - enemyIndex;
+                    bool pair =
+                        remaining >= 2 &&
+                        ((generatedGuardPairCount == 0 &&
+                          generatedGuardGroupCount >= 1) ||
+                         random.NextDouble() < 0.34);
+                    int groupSize = pair ? 2 : 1;
+                    List<Vector3> patrolRoad = roads[0];
+                    float t = 0.5f;
+                    Vector3 groupCenter = Vector3.zero;
+                    for (int attempt = 0; attempt < 12; attempt++)
                     {
-                        damageProfile =
-                            enemy.gameObject.AddComponent<
+                        int roadIndex =
+                            (generatedGuardGroupCount +
+                             random.Next(0, roads.Count)) %
+                            roads.Count;
+                        patrolRoad = roads[roadIndex];
+                        t = Mathf.Lerp(
+                            0.17f,
+                            0.83f,
+                            (float)random.NextDouble());
+                        groupCenter = RoadPointAt(
+                            patrolRoad,
+                            t);
+                        if (Vector3.Distance(
+                                groupCenter,
+                                start) >= 32f &&
+                            Vector3.Distance(
+                                groupCenter,
+                                extraction) >= 24f)
+                        {
+                            break;
+                        }
+                    }
+                    Vector3 tangent = RoadTangentAt(
+                        patrolRoad,
+                        t);
+                    Vector3 side = Vector3.Cross(
+                        Vector3.up,
+                        tangent).normalized;
+                    float routeSpan = Mathf.Clamp(
+                        13f /
+                        Mathf.Max(
+                            1f,
+                            PolylineLength(patrolRoad)),
+                        0.035f,
+                        0.12f);
+                    Vector3[] route = BuildPatrolRoute(
+                        patrolRoad,
+                        Mathf.Max(0.04f, t - routeSpan),
+                        Mathf.Min(0.96f, t + routeSpan),
+                        7);
+
+                    for (int member = 0;
+                         member < groupSize &&
+                         enemyIndex < enemies.Length;
+                         member++, enemyIndex++)
+                    {
+                        EnemyBrain enemy = enemies[enemyIndex];
+                        if (enemy == null)
+                        {
+                            continue;
+                        }
+
+                        EnemyDamageProfile damageProfile =
+                            enemy.GetComponent<EnemyDamageProfile>();
+                        if (damageProfile == null)
+                        {
+                            damageProfile = enemy.gameObject.AddComponent<
                                 EnemyDamageProfile>();
-                    }
-                    damageProfile.Configure(
-                        EnemyCombatVariant.RaidEnemy);
+                        }
+                        damageProfile.Configure(
+                            EnemyCombatVariant.RaidEnemy);
 
-                    float t =
-                        Mathf.Clamp01(
-                            positions[index] +
-                            Mathf.Lerp(
-                                -0.035f,
-                                0.035f,
-                                (float)random.NextDouble()));
-                    Vector3 spawn =
-                        RoadPointAt(t);
-                    MoveActor(
-                        enemy.transform,
-                        RoadSurfacePoint(spawn, 1f));
-                    Vector3 forward =
-                        RoadPointAt(
-                            Mathf.Min(1f, t + 0.02f)) -
-                        spawn;
-                    enemy.transform.rotation =
-                        Quaternion.LookRotation(
-                            Vector3.ProjectOnPlane(
-                                forward,
-                                Vector3.up),
-                            Vector3.up);
-                    Vector3[] route =
-                        BuildPatrolRoute(
-                            Mathf.Max(0f, t - 0.11f),
-                            Mathf.Min(1f, t + 0.11f),
-                            7);
-                    enemy.ConfigurePatrolRoute(
-                        route,
-                        route.Length / 2);
+                        float lateral = groupSize == 2
+                            ? member == 0 ? -0.72f : 0.72f
+                            : 0f;
+                        Vector3 spawn =
+                            groupCenter + side * lateral;
+                        MoveActor(
+                            enemy.transform,
+                            RoadSurfacePoint(spawn, 1f));
+                        enemy.transform.rotation =
+                            Quaternion.LookRotation(
+                                tangent,
+                                Vector3.up);
+                        enemy.ConfigurePatrolRoute(
+                            route,
+                            route.Length / 2);
+                    }
+
+                    generatedGuardGroupCount++;
+                    if (pair)
+                    {
+                        generatedGuardPairCount++;
+                    }
                 }
             }
 
@@ -3721,6 +3974,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         }
 
         private Vector3[] BuildPatrolRoute(
+            List<Vector3> road,
             float start,
             float end,
             int count)
@@ -3737,7 +3991,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         index / (count - 1f));
                 route[index] =
                     RoadSurfacePoint(
-                        RoadPointAt(t),
+                        RoadPointAt(road, t),
                         1f);
             }
             return route;
@@ -3996,40 +4250,85 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private Vector3 RoadPointAt(float t)
         {
-            if (mainRoadSamples.Count == 0)
+            return RoadPointAt(mainRoadSamples, t);
+        }
+
+        private static Vector3 RoadPointAt(
+            List<Vector3> road,
+            float t)
+        {
+            if (road == null || road.Count == 0)
             {
                 return Vector3.zero;
             }
 
             float scaled =
                 Mathf.Clamp01(t) *
-                (mainRoadSamples.Count - 1);
+                (road.Count - 1);
             int first =
                 Mathf.FloorToInt(scaled);
             int second =
                 Mathf.Min(
-                    mainRoadSamples.Count - 1,
+                    road.Count - 1,
                     first + 1);
             return Vector3.Lerp(
-                mainRoadSamples[first],
-                mainRoadSamples[second],
+                road[first],
+                road[second],
                 scaled - first);
+        }
+
+        private static Vector3 RoadTangentAt(
+            List<Vector3> road,
+            float t)
+        {
+            Vector3 before = RoadPointAt(
+                road,
+                Mathf.Max(0f, t - 0.012f));
+            Vector3 after = RoadPointAt(
+                road,
+                Mathf.Min(1f, t + 0.012f));
+            Vector3 direction = Vector3.ProjectOnPlane(
+                after - before,
+                Vector3.up);
+            return direction.sqrMagnitude > 0.0001f
+                ? direction.normalized
+                : Vector3.forward;
+        }
+
+        private static float PolylineLength(
+            List<Vector3> road)
+        {
+            float length = 0f;
+            if (road == null)
+            {
+                return length;
+            }
+            for (int index = 1; index < road.Count; index++)
+            {
+                length += Vector3.Distance(
+                    road[index - 1],
+                    road[index]);
+            }
+            return length;
         }
 
         private float DistanceToRoad(Vector2 point)
         {
-            float main =
-                DistanceToPolyline(
-                    point,
-                    mainRoadSamples);
-            float fork =
-                layout != null &&
-                layout.HasRoadFork
-                    ? DistanceToPolyline(
-                        point,
-                        forkRoadSamples)
-                    : float.PositiveInfinity;
-            return Mathf.Min(main, fork);
+            float distance = DistanceToPolyline(
+                point,
+                mainRoadSamples);
+            distance = Mathf.Min(
+                distance,
+                DistanceToPolyline(point, forkRoadSamples));
+            distance = Mathf.Min(
+                distance,
+                DistanceToPolyline(point, branchRoadASamples));
+            distance = Mathf.Min(
+                distance,
+                DistanceToPolyline(point, branchRoadBSamples));
+            return Mathf.Min(
+                distance,
+                DistanceToPolyline(point, branchRoadCSamples));
         }
 
         private float SignedDistanceToRoad(
@@ -4080,20 +4379,85 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     mainRoadSamples,
                     out closest,
                     out distance);
-            if (layout != null &&
-                layout.HasRoadFork &&
-                TryClosestPoint(
-                    point,
-                    forkRoadSamples,
-                    out Vector2 forkClosest,
-                    out float forkDistance) &&
-                (!found || forkDistance < distance))
-            {
-                closest = forkClosest;
-                distance = forkDistance;
-                found = true;
-            }
+            TryUseCloserRoad(
+                point,
+                forkRoadSamples,
+                ref found,
+                ref closest,
+                ref distance);
+            TryUseCloserRoad(
+                point,
+                branchRoadASamples,
+                ref found,
+                ref closest,
+                ref distance);
+            TryUseCloserRoad(
+                point,
+                branchRoadBSamples,
+                ref found,
+                ref closest,
+                ref distance);
+            TryUseCloserRoad(
+                point,
+                branchRoadCSamples,
+                ref found,
+                ref closest,
+                ref distance);
             return found;
+        }
+
+        private static void TryUseCloserRoad(
+            Vector2 point,
+            List<Vector3> road,
+            ref bool found,
+            ref Vector2 closest,
+            ref float distance)
+        {
+            if (!TryClosestPoint(
+                    point,
+                    road,
+                    out Vector2 roadClosest,
+                    out float roadDistance) ||
+                found && roadDistance >= distance)
+            {
+                return;
+            }
+
+            closest = roadClosest;
+            distance = roadDistance;
+            found = true;
+        }
+
+        private IEnumerable<List<Vector3>> AdditionalRoads()
+        {
+            if (forkRoadSamples.Count > 1)
+            {
+                yield return forkRoadSamples;
+            }
+            if (branchRoadASamples.Count > 1)
+            {
+                yield return branchRoadASamples;
+            }
+            if (branchRoadBSamples.Count > 1)
+            {
+                yield return branchRoadBSamples;
+            }
+            if (branchRoadCSamples.Count > 1)
+            {
+                yield return branchRoadCSamples;
+            }
+        }
+
+        private IEnumerable<List<Vector3>> AllRoads()
+        {
+            if (mainRoadSamples.Count > 1)
+            {
+                yield return mainRoadSamples;
+            }
+            foreach (List<Vector3> road in AdditionalRoads())
+            {
+                yield return road;
+            }
         }
 
         private static bool TryClosestPoint(
@@ -4187,14 +4551,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return indexA >= 0;
         }
 
-        private static bool TryFindPolylineIntersection(
+        private static void FindPolylineIntersections(
             List<Vector3> road,
             List<Vector3> river,
-            out Vector3 intersection,
-            out Vector3 roadDirection)
+            List<TrailRiverCrossing> results)
         {
-            intersection = Vector3.zero;
-            roadDirection = Vector3.forward;
             for (int roadIndex = 0;
                  roadIndex < road.Count - 1;
                  roadIndex++)
@@ -4231,21 +4592,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     }
 
                     Vector2 point = roadStart + roadDelta * roadT;
-                    intersection = new Vector3(
-                        point.x,
-                        Mathf.Lerp(
-                            road[roadIndex].y,
-                            road[roadIndex + 1].y,
-                            roadT),
-                        point.y);
-                    roadDirection = new Vector3(
-                        roadDelta.x,
-                        0f,
-                        roadDelta.y).normalized;
-                    return true;
+                    results.Add(new TrailRiverCrossing
+                    {
+                        Point = new Vector3(
+                            point.x,
+                            Mathf.Lerp(
+                                road[roadIndex].y,
+                                road[roadIndex + 1].y,
+                                roadT),
+                            point.y),
+                        RoadDirection = new Vector3(
+                            roadDelta.x,
+                            0f,
+                            roadDelta.y).normalized
+                    });
                 }
             }
-            return false;
         }
 
         private static float Cross2D(Vector2 a, Vector2 b)

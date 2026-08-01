@@ -289,6 +289,18 @@ crosshair tests, all 8 trajectory tests, and all 6 impact/feedback tests pass.
 Full run `20260801-041431-869-deterministic-full-suite` again stopped at the
 unchanged sword-block strafe gate before reaching bow validation.
 
+## 2026-08-01 Raid anatomical collider parity
+
+Raid enemies now expose the same arrow target surfaces as the controller-free
+Combat Lab dummy. When an active humanoid has precise anatomical damage zones,
+the broad `CharacterController` remains available for locomotion but is ignored
+by both crosshair-depth selection and arrow flight collision. The arrow therefore
+aims at and embeds in the visible head, torso, or limb collider instead of an
+earlier invisible capsule surface. Damage hitboxes also update after the final
+aimed stance and weapon-pose `LateUpdate`, keeping moving Raid collision shapes
+on the rendered bones. The 32 focused bow composition, continuous trajectory,
+and enemy damage tests pass, including explicit Raid-controller parity cases.
+
 ## 2026-07-31 close bow camera and outward holding elbow
 
 The bow draw again uses the accepted close Cinemachine composition: it blends
@@ -377,3 +389,45 @@ functional failures. It verifies zero wrist deviation at partial and full draw,
 a bounded stable resting elbow, full-draw palm alignment, outside elbow/head
 clearance, aimed locomotion stability, and accurate release. No diagnostic
 baseline was promoted.
+
+## 2026-08-01 rendered-frame bow release authority
+
+Player and AI bow releases are now queued during input simulation and committed
+by a dedicated final `LateUpdate` owner after Cinemachine has finished moving
+the rendered camera. The commit resolves the center-screen camera ray at that
+moment, then preserves the existing one-time straight direction from the visible
+bow tip to the first valid crosshair surface. Gravity remains the only later
+velocity change; no homing, redirection, reflection, or enemy-specific steering
+was added. Combat Lab and Raid both receive this behavior from the shared
+`BowWeapon` at runtime, without scene-specific tuning.
+
+The focused bow camera suite passes 13/13, including a regression that rotates
+the camera after a release is queued and proves the launched arrow uses the
+final rendered center ray. The full EditMode suite passes 104/108; its four
+failures are the existing mannequin and dormant-enemy expectation failures.
+Deterministic run `20260801-065531-340-deterministic-full-suite` exercised 1,530
+samples but aborted at the existing sword-block strafe prerequisite before the
+bow phases, so it supplies no new bow-playback claim. No diagnostic baseline
+was promoted.
+
+## 2026-08-01 elevated long-range bow convergence
+
+Over-the-shoulder parallax no longer falls back to the far terrain or the
+150 m reticle point merely because the player raises the crosshair above a
+distant humanoid to compensate for gravity. On release, the player bow checks
+the exact vertical screen column beneath the crosshair for projected humanoid
+damage colliders. If one crosses the center X coordinate and is closer than the
+surface under the elevated center ray, its forward depth becomes the one-time
+parallax convergence distance. The aim point remains on the original elevated
+center ray; the system never changes vertical aim, predicts drop, homes toward
+the target, or redirects the projectile after launch. Off-column targets cannot
+influence the shot.
+
+The focused camera/trajectory suite passes 14/14, including a case that places
+a humanoid below the crosshair and verifies that its depth is used while the
+zero-gravity aim point remains above its collider. The full EditMode suite
+passes 105/109 with the same four pre-existing mannequin and dormant-enemy
+failures. Deterministic run
+`20260801-071814-265-deterministic-full-suite` again exercised 1,530 samples but
+aborted at the existing sword-block strafe prerequisite before reaching its bow
+phases. No baseline was promoted.

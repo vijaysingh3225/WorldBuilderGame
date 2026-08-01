@@ -313,6 +313,50 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void RaidArrowPassesMovementCapsuleAndHitsAnatomicalCollider()
+        {
+            GameObject enemy = new GameObject("raid-collider-parity-enemy");
+            GameObject torso = new GameObject("raid-collider-parity-torso");
+            GameObject arrowObject = new GameObject("raid-collider-parity-arrow");
+            try
+            {
+                enemy.transform.position = new Vector3(0f, 0f, 2.1f);
+                enemy.AddComponent<Health>();
+                enemy.AddComponent<EnemyDamageProfile>()
+                    .Configure(EnemyCombatVariant.RaidEnemy);
+                CharacterController movementCollider =
+                    enemy.AddComponent<CharacterController>();
+                movementCollider.height = 2f;
+                movementCollider.radius = 0.5f;
+                torso.transform.SetParent(enemy.transform, false);
+                BoxCollider torsoCollider = torso.AddComponent<BoxCollider>();
+                torsoCollider.size = new Vector3(1f, 1f, 0.2f);
+                torso.AddComponent<HumanoidDamageZone>()
+                    .Configure(HumanoidHitRegion.Torso);
+                Physics.SyncTransforms();
+
+                BowArrowProjectile arrow =
+                    arrowObject.AddComponent<BowArrowProjectile>();
+                arrow.Launch(null, Vector3.forward * 28f, 10f);
+                for (int index = 0; index < 6 && !arrow.IsStuck; index++)
+                {
+                    InvokeFixedUpdate(arrow);
+                }
+
+                Assert.That(arrow.IsStuck, Is.True);
+                Assert.That(
+                    arrow.HitPoint.z,
+                    Is.EqualTo(2f).Within(0.001f),
+                    "The moving Raid enemy must collide at its visible anatomical surface, not its earlier invisible controller capsule.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(arrowObject);
+                Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
         public void VerticalShotKeepsArrowForwardPointedUp()
         {
             Quaternion verticalRotation =

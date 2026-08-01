@@ -1,3 +1,4 @@
+using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using WorldBuilder.Gameplay.Combat;
@@ -164,6 +165,55 @@ namespace WorldBuilder.Tests
             Assert.That(profile.TorsoHitsToKill, Is.EqualTo(3));
             Assert.That(profile.LimbHitsToKill, Is.EqualTo(5));
             Assert.That(health.Minimum, Is.Zero);
+        }
+
+        [Test]
+        public void PreciseHitboxesFollowTheFinalPresentedRaidPose()
+        {
+            DefaultExecutionOrder hitboxOrder =
+                typeof(HumanoidDamageHitboxRig).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+            DefaultExecutionOrder stanceOrder =
+                typeof(AimStanceLocomotionPresenter).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+            DefaultExecutionOrder weaponOrder =
+                typeof(TwoSlotWeaponPresenter).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+
+            Assert.That(hitboxOrder, Is.Not.Null);
+            Assert.That(stanceOrder, Is.Not.Null);
+            Assert.That(weaponOrder, Is.Not.Null);
+            Assert.That(
+                hitboxOrder.order,
+                Is.GreaterThan(stanceOrder.order));
+            Assert.That(
+                hitboxOrder.order,
+                Is.GreaterThan(weaponOrder.order),
+                "Raid damage shapes must update after the final visible bow and locomotion pose.");
+        }
+
+        [Test]
+        public void RaidMovementCapsuleDoesNotReplacePreciseArrowHitboxes()
+        {
+            CharacterController movementCollider =
+                enemy.AddComponent<CharacterController>();
+            GameObject preciseHitbox =
+                new GameObject("Precise Torso Hitbox");
+            preciseHitbox.transform.SetParent(enemy.transform, false);
+            preciseHitbox.AddComponent<BoxCollider>();
+            preciseHitbox.AddComponent<HumanoidDamageZone>()
+                .Configure(HumanoidHitRegion.Torso);
+
+            Assert.That(
+                HumanoidDamageHitboxRig.
+                    IsRedundantMovementCollider(movementCollider),
+                Is.True,
+                "Raid arrows must query the same anatomical colliders used by the controller-free Combat Lab dummy.");
+            Assert.That(
+                HumanoidDamageHitboxRig.
+                    IsRedundantMovementCollider(
+                        preciseHitbox.GetComponent<BoxCollider>()),
+                Is.False);
         }
 
         [Test]
