@@ -3,6 +3,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Tests
 {
@@ -211,18 +212,22 @@ namespace WorldBuilder.Tests
                     playerBowObject.AddComponent<BowWeapon>();
                 BowWeapon enemyBow =
                     enemyBowObject.AddComponent<BowWeapon>();
+                PlayerInputSource playerInput =
+                    player.AddComponent<PlayerInputSource>();
+                PlayerInputSource enemyInput =
+                    enemy.AddComponent<PlayerInputSource>();
                 AudioClip pullback =
                     AssetDatabase.LoadAssetAtPath<AudioClip>(
                         "Assets/_Project/Audio/SFX/" +
                         "Bow Pullback.wav");
                 playerBow.Configure(
-                    null,
+                    playerInput,
                     player.transform,
                     playerBowObject.transform,
                     playerArrow.transform,
                     pullback);
                 enemyBow.Configure(
-                    null,
+                    enemyInput,
                     enemy.transform,
                     enemyBowObject.transform,
                     enemyArrow.transform,
@@ -251,6 +256,10 @@ namespace WorldBuilder.Tests
                     enemyBow.PullbackVolume,
                     Is.EqualTo(0.14f).Within(0.001f));
                 Assert.That(
+                    enemyBow.IsPlayerOwned,
+                    Is.False,
+                    "An AI intent component must not opt the enemy into player crosshair aiming.");
+                Assert.That(
                     enemyBow.PullbackSpatialBlend,
                     Is.EqualTo(1f));
                 Assert.That(
@@ -258,7 +267,8 @@ namespace WorldBuilder.Tests
                     Is.EqualTo(20f).Within(0.001f));
                 Assert.That(
                     enemyBow.MaximumDamage,
-                    Is.EqualTo(34f));
+                    Is.EqualTo(100f),
+                    "A fully drawn Raid arrow should retain its one-shot threat while using NPC aiming rules.");
             }
             finally
             {

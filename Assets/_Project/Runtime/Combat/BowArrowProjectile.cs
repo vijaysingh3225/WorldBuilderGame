@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using WorldBuilder.Gameplay.Core;
@@ -7,6 +8,43 @@ namespace WorldBuilder.Gameplay.Combat
     [DisallowMultipleComponent]
     public sealed class BowArrowProjectile : MonoBehaviour
     {
+        public readonly struct FlightSignal
+        {
+            public FlightSignal(BowArrowProjectile projectile, GameObject owner, Vector3 start, Vector3 end, Vector3 direction)
+            {
+                Projectile = projectile;
+                Owner = owner;
+                Start = start;
+                End = end;
+                Direction = direction;
+            }
+
+            public BowArrowProjectile Projectile { get; }
+            public GameObject Owner { get; }
+            public Vector3 Start { get; }
+            public Vector3 End { get; }
+            public Vector3 Direction { get; }
+        }
+
+        public readonly struct ImpactSignal
+        {
+            public ImpactSignal(BowArrowProjectile projectile, GameObject owner, Vector3 point, Vector3 direction)
+            {
+                Projectile = projectile;
+                Owner = owner;
+                Point = point;
+                Direction = direction;
+            }
+
+            public BowArrowProjectile Projectile { get; }
+            public GameObject Owner { get; }
+            public Vector3 Point { get; }
+            public Vector3 Direction { get; }
+        }
+
+        public static event Action<FlightSignal> ArrowInFlight;
+        public static event Action<ImpactSignal> ArrowImpacted;
+
         private const float FlyingLifetime = 20f;
         private const float StuckLifetime = 45f;
         private const float SurfaceIntersectionLocalZ = 0.605f;
@@ -157,6 +195,7 @@ namespace WorldBuilder.Gameplay.Combat
                 flightTipPosition = hit.point;
                 lastFlightRotation = segmentRotation;
                 ImpactDirection = segmentDirection;
+                PublishFlightSignal(startTip, flightTipPosition, segmentDirection);
                 ResolveImpact(
                     hit.collider,
                     hit.point);
@@ -164,6 +203,7 @@ namespace WorldBuilder.Gameplay.Combat
             }
 
             flightTipPosition += displacement;
+            PublishFlightSignal(startTip, flightTipPosition, segmentDirection);
             flightVelocity += Physics.gravity * step;
             if (flightVelocity.sqrMagnitude > 0.04f)
             {
@@ -290,6 +330,8 @@ namespace WorldBuilder.Gameplay.Combat
             HitPoint = hitPoint;
             ImpactDirection =
                 lastFlightRotation * Vector3.forward;
+            ArrowImpacted?.Invoke(
+                new ImpactSignal(this, owner, hitPoint, ImpactDirection));
             HumanoidDamageZone damageZone =
                 hitCollider.GetComponentInParent<
                     HumanoidDamageZone>(true);
@@ -333,6 +375,12 @@ namespace WorldBuilder.Gameplay.Combat
                 attachment,
                 hitPoint,
                 lastFlightRotation);
+        }
+
+        private void PublishFlightSignal(Vector3 start, Vector3 end, Vector3 direction)
+        {
+            ArrowInFlight?.Invoke(
+                new FlightSignal(this, owner, start, end, direction));
         }
 
         private void PlayPlayerHitFeedback(

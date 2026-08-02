@@ -176,6 +176,9 @@ namespace WorldBuilder.Gameplay.Presentation
             bowEquipped &&
             bowRoot != null &&
             bowRoot.parent == leftHand;
+        public bool SwordIsVisible =>
+            swordRoot != null &&
+            swordRoot.gameObject.activeSelf;
         public Vector3 PresentedDrawPalmDirection =>
             hasRightHandAnatomicalFrame && rightHand != null
                 ? rightHand.TransformDirection(
@@ -316,6 +319,28 @@ namespace WorldBuilder.Gameplay.Presentation
             CaptureSheatheBendDirection();
             SetSwordAvailability(false);
             return true;
+        }
+
+        public void ConfigureBowOnlyLoadout()
+        {
+            ResolveRig();
+            CaptureCarryTransform();
+            CaptureBowTransform();
+            transitioning = false;
+            transitionPhase = TransitionPhase.None;
+            transitionProgress = 1f;
+            targetSlot = SecondarySlot;
+            activeSlot = SecondarySlot;
+            SetSwordReadyWeight(0f);
+            SetSwordAvailability(false);
+            if (swordRoot != null)
+            {
+                swordRoot.gameObject.SetActive(false);
+            }
+
+            EquipBow();
+            bowPoseWeight = 1f;
+            ActiveSlotChanged?.Invoke(activeSlot);
         }
 
         private void Awake()

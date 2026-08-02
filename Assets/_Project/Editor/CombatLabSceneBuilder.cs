@@ -74,9 +74,27 @@ namespace WorldBuilder.Editor
             Material floorMaterial = GetOrCreateMaterial("Floor", new Color(0.16f, 0.19f, 0.20f));
             Material wallMaterial = GetOrCreateMaterial("Stone", new Color(0.25f, 0.28f, 0.27f));
             Material accentMaterial = GetOrCreateMaterial("MossAccent", new Color(0.30f, 0.40f, 0.27f));
+            Material rangeMaterial = GetOrCreateMaterial(
+                "RangeZone",
+                new Color(0.19f, 0.30f, 0.34f),
+                0.08f);
+            Material closeQuartersMaterial = GetOrCreateMaterial(
+                "CloseQuartersZone",
+                new Color(0.39f, 0.29f, 0.17f),
+                0.08f);
+            Material traversalMaterial = GetOrCreateMaterial(
+                "TraversalZone",
+                new Color(0.22f, 0.34f, 0.23f),
+                0.08f);
+            Material measurementMaterial = GetOrCreateMaterial(
+                "RangeMeasurement",
+                new Color(0.68f, 0.64f, 0.45f),
+                0.05f,
+                0f,
+                true);
             Material playerMaterial = GetOrCreateMaterial(
-                "Player",
-                new Color(0.36f, 0.36f, 0.36f),
+                "CombatLabPlayer",
+                new Color(0.22f, 0.22f, 0.22f),
                 0.05f,
                 0f,
                 true);
@@ -108,7 +126,15 @@ namespace WorldBuilder.Editor
                 GameLaunchMode.CombatLab,
                 initializeOnAwake: true);
             GameObject environment = new GameObject("Environment");
-            CreateArena(environment.transform, floorMaterial, wallMaterial, accentMaterial);
+            CreateArena(
+                environment.transform,
+                floorMaterial,
+                wallMaterial,
+                accentMaterial,
+                rangeMaterial,
+                closeQuartersMaterial,
+                traversalMaterial,
+                measurementMaterial);
 
             GameObject player = CreatePlayer(
                 new Vector3(0f, 1f, -5.5f),
@@ -128,6 +154,12 @@ namespace WorldBuilder.Editor
                 gripMaterial,
                 EnemyCombatVariant.CombatLabDummy,
                 out Health enemyHealth);
+            CreateRangedTargets(
+                enemyMaterial,
+                enemySecondaryMaterial,
+                bladeMaterial,
+                guardMaterial,
+                gripMaterial);
             CreateCamera(player.transform, playerInput);
 
             GameObject systems = new GameObject(CheckpointMarkerName);
@@ -411,26 +443,268 @@ namespace WorldBuilder.Editor
             RenderSettings.ambientGroundColor = new Color(0.07f, 0.08f, 0.08f);
         }
 
-        private static void CreateArena(Transform parent, Material floor, Material stone, Material accent)
+        private static void CreateArena(
+            Transform parent,
+            Material floor,
+            Material stone,
+            Material accent,
+            Material range,
+            Material closeQuarters,
+            Material traversal,
+            Material measurement)
         {
-            CreateBlock("Floor", new Vector3(0f, -0.25f, 0f), new Vector3(24f, 0.5f, 21f), floor, parent);
-            CreateBlock("North Wall", new Vector3(0f, 1.5f, 10.25f), new Vector3(24f, 3.5f, 0.5f), stone, parent);
-            CreateBlock("South Wall", new Vector3(0f, 1.5f, -10.25f), new Vector3(24f, 3.5f, 0.5f), stone, parent);
-            CreateBlock("East Wall", new Vector3(11.75f, 1.5f, 0f), new Vector3(0.5f, 3.5f, 21f), stone, parent);
-            CreateBlock("West Wall", new Vector3(-11.75f, 1.5f, 0f), new Vector3(0.5f, 3.5f, 21f), stone, parent);
+            CreateBlock(
+                "Lab Floor",
+                new Vector3(0f, -0.25f, 35f),
+                new Vector3(104f, 0.5f, 120f),
+                floor,
+                parent);
+            CreateBlock("North Wall", new Vector3(0f, 2f, 94.75f), new Vector3(104f, 4.5f, 0.5f), stone, parent);
+            CreateBlock("South Wall", new Vector3(0f, 2f, -24.75f), new Vector3(104f, 4.5f, 0.5f), stone, parent);
+            CreateBlock("East Wall", new Vector3(51.75f, 2f, 35f), new Vector3(0.5f, 4.5f, 120f), stone, parent);
+            CreateBlock("West Wall", new Vector3(-51.75f, 2f, 35f), new Vector3(0.5f, 4.5f, 120f), stone, parent);
 
-            CreateBlock("West Cover", new Vector3(-4.4f, 0.7f, -0.8f), new Vector3(3.2f, 1.4f, 1.1f), stone, parent);
-            CreateBlock("East Cover", new Vector3(4.4f, 0.7f, 1.2f), new Vector3(3.2f, 1.4f, 1.1f), stone, parent);
-            CreateBlock("North Pillar", new Vector3(-5.7f, 1.3f, 5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, parent);
-            CreateBlock("South Pillar", new Vector3(5.7f, 1.3f, -5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, parent);
+            Transform duelZone =
+                CreateZoneRoot("01 - Central Duel Yard", parent);
+            CreateSurfaceMarker(
+                "Duel Yard Boundary",
+                new Vector3(0f, 0.012f, 0f),
+                new Vector3(25f, 0.024f, 25f),
+                accent,
+                duelZone);
 
-            CreateBlock("Crouch Test Roof", new Vector3(7.6f, 1.95f, 5.8f), new Vector3(4f, 0.5f, 3f), stone, parent);
-            CreateBlock("Crouch Test Left Support", new Vector3(5.85f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, parent);
-            CreateBlock("Crouch Test Right Support", new Vector3(9.35f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, parent);
-            CreateMarker("Crouch Test Marker", new Vector3(7.6f, 0.03f, 5.8f), new Vector3(3f, 0.05f, 2.2f), accent, parent);
+            CreateBlock("West Cover", new Vector3(-4.4f, 0.7f, -0.8f), new Vector3(3.2f, 1.4f, 1.1f), stone, duelZone);
+            CreateBlock("East Cover", new Vector3(4.4f, 0.7f, 1.2f), new Vector3(3.2f, 1.4f, 1.1f), stone, duelZone);
+            CreateBlock("North Pillar", new Vector3(-5.7f, 1.3f, 5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, duelZone);
+            CreateBlock("South Pillar", new Vector3(5.7f, 1.3f, -5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, duelZone);
 
-            CreateMarker("Player Start Marker", new Vector3(0f, 0.03f, -5.5f), new Vector3(2.4f, 0.05f, 2.4f), accent, parent);
-            CreateMarker("Enemy Start Marker", new Vector3(0f, 0.03f, 5f), new Vector3(2.4f, 0.05f, 2.4f), accent, parent);
+            CreateBlock("Crouch Test Roof", new Vector3(7.6f, 1.95f, 5.8f), new Vector3(4f, 0.5f, 3f), stone, duelZone);
+            CreateBlock("Crouch Test Left Support", new Vector3(5.85f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, duelZone);
+            CreateBlock("Crouch Test Right Support", new Vector3(9.35f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, duelZone);
+            CreateMarker("Crouch Test Marker", new Vector3(7.6f, 0.03f, 5.8f), new Vector3(3f, 0.05f, 2.2f), accent, duelZone);
+
+            CreateMarker("Player Start Marker", new Vector3(0f, 0.03f, -5.5f), new Vector3(2.4f, 0.05f, 2.4f), accent, duelZone);
+            CreateMarker("Enemy Start Marker", new Vector3(0f, 0.03f, 5f), new Vector3(2.4f, 0.05f, 2.4f), accent, duelZone);
+
+            CreateShootingRange(
+                parent,
+                stone,
+                range,
+                measurement);
+            CreateCloseQuartersCourse(
+                parent,
+                stone,
+                closeQuarters);
+            CreateTraversalCourse(
+                parent,
+                stone,
+                traversal,
+                measurement);
+        }
+
+        private static void CreateShootingRange(
+            Transform parent,
+            Material stone,
+            Material range,
+            Material measurement)
+        {
+            Transform zone =
+                CreateZoneRoot("02 - Shooting Range", parent);
+            CreateSurfaceMarker(
+                "Shooting Range Floor",
+                new Vector3(0f, 0.014f, 54f),
+                new Vector3(48f, 0.028f, 74f),
+                range,
+                zone);
+            CreateSurfaceMarker(
+                "Shooting Range Firing Line",
+                new Vector3(0f, 0.032f, 18f),
+                new Vector3(48f, 0.035f, 0.35f),
+                measurement,
+                zone);
+            float[] distances = { 15f, 30f, 45f, 60f };
+            for (int index = 0; index < distances.Length; index++)
+            {
+                float distance = distances[index];
+                CreateSurfaceMarker(
+                    $"{distance:0}m Distance Stripe",
+                    new Vector3(
+                        0f,
+                        0.03f,
+                        18f + distance),
+                    new Vector3(48f, 0.03f, 0.16f),
+                    measurement,
+                    zone);
+                CreateRangeLabel(
+                    $"{distance:0} METERS",
+                    new Vector3(
+                        -23f,
+                        0.08f,
+                        18f + distance - 0.8f),
+                    zone);
+            }
+
+            CreateBlock(
+                "Arrow Backstop",
+                new Vector3(0f, 3f, 91f),
+                new Vector3(50f, 6f, 1f),
+                stone,
+                zone);
+            for (int lane = -2; lane <= 2; lane++)
+            {
+                CreateSurfaceMarker(
+                    $"Lane {lane + 3} Guide",
+                    new Vector3(
+                        lane * 10f,
+                        0.025f,
+                        54f),
+                    new Vector3(0.12f, 0.025f, 72f),
+                    measurement,
+                    zone);
+            }
+        }
+
+        private static void CreateCloseQuartersCourse(
+            Transform parent,
+            Material stone,
+            Material zoneMaterial)
+        {
+            Transform zone =
+                CreateZoneRoot("03 - Close Quarters Course", parent);
+            CreateSurfaceMarker(
+                "Close Quarters Floor",
+                new Vector3(-37f, 0.016f, 4f),
+                new Vector3(23f, 0.03f, 34f),
+                zoneMaterial,
+                zone);
+            CreateBlock("CQ Entry Left", new Vector3(-47f, 1.25f, -11f), new Vector3(0.6f, 2.5f, 8f), stone, zone);
+            CreateBlock("CQ Entry Right", new Vector3(-27f, 1.25f, -11f), new Vector3(0.6f, 2.5f, 8f), stone, zone);
+            CreateBlock("CQ Cover A", new Vector3(-42f, 0.65f, -1f), new Vector3(6f, 1.3f, 1f), stone, zone);
+            CreateBlock("CQ Cover B", new Vector3(-32f, 1.1f, 4f), new Vector3(1f, 2.2f, 7f), stone, zone);
+            CreateBlock("CQ Cover C", new Vector3(-43f, 1.1f, 9f), new Vector3(8f, 2.2f, 1f), stone, zone);
+            CreateBlock("CQ Corner Pillar", new Vector3(-35f, 1.6f, 14f), new Vector3(2f, 3.2f, 2f), stone, zone);
+        }
+
+        private static void CreateTraversalCourse(
+            Transform parent,
+            Material stone,
+            Material zoneMaterial,
+            Material measurement)
+        {
+            Transform zone =
+                CreateZoneRoot("04 - Traversal And Elevation", parent);
+            CreateSurfaceMarker(
+                "Traversal Floor",
+                new Vector3(37f, 0.016f, 8f),
+                new Vector3(24f, 0.03f, 40f),
+                zoneMaterial,
+                zone);
+
+            for (int step = 0; step < 4; step++)
+            {
+                float height = (step + 1) * 0.35f;
+                CreateBlock(
+                    $"Elevation Step {step + 1}",
+                    new Vector3(
+                        29f + step * 1.5f,
+                        height * 0.5f,
+                        -5f),
+                    new Vector3(1.5f, height, 5f),
+                    stone,
+                    zone);
+            }
+            CreateBlock(
+                "Elevation Platform",
+                new Vector3(38f, 1.5f, -5f),
+                new Vector3(10f, 3f, 8f),
+                stone,
+                zone);
+            CreateRotatedBlock(
+                "Walkable Ramp",
+                new Vector3(44f, 0.75f, -5f),
+                new Vector3(8f, 0.45f, 7f),
+                new Vector3(0f, 0f, -10.5f),
+                stone,
+                zone);
+
+            for (int hurdle = 0; hurdle < 4; hurdle++)
+            {
+                CreateBlock(
+                    $"Jump Hurdle {hurdle + 1}",
+                    new Vector3(
+                        31f,
+                        0.35f + hurdle * 0.08f,
+                        4f + hurdle * 4.2f),
+                    new Vector3(
+                        8f,
+                        0.7f + hurdle * 0.16f,
+                        0.45f),
+                    stone,
+                    zone);
+            }
+            CreateBlock("Traversal Crouch Roof", new Vector3(43f, 1.72f, 11f), new Vector3(8f, 0.45f, 8f), stone, zone);
+            CreateBlock("Traversal Crouch Left", new Vector3(39.25f, 0.75f, 11f), new Vector3(0.5f, 1.5f, 8f), stone, zone);
+            CreateBlock("Traversal Crouch Right", new Vector3(46.75f, 0.75f, 11f), new Vector3(0.5f, 1.5f, 8f), stone, zone);
+            CreateSurfaceMarker(
+                "Traversal Direction Line",
+                new Vector3(31f, 0.035f, 8f),
+                new Vector3(0.25f, 0.04f, 34f),
+                measurement,
+                zone);
+        }
+
+        private static void CreateRangedTargets(
+            Material bodyMaterial,
+            Material secondaryMaterial,
+            Material bladeMaterial,
+            Material guardMaterial,
+            Material gripMaterial)
+        {
+            Transform targetRoot =
+                new GameObject("Ranged Training Targets")
+                    .transform;
+            Vector3[] positions =
+            {
+                new Vector3(-18f, 1f, 33f),
+                new Vector3(-6f, 1f, 48f),
+                new Vector3(6f, 1f, 63f),
+                new Vector3(18f, 1f, 78f),
+                new Vector3(38f, 4f, -5f)
+            };
+            string[] names =
+            {
+                "Range Target - 15m",
+                "Range Target - 30m",
+                "Range Target - 45m",
+                "Range Target - 60m",
+                "Elevated Target - 3m Platform"
+            };
+            for (int index = 0; index < positions.Length; index++)
+            {
+                GameObject target = CreateEnemy(
+                    positions[index],
+                    bodyMaterial,
+                    secondaryMaterial,
+                    bladeMaterial,
+                    guardMaterial,
+                    gripMaterial,
+                    EnemyCombatVariant.CombatLabDummy,
+                    out _);
+                target.name = names[index];
+                target.transform.SetParent(
+                    targetRoot,
+                    true);
+            }
+        }
+
+        private static Transform CreateZoneRoot(
+            string name,
+            Transform parent)
+        {
+            Transform root =
+                new GameObject(name).transform;
+            root.SetParent(parent, false);
+            return root;
         }
 
         private static GameObject CreatePlayer(
@@ -1610,6 +1884,72 @@ namespace WorldBuilder.Editor
             block.GetComponent<Renderer>().sharedMaterial = material;
             GameObjectUtility.SetStaticEditorFlags(block, StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.OccluderStatic);
             return block;
+        }
+
+        private static GameObject CreateRotatedBlock(
+            string name,
+            Vector3 position,
+            Vector3 scale,
+            Vector3 eulerAngles,
+            Material material,
+            Transform parent)
+        {
+            GameObject block = CreateBlock(
+                name,
+                position,
+                scale,
+                material,
+                parent);
+            block.transform.rotation =
+                Quaternion.Euler(eulerAngles);
+            return block;
+        }
+
+        private static GameObject CreateSurfaceMarker(
+            string name,
+            Vector3 position,
+            Vector3 scale,
+            Material material,
+            Transform parent)
+        {
+            GameObject marker =
+                GameObject.CreatePrimitive(
+                    PrimitiveType.Cube);
+            marker.name = name;
+            marker.transform.SetParent(parent);
+            marker.transform.position = position;
+            marker.transform.localScale = scale;
+            marker.GetComponent<Renderer>()
+                .sharedMaterial = material;
+            Object.DestroyImmediate(
+                marker.GetComponent<BoxCollider>());
+            GameObjectUtility.SetStaticEditorFlags(
+                marker,
+                StaticEditorFlags.BatchingStatic |
+                StaticEditorFlags.OccludeeStatic);
+            return marker;
+        }
+
+        private static void CreateRangeLabel(
+            string text,
+            Vector3 position,
+            Transform parent)
+        {
+            GameObject label =
+                new GameObject($"Range Label - {text}");
+            label.transform.SetParent(parent);
+            label.transform.position = position;
+            label.transform.rotation =
+                Quaternion.Euler(0f, 90f, 0f);
+            TextMesh textMesh =
+                label.AddComponent<TextMesh>();
+            textMesh.text = text;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.fontSize = 64;
+            textMesh.characterSize = 0.12f;
+            textMesh.color =
+                new Color(0.88f, 0.84f, 0.62f);
         }
 
         private static GameObject CreateMarker(string name, Vector3 position, Vector3 scale, Material material, Transform parent)

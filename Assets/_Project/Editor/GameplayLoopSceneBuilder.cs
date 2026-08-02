@@ -87,6 +87,13 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Art/Environment/StylizedBridge/source/Bridge_low.fbx";
         private const string BridgeTextureFolder =
             "Assets/_Project/Art/Environment/StylizedBridge/textures";
+        private const string RaidSkyboxTexturePath =
+            "Assets/_Project/Art/Environment/Skybox/Sky129/sky_129_2k.png";
+        private const string RaidSkyboxMaterialPath =
+            "Assets/_Project/Art/Prototype/Materials/RaidSky129.mat";
+        private const string RaidPathDiffusePath =
+            "Assets/_Project/Art/Environment/RaidSurfaces/" +
+            "RaidPath.png";
 
         [MenuItem("WorldBuilder/Build Gameplay Loop")]
         public static void BuildAll()
@@ -675,25 +682,27 @@ namespace WorldBuilder.Editor
                 NewSceneSetup.EmptyScene,
                 NewSceneMode.Single);
             CombatLabSceneBuilder.CreateStandardLighting();
+            Material raidSkybox = GetOrCreateRaidSkyboxMaterial();
+            RenderSettings.skybox = raidSkybox;
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor =
                 new Color(
-                    0.46f,
-                    0.52f,
-                    0.58f,
+                    0.22f,
+                    0.36f,
+                    0.34f,
                     1f);
-            RenderSettings.fogStartDistance = 28f;
-            RenderSettings.fogEndDistance = 105f;
+            RenderSettings.fogStartDistance = 21f;
+            RenderSettings.fogEndDistance = 90f;
             RenderSettings.ambientMode =
                 UnityEngine.Rendering.AmbientMode.Trilight;
             RenderSettings.ambientSkyColor =
-                new Color(0.48f, 0.55f, 0.62f, 1f);
+                new Color(0.34f, 0.48f, 0.46f, 1f);
             RenderSettings.ambientEquatorColor =
-                new Color(0.34f, 0.39f, 0.44f, 1f);
+                new Color(0.20f, 0.34f, 0.31f, 1f);
             RenderSettings.ambientGroundColor =
-                new Color(0.24f, 0.27f, 0.29f, 1f);
-            RenderSettings.ambientIntensity = 1.18f;
+                new Color(0.11f, 0.22f, 0.17f, 1f);
+            RenderSettings.ambientIntensity = 1.02f;
             RenderSettings.reflectionIntensity = 0.42f;
             GameObject raidSun = GameObject.Find("Sun");
             Light raidSunLight =
@@ -721,12 +730,12 @@ namespace WorldBuilder.Editor
                     false,
                     new Color(0.72f, 0.64f, 0.50f, 1f));
             Material road =
-                GetOrCreateStylizedForestMaterial(
+                GetOrCreateTiledSurfaceMaterial(
                     "RaidDirtRoad",
-                    "Stylized_forest_tga/" +
-                    "T_Landscape_dirt_BaseColor.TGA",
-                    false,
-                    new Color(0.72f, 0.61f, 0.49f, 1f));
+                    RaidPathDiffusePath,
+                    null,
+                    Color.white,
+                    5.5f);
             Material water = GetOrCreateRiverMaterial();
             Material bridge = GetOrCreateBridgeMaterial();
             GameObject bridgePrefab = LoadBridgePrefab();
@@ -816,7 +825,7 @@ namespace WorldBuilder.Editor
                 player.transform,
                 input);
 
-            const int RaidGuardCount = 12;
+            const int RaidGuardCount = 8;
             var enemyPositions =
                 new Vector3[RaidGuardCount];
             for (int index = 0;
@@ -905,7 +914,8 @@ namespace WorldBuilder.Editor
                 pineLeaves,
                 grassDetails,
                 plantDetails,
-                rocks);
+                rocks,
+                raidSkybox);
             extractionZone.Configure(
                 raidController,
                 "Far Trail Extraction");
@@ -1450,6 +1460,73 @@ namespace WorldBuilder.Editor
             return material;
         }
 
+        private static Material GetOrCreateRaidSkyboxMaterial()
+        {
+            TextureImporter importer =
+                AssetImporter.GetAtPath(
+                    RaidSkyboxTexturePath) as TextureImporter;
+            if (importer != null)
+            {
+                bool requiresReimport =
+                    importer.textureType != TextureImporterType.Default ||
+                    importer.textureShape != TextureImporterShape.Texture2D ||
+                    importer.wrapMode != TextureWrapMode.Clamp ||
+                    !importer.mipmapEnabled ||
+                    importer.maxTextureSize != 2048;
+                if (requiresReimport)
+                {
+                    importer.textureType = TextureImporterType.Default;
+                    importer.textureShape = TextureImporterShape.Texture2D;
+                    importer.sRGBTexture = true;
+                    importer.wrapMode = TextureWrapMode.Clamp;
+                    importer.mipmapEnabled = true;
+                    importer.maxTextureSize = 2048;
+                    importer.textureCompression =
+                        TextureImporterCompression.CompressedHQ;
+                    importer.SaveAndReimport();
+                }
+            }
+
+            Shader shader = Shader.Find("Skybox/Panoramic");
+            if (shader == null)
+            {
+                throw new System.InvalidOperationException(
+                    "Unity's panoramic skybox shader is unavailable.");
+            }
+            Texture2D panorama =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    RaidSkyboxTexturePath);
+            if (panorama == null)
+            {
+                throw new System.InvalidOperationException(
+                    $"Raid skybox texture is missing at {RaidSkyboxTexturePath}.");
+            }
+
+            Material material =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    RaidSkyboxMaterialPath);
+            if (material == null)
+            {
+                material = new Material(shader)
+                {
+                    name = "Raid Sky 129"
+                };
+                AssetDatabase.CreateAsset(
+                    material,
+                    RaidSkyboxMaterialPath);
+            }
+            else
+            {
+                material.shader = shader;
+            }
+            material.SetTexture("_MainTex", panorama);
+            material.SetColor("_Tint", Color.white);
+            material.SetFloat("_Exposure", 1f);
+            material.SetFloat("_Rotation", 0f);
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
         private static Material GetOrCreateBridgeMaterial()
         {
             const string materialPath =
@@ -1637,6 +1714,101 @@ namespace WorldBuilder.Editor
 
             EditorUtility.SetDirty(material);
             return material;
+        }
+
+        private static Material GetOrCreateTiledSurfaceMaterial(
+            string materialName,
+            string diffusePath,
+            string normalPath,
+            Color tint,
+            float textureScale)
+        {
+            Material material =
+                CombatLabSceneBuilder.GetStandardMaterial(
+                    materialName,
+                    Color.white,
+                    0.04f);
+            Shader shader = Shader.Find(
+                "Universal Render Pipeline/Lit");
+            if (shader != null)
+            {
+                material.shader = shader;
+            }
+
+            ConfigureRepeatTextureImport(diffusePath, false);
+            Texture2D diffuse =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    diffusePath);
+            Texture2D normal = null;
+            if (!string.IsNullOrEmpty(normalPath))
+            {
+                ConfigureRepeatTextureImport(normalPath, true);
+                normal = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    normalPath);
+            }
+
+            material.mainTexture = diffuse;
+            material.mainTextureScale =
+                Vector2.one * textureScale;
+            material.color = tint;
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", diffuse);
+                material.SetTextureScale(
+                    "_BaseMap",
+                    Vector2.one * textureScale);
+            }
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", tint);
+            }
+            if (normal != null &&
+                material.HasProperty("_BumpMap"))
+            {
+                material.SetTexture("_BumpMap", normal);
+                material.SetTextureScale(
+                    "_BumpMap",
+                    Vector2.one * textureScale);
+                material.SetFloat("_BumpScale", 1.18f);
+                material.EnableKeyword("_NORMALMAP");
+            }
+            else if (material.HasProperty("_BumpMap"))
+            {
+                material.SetTexture("_BumpMap", null);
+                material.DisableKeyword("_NORMALMAP");
+            }
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        private static void ConfigureRepeatTextureImport(
+            string texturePath,
+            bool normalMap)
+        {
+            TextureImporter importer =
+                AssetImporter.GetAtPath(texturePath) as
+                    TextureImporter;
+            if (importer == null)
+            {
+                return;
+            }
+
+            TextureImporterType expectedType = normalMap
+                ? TextureImporterType.NormalMap
+                : TextureImporterType.Default;
+            bool changed =
+                importer.textureType != expectedType ||
+                importer.wrapMode != TextureWrapMode.Repeat ||
+                !importer.mipmapEnabled;
+            if (!changed)
+            {
+                return;
+            }
+
+            importer.textureType = expectedType;
+            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.mipmapEnabled = true;
+            importer.SaveAndReimport();
         }
 
         private static void ApplyVertexTintShader(

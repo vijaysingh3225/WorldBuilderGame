@@ -52,21 +52,27 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void BowHeadshotKillsInOneHit()
+        public void FullDrawBowHeadshotDeals105AndKillsInOneHit()
         {
+            float appliedDamage = 0f;
+            health.Damaged += request =>
+                appliedDamage = request.Amount;
+
             ApplyBowHit(HumanoidHitRegion.Head);
 
+            Assert.That(
+                appliedDamage,
+                Is.EqualTo(105f).Within(0.01f));
             Assert.That(health.IsAlive, Is.False);
         }
 
         [Test]
-        public void BowTorsoHitKillsOnThirdHit()
+        public void FullDrawBowTorsoHitDeals58AndKillsOnSecondHit()
         {
             ApplyBowHit(HumanoidHitRegion.Torso);
             Assert.That(
                 health.Current,
-                Is.EqualTo(66f).Within(0.01f));
-            ApplyBowHit(HumanoidHitRegion.Torso);
+                Is.EqualTo(42f).Within(0.01f));
             Assert.That(health.IsAlive, Is.True);
 
             ApplyBowHit(HumanoidHitRegion.Torso);
@@ -75,9 +81,13 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void BowLimbHitKillsOnFifthHit()
+        public void FullDrawBowLimbHitDeals27Point5AndKillsOnFourthHit()
         {
-            for (int hit = 0; hit < 4; hit++)
+            ApplyBowHit(HumanoidHitRegion.Limb);
+            Assert.That(
+                health.Current,
+                Is.EqualTo(72.5f).Within(0.01f));
+            for (int hit = 0; hit < 2; hit++)
             {
                 ApplyBowHit(HumanoidHitRegion.Limb);
             }
@@ -162,8 +172,8 @@ namespace WorldBuilder.Tests
                 profile.Variant,
                 Is.EqualTo(EnemyCombatVariant.RaidEnemy));
             Assert.That(profile.HeadHitsToKill, Is.EqualTo(1));
-            Assert.That(profile.TorsoHitsToKill, Is.EqualTo(3));
-            Assert.That(profile.LimbHitsToKill, Is.EqualTo(5));
+            Assert.That(profile.TorsoHitsToKill, Is.EqualTo(2));
+            Assert.That(profile.LimbHitsToKill, Is.EqualTo(4));
             Assert.That(health.Minimum, Is.Zero);
         }
 

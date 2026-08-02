@@ -16,8 +16,6 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             0.85f;
         [SerializeField, Min(0f)] private float deathReturnDelay =
             2.0f;
-        [SerializeField, Min(1f)] private float enemyActivationRadius =
-            18f;
 
         private readonly List<EnemyBrain> enemies =
             new List<EnemyBrain>();
@@ -44,7 +42,6 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             session.HasActiveRaid &&
             !completionPending;
         public int LootCollected => lootCollected;
-        public float EnemyActivationRadius => enemyActivationRadius;
 
         public void Configure(Health player)
         {
@@ -93,7 +90,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
-            ActivateEnemiesInRange();
+            ActivateEnemiesForPatrol();
 
             gridToolkit ??=
                 FindFirstObjectByType<WeaponGridSandboxToolkit>();
@@ -316,15 +313,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
-        private void ActivateEnemiesInRange()
+        private void ActivateEnemiesForPatrol()
         {
             if (playerRoot == null)
             {
                 return;
             }
 
-            float activationRadiusSquared =
-                enemyActivationRadius * enemyActivationRadius;
             for (int index = 0;
                  index < enemies.Count;
                  index++)
@@ -334,9 +329,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 if (enemy != null &&
                     health != null &&
                     health.IsAlive &&
-                    !enemy.IsActivated &&
-                    (enemy.transform.position - playerRoot.position)
-                        .sqrMagnitude <= activationRadiusSquared)
+                    !enemy.IsActivated)
                 {
                     enemy.enabled = true;
                     enemy.Configure(playerRoot);

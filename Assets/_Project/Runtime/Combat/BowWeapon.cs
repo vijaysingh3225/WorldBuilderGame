@@ -11,6 +11,7 @@ namespace WorldBuilder.Gameplay.Combat
     [DisallowMultipleComponent]
     public sealed class BowWeapon : MonoBehaviour
     {
+        private const float MinimumNpcReleaseCharge = 0.995f;
         [SerializeField] private PlayerInputSource input;
         [SerializeField] private Transform characterRoot;
         [SerializeField] private Transform bowRoot;
@@ -50,6 +51,8 @@ namespace WorldBuilder.Gameplay.Combat
         private bool playerOwned;
         private bool pendingRelease;
         private float pendingReleaseCharge;
+        private bool pendingReleaseAimLocked;
+        private Ray pendingReleaseAimRay;
 
         public event Action<float> ArrowFired;
 
@@ -80,7 +83,13 @@ namespace WorldBuilder.Gameplay.Combat
                     : transform.forward;
         public Vector3 PresentedBowPosition =>
             bowRoot != null ? bowRoot.position : transform.position;
+        public Vector3 PresentedArrowTip =>
+            nockedArrow != null
+                ? nockedArrow.TransformPoint(
+                    new Vector3(0f, 0f, 0.60f))
+                : PresentedBowPosition;
         public BowArrowProjectile LastFiredProjectile { get; private set; }
+        public Vector3 LastLaunchOrigin { get; private set; }
         public Vector3 LastAimOrigin { get; private set; }
         public Vector3 LastAimDirection { get; private set; }
         public Vector3 LastAimRight { get; private set; }
@@ -125,6 +134,7 @@ namespace WorldBuilder.Gameplay.Combat
             partialVelocityExponent;
         public float MinimumDamage => minimumDamage;
         public float MaximumDamage => maximumDamage;
+        public bool IsPlayerOwned => playerOwned;
 
         public void Configure(
             PlayerInputSource intentSource,
@@ -191,6 +201,7 @@ namespace WorldBuilder.Gameplay.Combat
         private void OnDisable()
         {
             pendingRelease = false;
+            pendingReleaseAimLocked = false;
             CancelDraw(false);
         }
 
@@ -265,12 +276,25 @@ namespace WorldBuilder.Gameplay.Combat
         private void QueueRelease()
         {
             StopPullbackAudio();
-            if (CanFire)
+            float releaseCharge = DrawNormalized;
+            bool npcCommittedRelease =
+                playerOwned ||
+                releaseCharge >= MinimumNpcReleaseCharge;
+            if (CanFire && npcCommittedRelease)
             {
                 // Preserve charge now, but resolve the rendered camera ray at
                 // the end of the frame after Cinemachine has updated it.
                 pendingRelease = true;
-                pendingReleaseCharge = DrawNormalized;
+                pendingReleaseCharge = releaseCharge;
+                pendingReleaseAimLocked = !playerOwned;
+                if (pendingReleaseAimLocked)
+                {
+                    // EnemyBrain releases from Update, while the projectile is
+                    // committed in LateUpdate. Preserve the compensated AI ray
+                    // before recovery logic can replace it with a direct look
+                    // ray on the following frame.
+                    pendingReleaseAimRay = ResolveAimRay();
+                }
             }
             else
             {
@@ -279,7 +303,9 @@ namespace WorldBuilder.Gameplay.Combat
                     characterRoot != null
                         ? characterRoot.gameObject
                         : gameObject,
-                    $"held={heldDuration:0.000}");
+                    $"held={heldDuration:0.000};" +
+                    $"draw={releaseCharge:0.000};" +
+                    $"npcCommitted={npcCommittedRelease}");
             }
 
             heldDuration = 0f;
@@ -295,6 +321,7 @@ namespace WorldBuilder.Gameplay.Combat
             pendingRelease = false;
             if (!isActiveAndEnabled || !weaponEquipped || !arrowReady)
             {
+                pendingReleaseAimLocked = false;
                 return;
             }
 
@@ -308,6 +335,14 @@ namespace WorldBuilder.Gameplay.Combat
                 return;
             }
 
+            // AI commits only lethal, full-power shots. EnemyBrain also waits
+            // for the presented draw to complete, but this weapon-level gate
+            // prevents any alternate release path or frame-order edge case
+            // from producing a weak NPC projectile.
+            charge = playerOwned
+                ? Mathf.Clamp01(charge)
+                : 1f;
+
             float ballisticPower = Mathf.Pow(
                 charge,
                 Mathf.Max(1f, partialVelocityExponent));
@@ -317,7 +352,10 @@ namespace WorldBuilder.Gameplay.Combat
                 ballisticPower);
             Vector3 visibleTip = nockedArrow.TransformPoint(
                 new Vector3(0f, 0f, 0.60f));
-            Ray aimRay = ResolveAimRay();
+            Ray aimRay = pendingReleaseAimLocked
+                ? pendingReleaseAimRay
+                : ResolveAimRay();
+            pendingReleaseAimLocked = false;
             Camera aimCamera = Camera.main;
             Vector3 aimRight = aimCamera != null
                 ? aimCamera.transform.right.normalized
@@ -348,6 +386,7 @@ namespace WorldBuilder.Gameplay.Combat
             BowArrowProjectile arrow =
                 projectile.AddComponent<BowArrowProjectile>();
             LastFiredProjectile = arrow;
+            LastLaunchOrigin = visibleTip;
             LastAimOrigin = aimRay.origin;
             LastAimDirection = aimRay.direction;
             LastAimRight = aimRight;
@@ -685,6 +724,7 @@ namespace WorldBuilder.Gameplay.Combat
 
             drawHeldLastFrame = false;
             pendingRelease = false;
+            pendingReleaseAimLocked = false;
             heldDuration = 0f;
             readyWeight = 0f;
             StopPullbackAudio();
@@ -703,10 +743,9 @@ namespace WorldBuilder.Gameplay.Combat
             EnsureAudioDataLoaded(enemyHitFeedbackClip);
             EnsureAudioDataLoaded(headshotFeedbackClip);
             playerOwned =
-                input != null ||
                 IsPlayerTransform(characterRoot);
             minimumDamage = playerOwned ? 12f : 10f;
-            maximumDamage = playerOwned ? 100f : 34f;
+            maximumDamage = 100f;
             if (bowAudioSource == null)
             {
                 bowAudioSource =

@@ -23,6 +23,10 @@ namespace WorldBuilder.Gameplay.Combat
         MonoBehaviour,
         IDamageable
     {
+        public const float FullDrawHeadDamage = 105f;
+        public const float FullDrawTorsoDamage = 58f;
+        public const float FullDrawLimbDamage = 27.5f;
+
         [SerializeField]
         private EnemyCombatVariant variant =
             EnemyCombatVariant.CombatLabDummy;
@@ -31,9 +35,9 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField, Min(1)]
         private int headHitsToKill = 1;
         [SerializeField, Min(1)]
-        private int torsoHitsToKill = 3;
+        private int torsoHitsToKill = 2;
         [SerializeField, Min(1)]
-        private int limbHitsToKill = 5;
+        private int limbHitsToKill = 4;
 
         private Health health;
         private Animator animator;
@@ -58,8 +62,8 @@ namespace WorldBuilder.Gameplay.Combat
         {
             variant = combatVariant;
             headHitsToKill = 1;
-            torsoHitsToKill = 3;
-            limbHitsToKill = 5;
+            torsoHitsToKill = 2;
+            limbHitsToKill = 4;
             ResolveReferences();
             if (resetHealth && health != null)
             {
@@ -158,10 +162,10 @@ namespace WorldBuilder.Gameplay.Combat
             {
                 float regionMultiplier =
                     region == HumanoidHitRegion.Head
-                        ? 1f
+                        ? FullDrawHeadDamage / 100f
                         : region == HumanoidHitRegion.Torso
-                            ? 0.34f
-                            : 0.20f;
+                            ? FullDrawTorsoDamage / 100f
+                            : FullDrawLimbDamage / 100f;
                 amount *= regionMultiplier;
             }
             else if (request.SourceId ==

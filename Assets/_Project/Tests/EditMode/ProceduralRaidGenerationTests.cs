@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -12,6 +13,92 @@ namespace WorldBuilder.Tests
 {
     public sealed class ProceduralRaidGenerationTests
     {
+        [Test]
+        public void PcPipelineUsesGpuDrivenRaidRendering()
+        {
+            Object pipelineAsset =
+                AssetDatabase.LoadAssetAtPath<Object>(
+                    "Assets/Settings/PC_RPAsset.asset");
+
+            Assert.That(pipelineAsset, Is.Not.Null);
+            var pipeline = new SerializedObject(pipelineAsset);
+            Assert.That(
+                pipeline.FindProperty(
+                    "m_GPUResidentDrawerMode").intValue,
+                Is.EqualTo(1));
+            Assert.That(
+                pipeline.
+                    FindProperty(
+                        "m_GPUResidentDrawerEnableOcclusionCullingInCameras")
+                    .boolValue,
+                Is.True);
+            Assert.That(
+                pipeline.FindProperty(
+                    "m_RequireOpaqueTexture").boolValue,
+                Is.False,
+                "The Raid uses no scene-color sampling, so a full opaque-frame copy is unnecessary.");
+        }
+
+        [Test]
+        public void EnvironmentCullerKeepsAllVisualsButOnlyNearbyPhysicsActive()
+        {
+            GameObject managerObject =
+                new GameObject("Culling Test Manager");
+            GameObject anchorObject =
+                new GameObject("Culling Test Anchor");
+            GameObject rootObject =
+                new GameObject("Culling Test Root");
+            GameObject near =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+            GameObject far =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                near.transform.SetParent(rootObject.transform, false);
+                far.transform.SetParent(rootObject.transform, false);
+                far.transform.position = Vector3.right * 120f;
+                RaidEnvironmentCuller culler =
+                    managerObject.AddComponent<
+                        RaidEnvironmentCuller>();
+                culler.Configure(
+                    anchorObject.transform,
+                    rootObject.transform);
+                culler.RefreshImmediately();
+
+                Assert.That(
+                    near.GetComponent<Renderer>().enabled,
+                    Is.True);
+                Assert.That(
+                    near.GetComponent<Collider>().enabled,
+                    Is.True);
+                Assert.That(
+                    far.GetComponent<Renderer>().enabled,
+                    Is.True);
+                Assert.That(
+                    far.GetComponent<Collider>().enabled,
+                    Is.False);
+
+                anchorObject.transform.position =
+                    Vector3.right * 120f;
+                culler.RefreshImmediately();
+                Assert.That(
+                    near.GetComponent<Renderer>().enabled,
+                    Is.True);
+                Assert.That(
+                    far.GetComponent<Renderer>().enabled,
+                    Is.True);
+                Assert.That(
+                    far.GetComponent<Collider>().enabled,
+                    Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(managerObject);
+                Object.DestroyImmediate(anchorObject);
+                Object.DestroyImmediate(rootObject);
+            }
+        }
+
         [Test]
         public void EnvironmentAssetGalleryDisplaysEveryPackVariant()
         {
@@ -229,12 +316,12 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void SeedsProduceOneOrTwoPrimaryTrailsAndSeveralEdgeBranches()
+        public void SeedsProduceBroadCoverageWithAtMostTwoEdgeBranches()
         {
             bool foundOnePrimary = false;
             bool foundTwoPrimaries = false;
+            bool foundOneBranch = false;
             bool foundTwoBranches = false;
-            bool foundThreeBranches = false;
             for (int seed = 1; seed <= 40; seed++)
             {
                 ProceduralRaidGenerator.RaidLayout layout =
@@ -244,24 +331,38 @@ namespace WorldBuilder.Tests
                 foundOnePrimary |= layout.ForkRoad.Length == 0;
                 foundTwoPrimaries |= layout.ForkRoad.Length > 0;
                 int branchCount =
-                    1 +
+                    (layout.BranchRoadA.Length > 0 ? 1 : 0) +
                     (layout.BranchRoadB.Length > 0 ? 1 : 0) +
                     (layout.BranchRoadC.Length > 0 ? 1 : 0);
+                foundOneBranch |= branchCount == 1;
                 foundTwoBranches |= branchCount >= 2;
-                foundThreeBranches |= branchCount >= 3;
 
-                Assert.That(
-                    XzMagnitude(
-                        layout.BranchRoadA[
-                            layout.BranchRoadA.Length - 1]),
-                    Is.GreaterThan(140f));
+                Assert.That(branchCount, Is.InRange(1, 2),
+                    $"Seed {seed} should use one or two purposeful branches.");
+                Assert.That(layout.BranchRoadC, Is.Empty,
+                    "The road grammar should cap secondary branches at two.");
+                Vector3[][] branches =
+                {
+                    layout.BranchRoadA,
+                    layout.BranchRoadB
+                };
+                foreach (Vector3[] branch in branches)
+                {
+                    if (branch.Length == 0)
+                    {
+                        continue;
+                    }
+                    Assert.That(
+                        XzMagnitude(branch[branch.Length - 1]),
+                        Is.GreaterThan(140f));
+                }
                 Assert.That(layout.RiverCrossesRoad, Is.True);
             }
 
             Assert.That(foundOnePrimary, Is.True);
             Assert.That(foundTwoPrimaries, Is.True);
+            Assert.That(foundOneBranch, Is.True);
             Assert.That(foundTwoBranches, Is.True);
-            Assert.That(foundThreeBranches, Is.True);
         }
 
         [Test]
@@ -293,6 +394,169 @@ namespace WorldBuilder.Tests
                 pathLength,
                 Is.GreaterThan(directDistance * 1.025f),
                 "The primary river should visibly wind rather than read as a straight ribbon.");
+        }
+
+        [Test]
+        public void TrailForksAndRiverCrossingsRemainIntentionalAcrossSeeds()
+        {
+            const float MinimumForkClearance = 17.5f;
+            const float MinimumCrossingSeparation = 25f;
+            for (int iteration = 1; iteration <= 242; iteration++)
+            {
+                int seed = iteration <= 240
+                    ? iteration
+                    : iteration == 241
+                        ? 1242752318
+                        : 586556700;
+                ProceduralRaidGenerator.RaidLayout layout =
+                    ProceduralRaidGenerator.CreateLayout(seed, 144f);
+                Vector3[][] roads =
+                {
+                    layout.MainRoad,
+                    layout.ForkRoad,
+                    layout.BranchRoadA,
+                    layout.BranchRoadB,
+                    layout.BranchRoadC
+                };
+                Vector3[][] branches =
+                {
+                    layout.BranchRoadA,
+                    layout.BranchRoadB,
+                    layout.BranchRoadC
+                };
+                var routeDestinations = new List<Vector3>();
+                foreach (Vector3[] road in roads)
+                {
+                    if (road.Length == 0)
+                    {
+                        continue;
+                    }
+                    if (ReferenceEquals(road, layout.MainRoad) ||
+                        ReferenceEquals(road, layout.ForkRoad))
+                    {
+                        routeDestinations.Add(road[0]);
+                    }
+                    routeDestinations.Add(road[road.Length - 1]);
+                }
+                for (int first = 0;
+                     first < routeDestinations.Count;
+                     first++)
+                {
+                    for (int second = first + 1;
+                         second < routeDestinations.Count;
+                         second++)
+                    {
+                        Assert.That(
+                            Vector3.Distance(
+                                routeDestinations[first],
+                                routeDestinations[second]),
+                            Is.GreaterThanOrEqualTo(51.5f),
+                            $"Seed {seed} sends separate trails to effectively the same boundary destination.");
+                        Assert.That(
+                            BoundaryAngleBetween(
+                                routeDestinations[first],
+                                routeDestinations[second]),
+                            Is.GreaterThanOrEqualTo(0.5f),
+                            $"Seed {seed} sends separate trails into the same directional sector.");
+                    }
+                }
+
+                if (layout.ForkRoad.Length > 0)
+                {
+                    var primaryJunctions =
+                        new List<CrossingSample>();
+                    FindCrossings(
+                        layout.ForkRoad,
+                        layout.MainRoad,
+                        primaryJunctions);
+                    Assert.That(
+                        primaryJunctions,
+                        Is.Not.Empty,
+                        $"Seed {seed} generated a disconnected second primary trail instead of a navigable crossroads.");
+                }
+
+                foreach (Vector3[] branch in branches)
+                {
+                    if (branch.Length == 0)
+                    {
+                        continue;
+                    }
+                    Assert.That(
+                        DistanceToPolyline(branch[0], layout.River),
+                        Is.GreaterThanOrEqualTo(MinimumForkClearance),
+                        $"Seed {seed} starts a fork beside the river instead of at a meaningful dry-land junction.");
+                    float networkDistance = Mathf.Min(
+                        DistanceToPolyline(
+                            branch[0],
+                            layout.MainRoad),
+                        layout.ForkRoad.Length > 0
+                            ? DistanceToPolyline(
+                                branch[0],
+                                layout.ForkRoad)
+                            : float.PositiveInfinity);
+                    Assert.That(
+                        networkDistance,
+                        Is.LessThanOrEqualTo(0.05f),
+                        $"Seed {seed} generated a branch that is not connected to a primary route.");
+                }
+
+                AssertPurposefulBranch(
+                    seed,
+                    layout.BranchRoadA,
+                    layout.MainRoad,
+                    new[]
+                    {
+                        layout.MainRoad,
+                        layout.ForkRoad
+                    });
+                AssertPurposefulBranch(
+                    seed,
+                    layout.BranchRoadB,
+                    layout.ForkRoad.Length > 0
+                        ? layout.ForkRoad
+                        : layout.MainRoad,
+                    new[]
+                    {
+                        layout.MainRoad,
+                        layout.ForkRoad,
+                        layout.BranchRoadA
+                    });
+
+                var crossings = new List<CrossingSample>();
+                foreach (Vector3[] road in roads)
+                {
+                    FindCrossings(
+                        road,
+                        layout.River,
+                        crossings);
+                }
+
+                foreach (CrossingSample crossing in crossings)
+                {
+                    Assert.That(
+                        Mathf.Abs(Vector3.Dot(
+                            crossing.RoadDirection,
+                            crossing.RiverDirection)),
+                        Is.LessThanOrEqualTo(0.025f),
+                        $"Seed {seed} contains a river crossing that is not perpendicular enough for a clean bridge approach.");
+                }
+
+                for (int first = 0; first < crossings.Count; first++)
+                {
+                    for (int second = first + 1;
+                         second < crossings.Count;
+                         second++)
+                    {
+                        Assert.That(
+                            Vector3.Distance(
+                                crossings[first].Point,
+                                crossings[second].Point),
+                            Is.GreaterThanOrEqualTo(
+                                MinimumCrossingSeparation),
+                            $"Seed {seed} creates neighboring bridges that do not represent distinct crossings.");
+                    }
+                }
+            }
         }
 
         [Test]
@@ -393,7 +657,7 @@ namespace WorldBuilder.Tests
                 terrainRenderer.sharedMaterials[0]
                     .GetTexture("_RoadMap").name,
                 Is.EqualTo(
-                    "T_Landscape_dirt_BaseColor"));
+                    "RaidPath"));
             Color[] terrainColors =
                 terrainMesh.colors;
             Assert.That(
@@ -564,7 +828,7 @@ namespace WorldBuilder.Tests
                         .RenderQueue.Transparent));
             Assert.That(
                 generator.GeneratedTreeCount,
-                Is.GreaterThanOrEqualTo(280));
+                Is.GreaterThanOrEqualTo(1400));
             Transform forest =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Dense Stylized Forest");
@@ -665,7 +929,7 @@ namespace WorldBuilder.Tests
             }
             Assert.That(
                 generator.GeneratedGrassCount,
-                Is.GreaterThanOrEqualTo(31000));
+                Is.GreaterThanOrEqualTo(124000));
             Assert.That(
                 generator.GeneratedTrailTransitionGrassCount,
                 Is.GreaterThan(80),
@@ -698,28 +962,28 @@ namespace WorldBuilder.Tests
             }
             Assert.That(
                 generator.GeneratedUndergrowthCount,
-                Is.GreaterThanOrEqualTo(400));
+                Is.GreaterThanOrEqualTo(2650));
             Assert.That(
                 generator.GeneratedBushGroupCount,
-                Is.GreaterThanOrEqualTo(8),
+                Is.GreaterThanOrEqualTo(25),
                 "Bushes should form repeated same-species shrub colonies.");
             Assert.That(
                 generator.GeneratedBushClusterMemberCount /
                     (float)generator.GeneratedBushGroupCount,
-                Is.GreaterThanOrEqualTo(4.8f),
+                Is.GreaterThanOrEqualTo(6.5f),
                 "Shrub colonies should be visibly larger than isolated prop groups.");
             Assert.That(
                 generator.GeneratedFlowerPatchCount,
-                Is.GreaterThanOrEqualTo(8),
+                Is.GreaterThanOrEqualTo(25),
                 "Flowers should appear in natural colonies instead of isolated single props.");
             Assert.That(
                 generator.GeneratedFlowerClusterMemberCount /
                     (float)generator.GeneratedFlowerPatchCount,
-                Is.GreaterThanOrEqualTo(8f),
+                Is.GreaterThanOrEqualTo(12f),
                 "Flower colonies should read as broad patches with many matching plants.");
             Assert.That(
                 generator.GeneratedGroundCoverPatchCount,
-                Is.GreaterThanOrEqualTo(8),
+                Is.GreaterThanOrEqualTo(25),
                 "Clover and low plants should form exaggerated ground-cover patches.");
             Assert.That(
                 generator.GeneratedBoulderGrassCount,
@@ -735,18 +999,22 @@ namespace WorldBuilder.Tests
                 "Tall grass should blend into the edges of flower, clover, and shrub patches.");
             Assert.That(
                 generator.GeneratedTreeBaseFoliageCount,
-                Is.GreaterThanOrEqualTo(100),
+                Is.GreaterThanOrEqualTo(450),
                 "Tree trunks should gather visible shrubs and ground cover at their bases.");
             Assert.That(
+                generator.GeneratedBoulderBaseFoliageCount,
+                Is.GreaterThanOrEqualTo(400),
+                "Rock habitats should gather dense same-species shrubs, flowers, and ground cover.");
+            Assert.That(
                 generator.GeneratedBoulderCount,
-                Is.GreaterThanOrEqualTo(44));
+                Is.GreaterThanOrEqualTo(175));
             Assert.That(
                 generator.GeneratedTrailStoneCount,
-                Is.GreaterThanOrEqualTo(38));
+                Is.GreaterThanOrEqualTo(150));
             Assert.That(
                 grass.childCount,
-                Is.InRange(90, 125),
-                "Meadow grass should be combined into a small number of render batches.");
+                Is.InRange(130, 190),
+                "Meadow grass should be combined into localized render chunks.");
             Assert.That(
                 grass.GetComponentInChildren<MeshFilter>(),
                 Is.Not.Null);
@@ -769,6 +1037,14 @@ namespace WorldBuilder.Tests
                  grassIndex < grassRenderers.Length;
                  grassIndex++)
             {
+                Assert.That(
+                    grassRenderers[grassIndex].bounds.size.x,
+                    Is.LessThanOrEqualTo(22f),
+                    "A grass renderer must stay local enough for frustum and distance culling.");
+                Assert.That(
+                    grassRenderers[grassIndex].bounds.size.z,
+                    Is.LessThanOrEqualTo(22f),
+                    "A grass renderer must stay local enough for frustum and distance culling.");
                 grassBounds.Encapsulate(
                     grassRenderers[grassIndex].bounds);
                 MeshFilter filter =
@@ -871,8 +1147,32 @@ namespace WorldBuilder.Tests
                 Is.LessThanOrEqualTo(0.01f));
             Assert.That(
                 undergrowth.childCount,
-                Is.EqualTo(
-                    generator.GeneratedUndergrowthCount));
+                Is.InRange(120, 190),
+                "Thousands of foliage placements should collapse into localized render chunks.");
+            Assert.That(
+                undergrowth.GetComponentsInChildren<Renderer>().Length,
+                Is.EqualTo(undergrowth.childCount));
+            Assert.That(
+                generator.GeneratedRendererCount,
+                Is.LessThan(4500),
+                "The generated Raid should remain within its renderer-object budget.");
+            Assert.That(
+                generator.GeneratedColliderCount,
+                Is.LessThan(2200),
+                "Only terrain, solid wood, rocks, water crossings, and gameplay surfaces should retain colliders.");
+            RaidEnvironmentCuller environmentCuller =
+                generator.GetComponent<RaidEnvironmentCuller>();
+            Assert.That(environmentCuller, Is.Not.Null);
+            Assert.That(
+                environmentCuller.EntryCount,
+                Is.InRange(1900, 2400));
+            Assert.That(
+                environmentCuller.RendererDistanceCullingEnabled,
+                Is.False,
+                "Distant trees must remain rendered so the arena never exposes an empty pop-in boundary.");
+            Assert.That(
+                Camera.main.farClipPlane,
+                Is.GreaterThanOrEqualTo(324f));
             Assert.That(
                 boulders.childCount,
                 Is.EqualTo(generator.GeneratedBoulderCount));
@@ -1023,28 +1323,37 @@ namespace WorldBuilder.Tests
                 Is.GreaterThanOrEqualTo(0.034f));
             Assert.That(RenderSettings.fog, Is.True);
             Assert.That(
+                RenderSettings.skybox,
+                Is.SameAs(generator.SkyboxMaterial));
+            Assert.That(
+                RenderSettings.skybox.shader.name,
+                Is.EqualTo("Skybox/Panoramic"));
+            Assert.That(
+                Camera.main.clearFlags,
+                Is.EqualTo(CameraClearFlags.Skybox));
+            Assert.That(
                 RenderSettings.fogMode,
                 Is.EqualTo(FogMode.Linear));
             Assert.That(
                 RenderSettings.fogColor,
                 Is.EqualTo(
                     new Color(
-                        0.46f,
-                        0.52f,
-                        0.58f,
+                        0.22f,
+                        0.36f,
+                        0.34f,
                         1f)));
             Assert.That(
                 RenderSettings.fogStartDistance,
-                Is.EqualTo(28f));
+                Is.EqualTo(21f));
             Assert.That(
                 RenderSettings.fogEndDistance,
-                Is.EqualTo(105f));
+                Is.EqualTo(90f));
             Assert.That(
                 RenderSettings.ambientIntensity,
-                Is.EqualTo(1.18f));
+                Is.EqualTo(1.02f));
             Assert.That(
                 RenderSettings.ambientGroundColor.r,
-                Is.EqualTo(0.24f).Within(0.001f));
+                Is.EqualTo(0.11f).Within(0.001f));
             Light raidSun =
                 GameObject.Find("Sun")
                     .GetComponent<Light>();
@@ -1225,7 +1534,7 @@ namespace WorldBuilder.Tests
                 Is.True,
                 "The raid player should use the brighter player material.");
             Assert.That(extraction, Is.Not.Null);
-            Assert.That(enemies, Has.Length.EqualTo(12));
+            Assert.That(enemies, Has.Length.EqualTo(8));
             foreach (EnemyBrain enemy in enemies)
             {
                 EnemyDamageProfile damageProfile =
@@ -1249,10 +1558,42 @@ namespace WorldBuilder.Tests
                 Is.InRange(0.70f, 0.93f));
             Assert.That(
                 generator.GeneratedGuardGroupCount,
-                Is.InRange(6, 11));
+                Is.InRange(4, 7));
             Assert.That(
                 generator.GeneratedGuardPairCount,
                 Is.GreaterThanOrEqualTo(1));
+            for (int first = 0; first < enemies.Length; first++)
+            {
+                int nearbyPartners = 0;
+                for (int second = 0; second < enemies.Length; second++)
+                {
+                    if (first == second)
+                    {
+                        continue;
+                    }
+
+                    float distance = Vector3.Distance(
+                        enemies[first].transform.position,
+                        enemies[second].transform.position);
+                    if (distance < 3f)
+                    {
+                        nearbyPartners++;
+                    }
+                    else
+                    {
+                        Assert.That(
+                            distance,
+                            Is.GreaterThanOrEqualTo(
+                                ProceduralRaidGenerator.
+                                    MinimumGuardPatrolSeparation - 2f),
+                            "Separate guard groups must not spawn as a larger cluster.");
+                    }
+                }
+                Assert.That(
+                    nearbyPartners,
+                    Is.LessThanOrEqualTo(1),
+                    "A guard group may contain at most two archers.");
+            }
             Assert.That(
                 enemies,
                 Has.All.Matches<EnemyBrain>(
@@ -1341,6 +1682,214 @@ namespace WorldBuilder.Tests
         private static float XzMagnitude(Vector3 point)
         {
             return new Vector2(point.x, point.z).magnitude;
+        }
+
+        private readonly struct CrossingSample
+        {
+            public CrossingSample(
+                Vector3 point,
+                Vector3 roadDirection,
+                Vector3 riverDirection)
+            {
+                Point = point;
+                RoadDirection = roadDirection;
+                RiverDirection = riverDirection;
+            }
+
+            public Vector3 Point { get; }
+            public Vector3 RoadDirection { get; }
+            public Vector3 RiverDirection { get; }
+        }
+
+        private static void FindCrossings(
+            Vector3[] road,
+            Vector3[] river,
+            List<CrossingSample> results)
+        {
+            if (road == null || road.Length < 2)
+            {
+                return;
+            }
+            for (int roadIndex = 0; roadIndex < road.Length - 1; roadIndex++)
+            {
+                Vector2 roadStart = ToXZ(road[roadIndex]);
+                Vector2 roadDelta =
+                    ToXZ(road[roadIndex + 1]) - roadStart;
+                for (int riverIndex = 0;
+                     riverIndex < river.Length - 1;
+                     riverIndex++)
+                {
+                    Vector2 riverStart = ToXZ(river[riverIndex]);
+                    Vector2 riverDelta =
+                        ToXZ(river[riverIndex + 1]) - riverStart;
+                    float denominator = Cross2D(roadDelta, riverDelta);
+                    if (Mathf.Abs(denominator) <= 0.00001f)
+                    {
+                        continue;
+                    }
+                    Vector2 separation = riverStart - roadStart;
+                    float roadT = Cross2D(separation, riverDelta) / denominator;
+                    float riverT = Cross2D(separation, roadDelta) / denominator;
+                    if (roadT < 0f || roadT > 1f ||
+                        riverT < 0f || riverT > 1f)
+                    {
+                        continue;
+                    }
+                    Vector2 point = roadStart + roadDelta * roadT;
+                    results.Add(
+                        new CrossingSample(
+                            new Vector3(point.x, 0f, point.y),
+                            new Vector3(
+                                roadDelta.x,
+                                0f,
+                                roadDelta.y).normalized,
+                            new Vector3(
+                                riverDelta.x,
+                                0f,
+                                riverDelta.y).normalized));
+                }
+            }
+        }
+
+        private static float DistanceToPolyline(
+            Vector3 point,
+            Vector3[] line)
+        {
+            float result = float.PositiveInfinity;
+            Vector2 point2 = ToXZ(point);
+            for (int index = 0; index < line.Length - 1; index++)
+            {
+                Vector2 start = ToXZ(line[index]);
+                Vector2 segment = ToXZ(line[index + 1]) - start;
+                float progress = segment.sqrMagnitude > 0.000001f
+                    ? Mathf.Clamp01(
+                        Vector2.Dot(point2 - start, segment) /
+                        segment.sqrMagnitude)
+                    : 0f;
+                result = Mathf.Min(
+                    result,
+                    Vector2.Distance(
+                        point2,
+                        start + segment * progress));
+            }
+            return result;
+        }
+
+        private static void AssertPurposefulBranch(
+            int seed,
+            Vector3[] branch,
+            Vector3[] sourceRoad,
+            Vector3[][] existingRoads)
+        {
+            if (branch.Length == 0)
+            {
+                return;
+            }
+
+            Vector3 sourceDirection = ClosestPolylineDirection(
+                branch[0],
+                sourceRoad,
+                out _);
+            Vector3 departure = Vector3.ProjectOnPlane(
+                branch[Mathf.Min(3, branch.Length - 1)] - branch[0],
+                Vector3.up).normalized;
+            float departureAngle = Mathf.Acos(Mathf.Clamp(
+                Mathf.Abs(Vector3.Dot(
+                    departure,
+                    sourceDirection)),
+                -1f,
+                1f));
+            Assert.That(
+                departureAngle,
+                Is.GreaterThanOrEqualTo(0.56f),
+                $"Seed {seed} creates a branch that merely continues parallel to its parent trail.");
+
+            foreach (Vector3[] existing in existingRoads)
+            {
+                if (existing == null || existing.Length < 2)
+                {
+                    continue;
+                }
+                int consecutiveParallelSamples = 0;
+                for (int index = 2;
+                     index < branch.Length - 1;
+                     index++)
+                {
+                    Vector3 branchDirection = Vector3.ProjectOnPlane(
+                        branch[index + 1] - branch[index - 1],
+                        Vector3.up).normalized;
+                    Vector3 existingDirection = ClosestPolylineDirection(
+                        branch[index],
+                        existing,
+                        out float distance);
+                    bool followsSameCorridor =
+                        distance < 14.9f &&
+                        Mathf.Abs(Vector3.Dot(
+                            branchDirection,
+                            existingDirection)) > 0.88f;
+                    consecutiveParallelSamples = followsSameCorridor
+                        ? consecutiveParallelSamples + 1
+                        : 0;
+                    Assert.That(
+                        consecutiveParallelSamples,
+                        Is.LessThan(3),
+                        $"Seed {seed} creates redundant parallel trails in the same corridor.");
+                }
+            }
+        }
+
+        private static Vector3 ClosestPolylineDirection(
+            Vector3 point,
+            Vector3[] line,
+            out float closestDistance)
+        {
+            closestDistance = float.PositiveInfinity;
+            Vector3 closestDirection = Vector3.forward;
+            Vector2 point2 = ToXZ(point);
+            for (int index = 0; index < line.Length - 1; index++)
+            {
+                Vector2 start = ToXZ(line[index]);
+                Vector2 segment = ToXZ(line[index + 1]) - start;
+                float progress = segment.sqrMagnitude > 0.000001f
+                    ? Mathf.Clamp01(
+                        Vector2.Dot(point2 - start, segment) /
+                        segment.sqrMagnitude)
+                    : 0f;
+                float distance = Vector2.Distance(
+                    point2,
+                    start + segment * progress);
+                if (distance >= closestDistance)
+                {
+                    continue;
+                }
+                closestDistance = distance;
+                closestDirection = new Vector3(
+                    segment.x,
+                    0f,
+                    segment.y).normalized;
+            }
+            return closestDirection;
+        }
+
+        private static float BoundaryAngleBetween(
+            Vector3 first,
+            Vector3 second)
+        {
+            float firstAngle = Mathf.Atan2(first.x, first.z);
+            float secondAngle = Mathf.Atan2(second.x, second.z);
+            return Mathf.Abs(Mathf.DeltaAngle(
+                firstAngle * Mathf.Rad2Deg,
+                secondAngle * Mathf.Rad2Deg)) * Mathf.Deg2Rad;
+        }
+
+        private static Vector2 ToXZ(Vector3 point)
+        {
+            return new Vector2(point.x, point.z);
+        }
+
+        private static float Cross2D(Vector2 first, Vector2 second)
+        {
+            return first.x * second.y - first.y * second.x;
         }
 
         private static float MinimumTerrainHeight(
