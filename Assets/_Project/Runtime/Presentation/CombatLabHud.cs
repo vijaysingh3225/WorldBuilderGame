@@ -183,6 +183,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void EnsureStyles()
         {
+            GameTypography.ApplyToCurrentSkin();
             if (whiteTexture != null)
             {
                 return;
@@ -193,12 +194,14 @@ namespace WorldBuilder.Gameplay.Presentation
             bowCrosshairDotTexture = CreateCircleTexture(24);
             titleStyle = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 16,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.9f, 0.86f, 0.72f) }
             };
             textStyle = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 12,
                 normal = { textColor = new Color(0.8f, 0.82f, 0.84f) }
             };

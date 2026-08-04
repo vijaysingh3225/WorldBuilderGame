@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -113,13 +114,32 @@ namespace WorldBuilder.Tests
                 ground.GetComponent<MeshRenderer>()
                     .sharedMaterial.mainTexture.name,
                 Is.EqualTo(
-                    "T_Landscape_grass_BaseColor"));
+                    "ForestUndergrass"));
             AssertGalleryRow("01 - All Trees", 11);
             AssertGalleryRow(
                 "02 - Bushes Flowers and Plants",
                 10);
             AssertGalleryRow("03 - All Rocks", 9);
             AssertGalleryRow("04 - All Grass", 5);
+            GameObject studies = GameObject.Find(
+                GroundFloraStudyAssetBuilder.GalleryRootName);
+            Assert.That(studies, Is.Not.Null);
+            Assert.That(
+                studies.transform.childCount,
+                Is.EqualTo(GroundFloraStudyAssetBuilder.StudyCount));
+            foreach (MeshFilter study in
+                     studies.GetComponentsInChildren<MeshFilter>())
+            {
+                Assert.That(study.sharedMesh, Is.Not.Null);
+                Assert.That(
+                    study.sharedMesh.vertexCount,
+                    Is.GreaterThan(20),
+                    $"{study.name} should contain authored flora geometry.");
+                Assert.That(
+                    study.GetComponent<Collider>(),
+                    Is.Null,
+                    "Gallery flora studies should remain non-blocking.");
+            }
             Camera camera = Camera.main;
             Assert.That(camera, Is.Not.Null);
             Assert.That(
@@ -155,6 +175,45 @@ namespace WorldBuilder.Tests
                         filter.sharedMesh.isReadable,
                         Is.True,
                         $"{grass.name} must allow runtime mesh batching.");
+                }
+            }
+        }
+
+        [Test]
+        public void UndergrowthMeshesRemainReadableForRuntimeBatching()
+        {
+            string[] names =
+            {
+                "SM_sf_bush_01",
+                "SM_sf_bush_02",
+                "SM_sf_clover_01",
+                "SM_sf_clover_02",
+                "SM_sf_flower_01",
+                "SM_sf_flower_02",
+                "SM_sf_flower_03",
+                "SM_sf_plnats_01",
+                "SM_sf_plnats_02",
+                "SM_sf_plnats_03"
+            };
+            foreach (string name in names)
+            {
+                GameObject prefab =
+                    AssetDatabase.LoadAssetAtPath<GameObject>(
+                        "Assets/_Project/Art/Environment/" +
+                        "StylizedForest/Models/" +
+                        $"Stylized_forest_fbx/{name}.FBX");
+                Assert.That(prefab, Is.Not.Null);
+                foreach (MeshFilter filter in
+                    prefab.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (filter.name.StartsWith("UCX_"))
+                    {
+                        continue;
+                    }
+                    Assert.That(
+                        filter.sharedMesh.isReadable,
+                        Is.True,
+                        $"{name} must allow runtime understory batching.");
                 }
             }
         }
@@ -279,11 +338,11 @@ namespace WorldBuilder.Tests
                 second.River,
                 Is.EqualTo(first.River));
             Assert.That(
-                second.PlayerSpawnRoadT,
-                Is.EqualTo(first.PlayerSpawnRoadT));
+                second.PlayerStart,
+                Is.EqualTo(first.PlayerStart));
             Assert.That(
-                second.ExtractionRoadT,
-                Is.EqualTo(first.ExtractionRoadT));
+                second.Extraction,
+                Is.EqualTo(first.Extraction));
         }
 
         [Test]
@@ -313,6 +372,71 @@ namespace WorldBuilder.Tests
             Assert.That(
                 XzMagnitude(layout.Extraction) / Radius,
                 Is.InRange(0.70f, 0.93f));
+        }
+
+        [Test]
+        public void SpawnAndExtractionUseWholeOuterRingStayDryAndRemainOpposed()
+        {
+            const float Radius = 144f;
+            var occupiedSectors = new bool[8];
+            bool foundForestSpawn = false;
+            bool foundForestExtraction = false;
+            for (int seed = 1; seed <= 160; seed++)
+            {
+                ProceduralRaidGenerator.RaidLayout layout =
+                    ProceduralRaidGenerator.CreateLayout(
+                        seed,
+                        Radius);
+                float spawnAngle = Mathf.Atan2(
+                    layout.PlayerStart.z,
+                    layout.PlayerStart.x);
+                int sector = Mathf.FloorToInt(
+                    Mathf.Repeat(
+                        spawnAngle,
+                        Mathf.PI * 2f) /
+                    (Mathf.PI * 0.25f));
+                occupiedSectors[sector] = true;
+                foundForestSpawn |=
+                    DistanceToTrailNetwork(
+                        layout.PlayerStart,
+                        layout) > 8f;
+                foundForestExtraction |=
+                    DistanceToTrailNetwork(
+                        layout.Extraction,
+                        layout) > 8f;
+
+                Assert.That(
+                    DistanceToPolyline(
+                        layout.PlayerStart,
+                        layout.River),
+                    Is.GreaterThanOrEqualTo(8f),
+                    $"Seed {seed} placed the player in the river clearance.");
+                Assert.That(
+                    DistanceToPolyline(
+                        layout.Extraction,
+                        layout.River),
+                    Is.GreaterThanOrEqualTo(8f),
+                    $"Seed {seed} placed extraction in the river clearance.");
+                Assert.That(
+                    Vector3.Dot(
+                        layout.PlayerStart.normalized,
+                        layout.Extraction.normalized),
+                    Is.LessThanOrEqualTo(-Mathf.Cos(0.70f) + 0.0001f),
+                    $"Seed {seed} should put extraction toward the opposite side of the arena.");
+            }
+
+            Assert.That(
+                occupiedSectors,
+                Is.All.True,
+                "Player spawns should cover all 360 degrees of the outer ring across seeds.");
+            Assert.That(
+                foundForestSpawn,
+                Is.True,
+                "The player must be able to spawn away from every trail.");
+            Assert.That(
+                foundForestExtraction,
+                Is.True,
+                "Extraction must be able to appear away from every trail.");
         }
 
         [Test]
@@ -581,7 +705,61 @@ namespace WorldBuilder.Tests
             Transform river =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/River");
+            Transform horizonBoundary =
+                generator.transform.Find(
+                    $"Generated Raid {generator.Seed}/" +
+                    "Arena Horizon Fog and Boundary");
             Assert.That(terrain, Is.Not.Null);
+            Assert.That(horizonBoundary, Is.Not.Null);
+            MeshRenderer horizonFog =
+                horizonBoundary.GetComponentInChildren<MeshRenderer>();
+            Assert.That(horizonFog, Is.Not.Null);
+            Assert.That(
+                horizonFog.sharedMaterial.shader.name,
+                Is.EqualTo("WorldBuilder/Low Horizon Fog"));
+            Assert.That(
+                horizonBoundary.GetComponentsInChildren<BoxCollider>(),
+                Has.Length.EqualTo(48),
+                "The faded horizon needs a complete physical boundary ring.");
+            Vector3[] generatedRiver =
+                generator.CurrentLayout.River;
+            int dryCrossingIndex = 1;
+            float farthestFromTrail = float.NegativeInfinity;
+            for (int index = 1;
+                 index < generatedRiver.Length - 1;
+                 index++)
+            {
+                float trailDistance = DistanceToTrailNetwork(
+                    generatedRiver[index],
+                    generator.CurrentLayout);
+                if (trailDistance > farthestFromTrail)
+                {
+                    farthestFromTrail = trailDistance;
+                    dryCrossingIndex = index;
+                }
+            }
+            Vector3 riverTangent = Vector3.ProjectOnPlane(
+                generatedRiver[dryCrossingIndex + 1] -
+                generatedRiver[dryCrossingIndex - 1],
+                Vector3.up).normalized;
+            Vector3 acrossRiver = Vector3.Cross(
+                Vector3.up,
+                riverTangent).normalized;
+            Assert.That(
+                generator.TryResolveEnemyRiverWaypoint(
+                    generatedRiver[dryCrossingIndex] +
+                        acrossRiver * 10f,
+                    generatedRiver[dryCrossingIndex] -
+                        acrossRiver * 10f,
+                    out Vector3 bridgeWaypoint),
+                Is.True,
+                "Enemy pursuit across open water should redirect toward a fitted bridge.");
+            Assert.That(
+                generator.IsInsideEnemyRiverExclusion(
+                    bridgeWaypoint,
+                    0.25f),
+                Is.False,
+                "The selected bridge approach waypoint must remain on dry ground.");
             Assert.That(
                 terrain.GetComponent<MeshCollider>(),
                 Is.Not.Null);
@@ -598,6 +776,62 @@ namespace WorldBuilder.Tests
                 Is.EqualTo(2));
             Mesh terrainMesh =
                 terrainFilter.sharedMesh;
+            var habitatWeights = new List<Vector4>();
+            terrainMesh.GetUVs(1, habitatWeights);
+            Assert.That(
+                habitatWeights,
+                Has.Count.EqualTo(terrainMesh.vertexCount),
+                "Every terrain vertex should carry the four primary habitat weights.");
+            int mixedHabitatVertices = 0;
+            foreach (Vector4 weights in habitatWeights)
+            {
+                Assert.That(
+                    weights.y,
+                    Is.LessThanOrEqualTo(0.001f),
+                    "The removed dark canopy-duff layer must not contribute anywhere on the generated terrain.");
+                float stony = 1f - weights.x - weights.y -
+                    weights.z - weights.w;
+                Assert.That(stony, Is.GreaterThanOrEqualTo(-0.002f));
+                Assert.That(
+                    weights.x + weights.y + weights.z +
+                    weights.w + stony,
+                    Is.EqualTo(1f).Within(0.002f));
+                int visibleWeights =
+                    (weights.x > 0.04f ? 1 : 0) +
+                    (weights.y > 0.04f ? 1 : 0) +
+                    (weights.z > 0.04f ? 1 : 0) +
+                    (weights.w > 0.04f ? 1 : 0) +
+                    (stony > 0.04f ? 1 : 0);
+                if (visibleWeights >= 2 && visibleWeights <= 3)
+                {
+                    mixedHabitatVertices++;
+                }
+            }
+            Assert.That(
+                mixedHabitatVertices,
+                Is.GreaterThan(terrainMesh.vertexCount * 0.55f),
+                "Most forest vertices should feather between one dominant habitat and one or two supporting habitats.");
+            Material terrainMaterial =
+                terrainRenderer.sharedMaterials[0];
+            Assert.That(
+                terrainMaterial.shader.name,
+                Is.EqualTo(
+                    "WorldBuilder/Terrain Road Blend Lit"));
+            Assert.That(
+                terrainMaterial.GetTexture("_MossyLoamMap").name,
+                Is.EqualTo("ForestMossyLoam_BaseColor_2048"));
+            Assert.That(
+                terrainMaterial.GetTexture("_CanopyDuffMap").name,
+                Is.EqualTo("ForestCanopyDuff_BaseColor_2048"));
+            Assert.That(
+                terrainMaterial.GetTexture("_MossCarpetMap").name,
+                Is.EqualTo("ForestMossCarpet_BaseColor_2048"));
+            Assert.That(
+                terrainMaterial.GetTexture("_GroundcoverMap").name,
+                Is.EqualTo("ForestCreepingGroundcover_BaseColor_2048"));
+            Assert.That(
+                terrainMaterial.GetTexture("_StonyLichenMap").name,
+                Is.EqualTo("ForestStonyLichenSoil_BaseColor_2048"));
             var grassVertices =
                 new System.Collections.Generic.HashSet<int>(
                     terrainMesh.GetTriangles(0));
@@ -618,6 +852,11 @@ namespace WorldBuilder.Tests
             }
             int originalGridVertexCount =
                 gridWidth * gridWidth;
+            AssertBroadNavigableTerrainRegions(
+                terrainVertices,
+                gridWidth,
+                generator.MapRadius,
+                generator.CurrentLayout.River);
             int interpolatedBoundaryCount = 0;
             foreach (int vertexIndex in grassVertices)
             {
@@ -642,7 +881,7 @@ namespace WorldBuilder.Tests
                 terrainRenderer.sharedMaterials[0]
                     .mainTexture.name,
                 Is.EqualTo(
-                    "T_Landscape_grass_BaseColor"));
+                    "ForestMossyLoam_BaseColor_2048"));
             Assert.That(
                 terrainRenderer.sharedMaterials[0]
                     .shader.name,
@@ -843,13 +1082,157 @@ namespace WorldBuilder.Tests
                 generator.UndergrowthVariantCount,
                 Is.EqualTo(10));
             Assert.That(
+                generator.GroundFloraStudyVariantCount,
+                Is.EqualTo(GroundFloraStudyAssetBuilder.StudyCount));
+            Assert.That(
                 generator.RockVariantCount,
                 Is.EqualTo(9));
             Assert.That(
                 forest.childCount,
                 Is.EqualTo(generator.GeneratedTreeCount));
+            Transform camps = generator.transform.Find(
+                $"Generated Raid {generator.Seed}/Forest Camps");
+            Assert.That(camps, Is.Not.Null);
+            Assert.That(generator.GeneratedCampCount, Is.InRange(1, 3));
+            Assert.That(
+                camps.childCount,
+                Is.EqualTo(generator.GeneratedCampCount));
+            Assert.That(
+                generator.GeneratedCampGuardCount,
+                Is.InRange(generator.GeneratedCampCount, 9));
+            Assert.That(
+                generator.GeneratedCampTentCount,
+                Is.EqualTo(generator.GeneratedCampGuardCount),
+                "Every camp guard should own one tent.");
+            Assert.That(
+                generator.GeneratedCampBowGuardCount +
+                    generator.GeneratedCampSwordGuardCount,
+                Is.EqualTo(generator.GeneratedCampGuardCount));
+            for (int campIndex = 0;
+                 campIndex < camps.childCount;
+                 campIndex++)
+            {
+                Transform camp = camps.GetChild(campIndex);
+                int chestCount = 0;
+                int tentCount = 0;
+                Transform chest = null;
+                var tents = new List<Transform>();
+                for (int childIndex = 0;
+                     childIndex < camp.childCount;
+                     childIndex++)
+                {
+                    Transform child = camp.GetChild(childIndex);
+                    if (child.name == "Camp Chest")
+                    {
+                        chestCount++;
+                        chest = child;
+                    }
+                    if (child.name.StartsWith("Guard Tent "))
+                    {
+                        tentCount++;
+                        tents.Add(child);
+                    }
+                }
+                Assert.That(chestCount, Is.EqualTo(1));
+                Assert.That(tentCount, Is.InRange(1, 3));
+                Assert.That(chest, Is.Not.Null);
+                foreach (Transform tent in tents)
+                {
+                    Assert.That(
+                        Vector2.Distance(
+                            ToXZ(chest.position),
+                            ToXZ(tent.position)),
+                        Is.GreaterThanOrEqualTo(3.44f),
+                        "The camp chest should sit beside or behind a tent, never inside one.");
+                    Vector3 openingDirection =
+                        Vector3.ProjectOnPlane(-tent.up, Vector3.up)
+                            .normalized;
+                    Vector3 towardFire =
+                        Vector3.ProjectOnPlane(
+                            new Vector3(
+                                generator.CampCenters[campIndex].x,
+                                tent.position.y,
+                                generator.CampCenters[campIndex].y) -
+                            tent.position,
+                            Vector3.up).normalized;
+                    Assert.That(
+                        Vector3.Dot(openingDirection, towardFire),
+                        Is.GreaterThan(0.92f),
+                        "Each tent opening should face the central campfire.");
+                }
+                for (int firstTent = 0;
+                     firstTent < tents.Count;
+                     firstTent++)
+                {
+                    for (int secondTent = firstTent + 1;
+                         secondTent < tents.Count;
+                         secondTent++)
+                    {
+                        Assert.That(
+                            Vector2.Distance(
+                                ToXZ(tents[firstTent].position),
+                                ToXZ(tents[secondTent].position)),
+                            Is.GreaterThanOrEqualTo(4.8f),
+                            "Camp tents should never overlap each other.");
+                    }
+                }
+                ParticleSystem campfire =
+                    camp.GetComponentInChildren<ParticleSystem>(true);
+                Assert.That(campfire, Is.Not.Null,
+                    "The central campfire should have animated flames.");
+                Assert.That(
+                    campfire.main.startSize.constantMax,
+                    Is.InRange(0.20f, 0.23f),
+                    "Campfire particles should remain small enough to read as flames, not pixels.");
+                Light fireLight = campfire.GetComponent<Light>();
+                Assert.That(fireLight, Is.Not.Null);
+                Assert.That(fireLight.range, Is.LessThanOrEqualTo(4.5f));
+            }
+            Vector3[] campTerrainVertices = terrainMesh.vertices;
+            for (int campIndex = 0;
+                 campIndex < generator.CampCenters.Count;
+                 campIndex++)
+            {
+                Vector2 center = generator.CampCenters[campIndex];
+                int nearestIndex = 0;
+                float nearestDistanceSquared = float.MaxValue;
+                for (int vertexIndex = 0;
+                     vertexIndex < campTerrainVertices.Length;
+                     vertexIndex++)
+                {
+                    Vector2 vertex = ToXZ(
+                        campTerrainVertices[vertexIndex]);
+                    float distanceSquared =
+                        (vertex - center).sqrMagnitude;
+                    if (distanceSquared < nearestDistanceSquared)
+                    {
+                        nearestDistanceSquared = distanceSquared;
+                        nearestIndex = vertexIndex;
+                    }
+                }
+                Assert.That(
+                    habitatWeights[nearestIndex].x,
+                    Is.GreaterThan(0.48f),
+                    "Each camp should naturally prefer the lighter dead-grass loam without becoming a hard painted circle.");
+                Assert.That(
+                    habitatWeights[nearestIndex].y,
+                    Is.LessThanOrEqualTo(0.001f));
+            }
             foreach (Transform tree in forest)
             {
+                for (int campIndex = 0;
+                     campIndex < generator.CampCenters.Count;
+                     campIndex++)
+                {
+                    Assert.That(
+                        Vector2.Distance(
+                            ToXZ(tree.position),
+                            generator.CampCenters[campIndex]),
+                        Is.GreaterThanOrEqualTo(
+                            generator.CampClearingRadius(campIndex) -
+                            0.01f),
+                        $"{tree.name} entered a reserved camp clearing.");
+                }
                 Assert.That(
                     tree.GetComponentsInChildren<
                         CapsuleCollider>(true),
@@ -882,6 +1265,9 @@ namespace WorldBuilder.Tests
             Transform undergrowth =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Shrubs Flowers and Ground Cover");
+            Transform groundFlora =
+                generator.transform.Find(
+                    $"Generated Raid {generator.Seed}/Habitat Ground Flora Studies");
             Transform boulders =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Boulders");
@@ -890,6 +1276,7 @@ namespace WorldBuilder.Tests
                     $"Generated Raid {generator.Seed}/Trail and Edge Stones");
             Assert.That(grass, Is.Not.Null);
             Assert.That(undergrowth, Is.Not.Null);
+            Assert.That(groundFlora, Is.Not.Null);
             Assert.That(boulders, Is.Not.Null);
             Assert.That(trailStones, Is.Not.Null);
             Assert.That(
@@ -900,6 +1287,10 @@ namespace WorldBuilder.Tests
                 undergrowth.GetComponentsInChildren<Collider>(true),
                 Is.Empty,
                 "Shrubs, flowers, and ground cover must never block arrows or AI sight.");
+            Assert.That(
+                groundFlora.GetComponentsInChildren<Collider>(true),
+                Is.Empty,
+                "Habitat ground flora must never block arrows, actors, or AI sight.");
             Assert.That(
                 trailStones.GetComponentsInChildren<Collider>(true),
                 Is.Empty,
@@ -963,6 +1354,28 @@ namespace WorldBuilder.Tests
             Assert.That(
                 generator.GeneratedUndergrowthCount,
                 Is.GreaterThanOrEqualTo(2650));
+            TestContext.WriteLine(
+                $"Ground flora: {generator.GeneratedGroundFloraStudyCount:N0} " +
+                $"instances across {generator.GeneratedGroundFloraColonyCount:N0} " +
+                $"general colonies, {generator.GeneratedGroundFloraTreePocketCount:N0} " +
+                $"tree-pocket plants, and {generator.GeneratedGroundFloraBoulderPocketCount:N0} " +
+                "boulder-pocket plants.");
+            Assert.That(
+                generator.GeneratedGroundFloraStudyCount,
+                Is.GreaterThanOrEqualTo(4400),
+                "The new gallery flora should form a substantial arena-wide ecology layer.");
+            Assert.That(
+                generator.GeneratedGroundFloraColonyCount,
+                Is.GreaterThanOrEqualTo(80),
+                "Most study flora should occur in readable same-species colonies.");
+            Assert.That(
+                generator.GeneratedGroundFloraTreePocketCount,
+                Is.GreaterThanOrEqualTo(250),
+                "Tree bases should gather compatible woodland flora.");
+            Assert.That(
+                generator.GeneratedGroundFloraBoulderPocketCount,
+                Is.GreaterThanOrEqualTo(150),
+                "Sheltered boulder edges should gather compatible flora.");
             Assert.That(
                 generator.GeneratedBushGroupCount,
                 Is.GreaterThanOrEqualTo(25),
@@ -1199,9 +1612,16 @@ namespace WorldBuilder.Tests
             Assert.That(
                 firstTreeRenderer.sharedMaterial.shader.isSupported,
                 Is.True);
+            var generatorSerialized =
+                new SerializedObject(generator);
+            float treeScaleMultiplier =
+                generatorSerialized.FindProperty(
+                    "treeScaleMultiplier").floatValue;
             Assert.That(
                 firstTreeRenderer.bounds.size.y,
-                Is.InRange(14f, 21.5f));
+                Is.InRange(
+                    14f * treeScaleMultiplier,
+                    21.5f * treeScaleMultiplier));
             Assert.That(
                 firstTreeRenderer.bounds.size.y,
                 Is.GreaterThan(
@@ -1360,7 +1780,7 @@ namespace WorldBuilder.Tests
             Assert.That(raidSun, Is.Not.Null);
             Assert.That(
                 raidSun.shadowStrength,
-                Is.EqualTo(0.68f).Within(0.001f),
+                Is.EqualTo(0.60f).Within(0.001f),
                 "Tree shadows should retain shape without crushing the forest floor to black.");
             Assert.That(
                 Vector3.Dot(
@@ -1385,9 +1805,15 @@ namespace WorldBuilder.Tests
                     MinimumTerrainHeight(
                         terrainCollider,
                         tree.position,
-                        0.62f,
-                        0.62f,
+                        0.62f * treeScaleMultiplier,
+                        0.62f * treeScaleMultiplier,
                         16);
+                Assert.That(
+                    treeBounds.size.y,
+                    Is.InRange(
+                        14.4f * treeScaleMultiplier - 0.1f,
+                        21f * treeScaleMultiplier + 0.1f),
+                    $"{tree.name} should use the requested 1.75x tree scale.");
                 Assert.That(
                     treeBounds.min.y,
                     Is.EqualTo(lowestTerrain)
@@ -1453,6 +1879,7 @@ namespace WorldBuilder.Tests
                     ~0,
                     QueryTriggerInteraction.Ignore);
                 bool hasCenterSupport = false;
+                float bridgeDeckHeight = float.NegativeInfinity;
                 for (int hitIndex = 0;
                      hitIndex < bridgeHits.Length;
                      hitIndex++)
@@ -1462,13 +1889,31 @@ namespace WorldBuilder.Tests
                             .IsChildOf(bridge))
                     {
                         hasCenterSupport = true;
-                        break;
+                        bridgeDeckHeight = Mathf.Max(
+                            bridgeDeckHeight,
+                            bridgeHits[hitIndex].point.y);
                     }
                 }
                 Assert.That(
                     hasCenterSupport,
                     Is.True,
                     "The center of the trail must have bridge support rather than open water.");
+                Vector3 supportedBridgePoint = new Vector3(
+                    bridge.position.x,
+                    bridgeDeckHeight + 0.05f,
+                    bridge.position.z);
+                Assert.That(
+                    generator.IsEnemyNavigationPositionSafe(
+                        supportedBridgePoint,
+                        0.30f),
+                    Is.True,
+                    "The narrow center of a bridge must remain a valid AI route.");
+                Assert.That(
+                    generator.IsEnemyNavigationPositionSafe(
+                        supportedBridgePoint + Vector3.down * 2f,
+                        0.30f),
+                    Is.False,
+                    "An enemy falling below the bridge deck must be treated as entering the river.");
                 MeshFilter rootMesh =
                     bridge.GetComponent<MeshFilter>();
                 if (rootMesh != null && rootMesh.sharedMesh != null)
@@ -1501,7 +1946,7 @@ namespace WorldBuilder.Tests
                 GameObject.FindGameObjectWithTag("Player");
             ExtractionZone extraction =
                 Object.FindFirstObjectByType<ExtractionZone>();
-            EnemyBrain[] enemies =
+            EnemyBrain[] allEnemies =
                 Object.FindObjectsByType<EnemyBrain>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
@@ -1512,9 +1957,19 @@ namespace WorldBuilder.Tests
                     "Materials/Player.mat");
             Assert.That(playerMaterial, Is.Not.Null);
             Assert.That(
-                playerMaterial.color.r,
-                Is.EqualTo(0.36f).Within(0.001f),
-                "The player should remain a clearly visible mid-light grey.");
+                playerMaterial.GetTexture("_BaseMap"),
+                Is.Null);
+            Assert.That(
+                playerMaterial.GetTexture("_BumpMap"),
+                Is.Null);
+            Assert.That(
+                playerMaterial.GetTexture("_OcclusionMap"),
+                Is.Null);
+            Assert.That(
+                Vector4.Distance(
+                    playerMaterial.GetColor("_BaseColor"),
+                    new Color(0.36f, 0.36f, 0.36f, 1f)),
+                Is.LessThan(0.001f));
             bool playerUsesMaterial = false;
             foreach (Renderer renderer in
                      player.GetComponentsInChildren<Renderer>(true))
@@ -1534,8 +1989,95 @@ namespace WorldBuilder.Tests
                 Is.True,
                 "The raid player should use the brighter player material.");
             Assert.That(extraction, Is.Not.Null);
-            Assert.That(enemies, Has.Length.EqualTo(8));
-            foreach (EnemyBrain enemy in enemies)
+            int trailRaiderCount = 0;
+            int campGuardPoolCount = 0;
+            var trailEnemies = new List<EnemyBrain>();
+            foreach (EnemyBrain enemy in allEnemies)
+            {
+                if (enemy.name.StartsWith("Raider "))
+                {
+                    trailRaiderCount++;
+                    trailEnemies.Add(enemy);
+                }
+                else if (enemy.name.StartsWith("Camp Guard Pool "))
+                {
+                    campGuardPoolCount++;
+                }
+            }
+            Assert.That(trailRaiderCount, Is.EqualTo(8));
+            Assert.That(campGuardPoolCount, Is.EqualTo(9));
+            EnemyBrain[] enemies = trailEnemies.ToArray();
+            RaidObelisk[] obelisks =
+                Object.FindObjectsByType<RaidObelisk>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None);
+            System.Array.Sort(
+                obelisks,
+                (left, right) =>
+                    left.QuadrantIndex.CompareTo(
+                        right.QuadrantIndex));
+            Assert.That(obelisks, Has.Length.EqualTo(4));
+            float obeliskRadius =
+                XzMagnitude(obelisks[0].transform.position);
+            for (int index = 0; index < obelisks.Length; index++)
+            {
+                Vector3 position = obelisks[index].transform.position;
+                Assert.That(
+                    XzMagnitude(position),
+                    Is.EqualTo(obeliskRadius).Within(0.01f),
+                    "All four monuments should share one arena ring.");
+                Assert.That(
+                    DistanceToPolyline(
+                        position,
+                        generator.CurrentLayout.River),
+                    Is.GreaterThanOrEqualTo(8f),
+                    "An obelisk must never be placed in or against the river.");
+                Assert.That(
+                    grassTerrainCollider.Raycast(
+                        new Ray(
+                            position + Vector3.up * 20f,
+                            Vector3.down),
+                        out RaycastHit groundHit,
+                        40f),
+                    Is.True);
+                Assert.That(
+                    position.y,
+                    Is.EqualTo(groundHit.point.y).Within(0.02f),
+                    "The obelisk root must sit directly on terrain while its lower stone remains buried.");
+
+                Vector3 next =
+                    obelisks[(index + 1) % obelisks.Length]
+                        .transform.position;
+                Assert.That(
+                    Vector3.Angle(
+                        Vector3.ProjectOnPlane(position, Vector3.up),
+                        Vector3.ProjectOnPlane(next, Vector3.up)),
+                    Is.EqualTo(90f).Within(0.05f),
+                    "Neighboring quadrant obelisks should be equidistant around the arena.");
+            }
+            Assert.That(obelisks[0].transform.position.x, Is.Positive);
+            Assert.That(obelisks[0].transform.position.z, Is.Positive);
+            Assert.That(obelisks[1].transform.position.x, Is.Negative);
+            Assert.That(obelisks[1].transform.position.z, Is.Positive);
+            Assert.That(obelisks[2].transform.position.x, Is.Negative);
+            Assert.That(obelisks[2].transform.position.z, Is.Negative);
+            Assert.That(obelisks[3].transform.position.x, Is.Positive);
+            Assert.That(obelisks[3].transform.position.z, Is.Negative);
+            foreach (Transform tree in forest)
+            {
+                foreach (RaidObelisk obelisk in obelisks)
+                {
+                    Assert.That(
+                        Vector2.Distance(
+                            ToXZ(tree.position),
+                            ToXZ(obelisk.transform.position)),
+                        Is.GreaterThanOrEqualTo(
+                            ProceduralRaidGenerator
+                                .ObeliskTreeClearance - 0.01f),
+                        $"{tree.name} entered the six-meter tree-free obelisk clearing.");
+                }
+            }
+            foreach (EnemyBrain enemy in allEnemies)
             {
                 EnemyDamageProfile damageProfile =
                     enemy.GetComponent<EnemyDamageProfile>();
@@ -1547,7 +2089,43 @@ namespace WorldBuilder.Tests
                     enemy.GetComponent<Health>().Minimum,
                     Is.Zero,
                     "Raid enemies must never retain the legacy immortal dummy floor.");
+                if (enemy.gameObject.activeInHierarchy)
+                {
+                    Assert.That(
+                        generator.IsInsideEnemyRiverExclusion(
+                            enemy.transform.position,
+                            0.25f),
+                        Is.False,
+                        $"{enemy.name} spawned inside the river exclusion.");
+                }
             }
+            EnemyBrain safetyEnemy = enemies[0];
+            CharacterController safetyController =
+                safetyEnemy.GetComponent<CharacterController>();
+            Vector3 lastDryPosition = safetyEnemy.transform.position;
+            MethodInfo navigationSafetyUpdate =
+                typeof(EnemyBrain).GetMethod(
+                    "LateUpdate",
+                    BindingFlags.Instance |
+                    BindingFlags.NonPublic);
+            Assert.That(navigationSafetyUpdate, Is.Not.Null);
+            navigationSafetyUpdate.Invoke(safetyEnemy, null);
+            Vector3 forcedRiverPosition =
+                generator.CurrentLayout.River[
+                    generator.CurrentLayout.River.Length / 2];
+            forcedRiverPosition.y = lastDryPosition.y - 3f;
+            bool safetyControllerWasEnabled =
+                safetyController.enabled;
+            safetyController.enabled = false;
+            safetyEnemy.transform.position = forcedRiverPosition;
+            safetyController.enabled = safetyControllerWasEnabled;
+
+            navigationSafetyUpdate.Invoke(safetyEnemy, null);
+
+            Assert.That(
+                safetyEnemy.transform.position,
+                Is.EqualTo(lastDryPosition),
+                "A living enemy displaced into the river must immediately return to its last dry navigation position.");
             Assert.That(
                 XzMagnitude(player.transform.position) /
                     generator.MapRadius,
@@ -1556,6 +2134,36 @@ namespace WorldBuilder.Tests
                 XzMagnitude(extraction.transform.position) /
                     generator.MapRadius,
                 Is.InRange(0.70f, 0.93f));
+            foreach (Transform boulder in boulders)
+            {
+                Assert.That(
+                    Vector2.Distance(
+                        ToXZ(boulder.position),
+                        ToXZ(player.transform.position)),
+                    Is.GreaterThanOrEqualTo(7.5f),
+                    $"{boulder.name} must not occupy the player's reserved solid-ground spawn area.");
+                Assert.That(
+                    Vector2.Distance(
+                        ToXZ(boulder.position),
+                        ToXZ(extraction.transform.position)),
+                    Is.GreaterThanOrEqualTo(7.5f),
+                    $"{boulder.name} must not occupy extraction's reserved solid-ground area.");
+            }
+            foreach (Transform stone in trailStones)
+            {
+                Assert.That(
+                    Vector2.Distance(
+                        ToXZ(stone.position),
+                        ToXZ(player.transform.position)),
+                    Is.GreaterThanOrEqualTo(7.5f),
+                    $"{stone.name} must not be generated beneath the player.");
+                Assert.That(
+                    Vector2.Distance(
+                        ToXZ(stone.position),
+                        ToXZ(extraction.transform.position)),
+                    Is.GreaterThanOrEqualTo(7.5f),
+                    $"{stone.name} must not be generated inside extraction.");
+            }
             Assert.That(
                 generator.GeneratedGuardGroupCount,
                 Is.InRange(4, 7));
@@ -1775,6 +2383,32 @@ namespace WorldBuilder.Tests
             return result;
         }
 
+        private static float DistanceToTrailNetwork(
+            Vector3 point,
+            ProceduralRaidGenerator.RaidLayout layout)
+        {
+            float result = float.PositiveInfinity;
+            Vector3[][] trails =
+            {
+                layout.MainRoad,
+                layout.ForkRoad,
+                layout.BranchRoadA,
+                layout.BranchRoadB,
+                layout.BranchRoadC
+            };
+            foreach (Vector3[] trail in trails)
+            {
+                if (trail == null || trail.Length < 2)
+                {
+                    continue;
+                }
+                result = Mathf.Min(
+                    result,
+                    DistanceToPolyline(point, trail));
+            }
+            return result;
+        }
+
         private static void AssertPurposefulBranch(
             int seed,
             Vector3[] branch,
@@ -1890,6 +2524,78 @@ namespace WorldBuilder.Tests
         private static float Cross2D(Vector2 first, Vector2 second)
         {
             return first.x * second.y - first.y * second.x;
+        }
+
+        private static void AssertBroadNavigableTerrainRegions(
+            Vector3[] vertices,
+            int gridWidth,
+            float mapRadius,
+            Vector3[] river)
+        {
+            float minimum = float.PositiveInfinity;
+            float maximum = float.NegativeInfinity;
+            var quadrantTotals = new float[4];
+            var quadrantCounts = new int[4];
+            var grades = new List<float>();
+            float sampleSpacing = Mathf.Abs(
+                vertices[1].x - vertices[0].x);
+            for (int z = 1; z < gridWidth - 1; z++)
+            {
+                for (int x = 1; x < gridWidth - 1; x++)
+                {
+                    int index = z * gridWidth + x;
+                    Vector3 point = vertices[index];
+                    if (new Vector2(point.x, point.z).magnitude >
+                            mapRadius * 0.72f ||
+                        DistanceToPolyline(point, river) < 8f)
+                    {
+                        continue;
+                    }
+
+                    minimum = Mathf.Min(minimum, point.y);
+                    maximum = Mathf.Max(maximum, point.y);
+                    int quadrant =
+                        (point.x >= 0f ? 1 : 0) +
+                        (point.z >= 0f ? 2 : 0);
+                    quadrantTotals[quadrant] += point.y;
+                    quadrantCounts[quadrant]++;
+                    grades.Add(Mathf.Abs(
+                        vertices[index + 1].y - point.y) /
+                        sampleSpacing);
+                    grades.Add(Mathf.Abs(
+                        vertices[index + gridWidth].y - point.y) /
+                        sampleSpacing);
+                }
+            }
+
+            float lowestRegion = float.PositiveInfinity;
+            float highestRegion = float.NegativeInfinity;
+            for (int index = 0; index < quadrantTotals.Length; index++)
+            {
+                Assert.That(quadrantCounts[index], Is.GreaterThan(100));
+                float average = quadrantTotals[index] / quadrantCounts[index];
+                lowestRegion = Mathf.Min(lowestRegion, average);
+                highestRegion = Mathf.Max(highestRegion, average);
+            }
+            grades.Sort();
+            float ninetyFifthPercentile = grades[
+                Mathf.Clamp(
+                    Mathf.FloorToInt(grades.Count * 0.95f),
+                    0,
+                    grades.Count - 1)];
+
+            Assert.That(
+                maximum - minimum,
+                Is.GreaterThan(10f),
+                "The playable interior should include meaningful high and low terrain, not one uniformly rolling surface.");
+            Assert.That(
+                highestRegion - lowestRegion,
+                Is.GreaterThan(1.4f),
+                "Arena-scale sectors should sit at visibly different average elevations.");
+            Assert.That(
+                ninetyFifthPercentile,
+                Is.LessThan(0.48f),
+                "At least 95% of dry interior terrain should remain comfortably traversable by the player controller.");
         }
 
         private static float MinimumTerrainHeight(

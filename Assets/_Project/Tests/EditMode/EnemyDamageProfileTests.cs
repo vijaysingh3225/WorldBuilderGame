@@ -119,18 +119,21 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void SwordDamageIsLethalAgainstAnEnemyProfile()
+        public void SwordDamagePreservesTheRequestedAmount()
         {
             profile.ReceiveDamage(
                 HumanoidHitRegion.Torso,
                 new DamageRequest(
                     enemy,
-                    20f,
+                    MeleeWeapon.DefaultSwordDamage,
                     enemy.transform.position,
                     Vector3.forward,
                     "prototype-sword"));
 
-            Assert.That(health.IsAlive, Is.False);
+            Assert.That(health.IsAlive, Is.True);
+            Assert.That(
+                health.Current,
+                Is.EqualTo(40f).Within(0.001f));
         }
 
         [Test]

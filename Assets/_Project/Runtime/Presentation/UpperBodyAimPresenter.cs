@@ -365,7 +365,7 @@ namespace WorldBuilder.Gameplay.Presentation
                     float locomotionSpeedBlend = Mathf.InverseLerp(
                         ThirdPersonMotor.DefaultWalkSpeed,
                         ThirdPersonMotor.DefaultSprintSpeed,
-                        motor.HorizontalSpeed);
+                        motor.AnimationHorizontalSpeed);
                     float maximumYaw = Mathf.Lerp(
                         walkTorsoYaw,
                         runTorsoYaw,

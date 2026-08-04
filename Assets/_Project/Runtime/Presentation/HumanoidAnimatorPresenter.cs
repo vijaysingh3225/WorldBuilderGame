@@ -13,6 +13,7 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string VerticalSpeedParameter = "VerticalSpeed";
         public const string GroundedParameter = "Grounded";
         public const string CrouchedParameter = "Crouched";
+        public const float MinimumLocomotionDampTime = 0.16f;
 
         private static readonly int SpeedHash = Animator.StringToHash(SpeedParameter);
         private static readonly int MoveXHash = Animator.StringToHash(MoveXParameter);
@@ -92,9 +93,24 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             Vector3 localVelocity = motor.LocalHorizontalVelocity;
-            animator.SetFloat(SpeedHash, motor.HorizontalSpeed, locomotionDampTime, Time.deltaTime);
-            animator.SetFloat(MoveXHash, localVelocity.x, locomotionDampTime, Time.deltaTime);
-            animator.SetFloat(MoveZHash, localVelocity.z, locomotionDampTime, Time.deltaTime);
+            float effectiveDampTime = Mathf.Max(
+                MinimumLocomotionDampTime,
+                locomotionDampTime);
+            animator.SetFloat(
+                SpeedHash,
+                motor.AnimationHorizontalSpeed,
+                effectiveDampTime,
+                Time.deltaTime);
+            animator.SetFloat(
+                MoveXHash,
+                localVelocity.x,
+                effectiveDampTime,
+                Time.deltaTime);
+            animator.SetFloat(
+                MoveZHash,
+                localVelocity.z,
+                effectiveDampTime,
+                Time.deltaTime);
             animator.SetFloat(VerticalSpeedHash, motor.VerticalVelocity);
             animator.SetBool(GroundedHash, motor.IsGrounded);
             animator.SetBool(CrouchedHash, motor.IsCrouched);

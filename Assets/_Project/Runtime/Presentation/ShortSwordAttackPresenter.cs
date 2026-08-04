@@ -15,6 +15,12 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string Hit2RecoveryStateName = "Sword Cycle Hit 2 Recovery";
         public const string Hit3StateName = "Sword Cycle Hit 3";
         public const string AttackStateName = Hit1StateName;
+        public const float MinimumAttackTransitionDuration = 0.075f;
+        public const float MinimumAttackReturnDuration = 0.24f;
+        public const float AttackEntryBlendDuration = 0.12f;
+        public const float RunningRecoveryHandoffStart = 0.50f;
+        public const float RunningFinisherHandoffStart = 0.58f;
+        public const float RunningReturnGaitThreshold = 0.25f;
 
         private static readonly int[] HitStateHashes =
         {
@@ -40,7 +46,7 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Transform swordRoot;
         [SerializeField] private AudioClip swordSwingClip;
         [SerializeField] private AudioSource swordAudioSource;
-        [SerializeField, Range(0f, 1f)] private float swordSwingVolume = 0.72f;
+        [SerializeField, Range(0f, 1f)] private float swordSwingVolume = 0.36f;
         [SerializeField, Range(0.1f, 0.8f)] private float comboInputOpen = 0.20f;
         [SerializeField, Range(0.3f, 1f)] private float comboInputClose = 0.99f;
         [SerializeField, Range(0f, 0.9f)] private float comboRecoveryGrace = 0.50f;
@@ -51,6 +57,7 @@ namespace WorldBuilder.Gameplay.Presentation
         private int attackLayerIndex = -1;
         private int currentHit;
         private bool attackActive;
+        private bool entryBlending;
         private bool recovering;
         private bool returnBlending;
         private bool comboFollowUpQueued;
@@ -58,9 +65,13 @@ namespace WorldBuilder.Gameplay.Presentation
         private bool damageWindowOpened;
         private bool subscribed;
         private float returnBlendStartedAt;
+        private float returnBlendStartWeight;
+        private float entryBlendStartedAt;
+        private float presentationWeight;
         private bool weaponEquipped = true;
 
         public bool IsAttacking => attackActive;
+        public float PresentationWeight => presentationWeight;
         public bool WeaponEquipped => weaponEquipped;
         public int CurrentComboHit => attackActive ? currentHit + 1 : 0;
         public Vector3 SwordDirection => swordRoot != null ? swordRoot.up : Vector3.zero;
@@ -128,6 +139,11 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
+            if (entryBlending)
+            {
+                UpdateEntryBlend();
+            }
+
             if (returnBlending)
             {
                 UpdateFinalReturnBlend();
@@ -168,6 +184,10 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
+            bool runningHandoff =
+                UpdateRunningLocomotionHandoff(
+                    state.normalizedTime);
+
             if (state.normalizedTime < 1f)
             {
                 return;
@@ -178,20 +198,20 @@ namespace WorldBuilder.Gameplay.Presentation
                 recovering = true;
                 animator.CrossFadeInFixedTime(
                     RecoveryStateHashes[currentHit],
-                    transitionDuration,
+                    EffectiveAttackTransitionDuration,
                     attackLayerIndex,
                     0f);
                 return;
             }
 
-            if (currentHit == HitStateHashes.Length - 1 && !recovering)
+            if (runningHandoff &&
+                presentationWeight <= 0.001f)
             {
-                returnBlending = true;
-                returnBlendStartedAt = Time.time;
+                FinishCurrentAttack();
                 return;
             }
 
-            FinishCurrentAttack();
+            BeginReturnBlend();
         }
 
         private void OnAttackRequested()
@@ -230,18 +250,22 @@ namespace WorldBuilder.Gameplay.Presentation
             damageWindowOpened = false;
             if (chained)
             {
+                entryBlending = false;
                 animator.CrossFadeInFixedTime(
                     HitStateHashes[currentHit],
-                    transitionDuration,
+                    EffectiveAttackTransitionDuration,
                     attackLayerIndex,
                     0f);
+                SetAttackLayerWeight(1f);
             }
             else
             {
                 animator.Play(HitStateHashes[currentHit], attackLayerIndex, 0f);
+                entryBlending = true;
+                entryBlendStartedAt = Time.time;
+                SetAttackLayerWeight(0f);
             }
 
-            animator.SetLayerWeight(attackLayerIndex, 1f);
             weapon.BeginSwing();
         }
 
@@ -332,20 +356,109 @@ namespace WorldBuilder.Gameplay.Presentation
         private void UpdateFinalReturnBlend()
         {
             float progress = Mathf.Clamp01(
-                (Time.time - returnBlendStartedAt) / finalReturnBlendDuration);
-            animator.SetLayerWeight(attackLayerIndex, 1f - progress);
+                (Time.time - returnBlendStartedAt) /
+                EffectiveAttackReturnDuration);
+            SetAttackLayerWeight(
+                returnBlendStartWeight *
+                (1f - progress));
             if (progress >= 1f)
             {
                 FinishCurrentAttack();
             }
         }
 
+        private void UpdateEntryBlend()
+        {
+            float progress = Mathf.Clamp01(
+                (Time.time - entryBlendStartedAt) /
+                AttackEntryBlendDuration);
+            SetAttackLayerWeight(progress);
+            if (progress >= 1f)
+            {
+                entryBlending = false;
+            }
+        }
+
+        private void BeginReturnBlend()
+        {
+            entryBlending = false;
+            returnBlending = true;
+            returnBlendStartedAt = Time.time;
+            returnBlendStartWeight =
+                presentationWeight;
+        }
+
+        private bool UpdateRunningLocomotionHandoff(
+            float normalizedTime)
+        {
+            bool canHandoff =
+                recovering ||
+                currentHit == HitStateHashes.Length - 1;
+            if (!canHandoff ||
+                !ShouldReturnDirectlyToRunningPose())
+            {
+                return false;
+            }
+
+            float progress =
+                CalculateRunningReturnProgress(
+                    normalizedTime,
+                    recovering);
+            if (progress <= 0f)
+            {
+                return false;
+            }
+
+            SetAttackLayerWeight(
+                Mathf.Min(
+                    presentationWeight,
+                    1f - progress));
+            return true;
+        }
+
+        private bool ShouldReturnDirectlyToRunningPose()
+        {
+            if (motor == null ||
+                !motor.IsGrounded ||
+                motor.IsCrouched)
+            {
+                return false;
+            }
+
+            float runningThreshold = Mathf.Lerp(
+                motor.WalkSpeed,
+                motor.SprintSpeed,
+                RunningReturnGaitThreshold);
+            return Mathf.Max(
+                    motor.HorizontalSpeed,
+                    motor.TargetHorizontalSpeed) >=
+                runningThreshold;
+        }
+
+        public static float CalculateRunningReturnProgress(
+            float normalizedTime,
+            bool recoveryState)
+        {
+            float handoffStart = recoveryState
+                ? RunningRecoveryHandoffStart
+                : RunningFinisherHandoffStart;
+            return Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    handoffStart,
+                    1f,
+                    normalizedTime));
+        }
+
         private void FinishCurrentAttack()
         {
             attackActive = false;
+            entryBlending = false;
             recovering = false;
             returnBlending = false;
-            animator.SetLayerWeight(attackLayerIndex, 0f);
+            returnBlendStartWeight = 0f;
+            SetAttackLayerWeight(0f);
             comboFollowUpQueued = false;
             swingSoundPlayed = false;
             damageWindowOpened = false;
@@ -355,8 +468,10 @@ namespace WorldBuilder.Gameplay.Presentation
         private void ResetPresentation()
         {
             attackActive = false;
+            entryBlending = false;
             recovering = false;
             returnBlending = false;
+            returnBlendStartWeight = 0f;
             comboFollowUpQueued = false;
             swingSoundPlayed = false;
             damageWindowOpened = false;
@@ -371,7 +486,11 @@ namespace WorldBuilder.Gameplay.Presentation
                 animator.runtimeAnimatorController != null &&
                 attackLayerIndex >= 0)
             {
-                animator.SetLayerWeight(attackLayerIndex, 0f);
+                SetAttackLayerWeight(0f);
+            }
+            else
+            {
+                presentationWeight = 0f;
             }
         }
 
@@ -385,9 +504,30 @@ namespace WorldBuilder.Gameplay.Presentation
             attackLayerIndex = animator.GetLayerIndex(AttackLayerName);
             if (attackLayerIndex >= 0)
             {
-                animator.SetLayerWeight(attackLayerIndex, 0f);
+                SetAttackLayerWeight(0f);
             }
         }
+
+        private void SetAttackLayerWeight(float weight)
+        {
+            presentationWeight = Mathf.Clamp01(weight);
+            if (animator != null && attackLayerIndex >= 0)
+            {
+                animator.SetLayerWeight(
+                    attackLayerIndex,
+                    presentationWeight);
+            }
+        }
+
+        private float EffectiveAttackTransitionDuration =>
+            Mathf.Max(
+                MinimumAttackTransitionDuration,
+                transitionDuration);
+
+        private float EffectiveAttackReturnDuration =>
+            Mathf.Max(
+                MinimumAttackReturnDuration,
+                finalReturnBlendDuration);
 
         private void Subscribe()
         {

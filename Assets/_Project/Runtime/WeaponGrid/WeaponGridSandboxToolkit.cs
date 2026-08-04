@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Loop.Scenes;
+using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Gameplay.WeaponGrid
 {
@@ -23,16 +24,18 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
         [SerializeField] private WeaponGridRuntime gridRuntime;
         [SerializeField] private PlayerInputSource inputSource;
+        [SerializeField] private InventoryPreviewRenderer previewRenderer;
         [SerializeField] private bool toggleWithTab = true;
         [SerializeField] private bool startOpen;
         [SerializeField] private bool pauseWhileOpen = true;
         [SerializeField] private bool initializeSandboxIfPristine = true;
-        [SerializeField] private Rect windowRect = new Rect(0f, 0f, 1080f, 700f);
+        [SerializeField] private Rect windowRect = new Rect(0f, 0f, 900f, 540f);
 
         private readonly Dictionary<GridCoordinate, Rect> cellRects =
             new Dictionary<GridCoordinate, Rect>();
 
         private bool isOpen;
+        private bool windowPositionInitialized;
         private bool hasCapturedPresentationState;
         private float capturedTimeScale = 1f;
         private CursorLockMode capturedCursorLock;
@@ -105,12 +108,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
             EnsureRuntime();
             EnsureStyles();
-            float width = Mathf.Min(windowRect.width, Screen.width - 24f);
-            float height = Mathf.Min(windowRect.height, Screen.height - 24f);
-            windowRect.width = Mathf.Max(760f, width);
-            windowRect.height = Mathf.Max(560f, height);
-            windowRect.x = (Screen.width - windowRect.width) * 0.5f;
-            windowRect.y = (Screen.height - windowRect.height) * 0.5f;
+            EnsureWindowRect();
 
             Color previousColor = GUI.color;
             GUI.color = new Color(0f, 0f, 0f, 0.48f);
@@ -176,8 +174,20 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             }
 
             EnsureRuntime();
+            EnsurePreview();
             isOpen = true;
             CapturePresentationState();
+        }
+
+        public void OpenWeapon(int weaponIndex)
+        {
+            EnsureRuntime();
+            int selected = Mathf.Clamp(weaponIndex, 0, 1);
+            gridRuntime.SelectWeapon(selected);
+            seedText = gridRuntime.ActiveGrid.Seed.ToString();
+            EnsurePreview();
+            previewRenderer?.SelectWeapon(selected);
+            Open();
         }
 
         public void Close()
@@ -195,37 +205,123 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         {
             DrawPanelBackground(new Rect(0f, 0f, windowRect.width, windowRect.height));
             GUI.Label(
-                new Rect(24f, 18f, 500f, 34f),
-                "WEAPON GRID  /  SANDBOX TOOLKIT",
+                new Rect(18f, 10f, 420f, 30f),
+                "WEAPON GRID",
                 titleStyle);
             GUI.Label(
-                new Rect(24f, 51f, 680f, 22f),
-                "Developer artifact override | changes resolve immediately | Tab / Esc closes",
+                new Rect(18f, 38f, windowRect.width - 76f, 20f),
+                "Drag title bar to move  |  drag weapon to rotate  |  Esc closes",
                 mutedStyle);
 
             if (GUI.Button(
-                new Rect(windowRect.width - 52f, 18f, 28f, 28f),
+                new Rect(windowRect.width - 40f, 10f, 26f, 26f),
                 "X"))
             {
                 Close();
                 return;
             }
 
-            DrawWeaponTabs(new Rect(24f, 82f, windowRect.width - 48f, 42f));
-            float sidebarWidth = 326f;
+            DrawWeaponTabs(new Rect(18f, 64f, windowRect.width - 36f, 34f));
+            float previewWidth = Mathf.Clamp(
+                windowRect.width * 0.24f,
+                180f,
+                220f);
+            float sidebarWidth = Mathf.Clamp(
+                windowRect.width * 0.24f,
+                200f,
+                224f);
+            var previewArea = new Rect(
+                18f,
+                108f,
+                previewWidth,
+                windowRect.height - 124f);
             var gridArea = new Rect(
-                24f,
-                136f,
-                windowRect.width - sidebarWidth - 62f,
-                windowRect.height - 170f);
+                previewArea.xMax + 8f,
+                108f,
+                windowRect.width - previewWidth - sidebarWidth - 60f,
+                windowRect.height - 124f);
             var sidebarArea = new Rect(
-                gridArea.xMax + 14f,
-                136f,
+                gridArea.xMax + 8f,
+                108f,
                 sidebarWidth,
-                windowRect.height - 170f);
+                windowRect.height - 124f);
 
+            DrawWeaponPreview(previewArea);
             DrawGridPanel(gridArea);
             DrawSidebar(sidebarArea);
+            GUI.DragWindow(new Rect(0f, 0f, windowRect.width - 48f, 56f));
+        }
+
+        public static Rect CalculateWindowRect(float screenWidth, float screenHeight)
+        {
+            const float margin = 16f;
+            float width = Mathf.Max(0f, Mathf.Min(900f, screenWidth - margin * 2f));
+            float height = Mathf.Max(0f, Mathf.Min(540f, screenHeight - margin * 2f));
+            return new Rect(
+                (screenWidth - width) * 0.5f,
+                (screenHeight - height) * 0.5f,
+                width,
+                height);
+        }
+
+        private void EnsureWindowRect()
+        {
+            Rect fitted = CalculateWindowRect(Screen.width, Screen.height);
+            if (!windowPositionInitialized)
+            {
+                windowRect = fitted;
+                windowPositionInitialized = true;
+                return;
+            }
+
+            windowRect.width = fitted.width;
+            windowRect.height = fitted.height;
+            windowRect.x = Mathf.Clamp(
+                windowRect.x,
+                16f,
+                Mathf.Max(16f, Screen.width - fitted.width - 16f));
+            windowRect.y = Mathf.Clamp(
+                windowRect.y,
+                16f,
+                Mathf.Max(16f, Screen.height - fitted.height - 16f));
+        }
+
+        private void DrawWeaponPreview(Rect area)
+        {
+            DrawPanelBackground(area, new Color(0.055f, 0.065f, 0.071f, 0.99f));
+            GUI.Label(
+                new Rect(area.x + 16f, area.y + 14f, area.width - 32f, 26f),
+                gridRuntime.ActiveGrid.DisplayName,
+                headingStyle);
+            Rect preview = new Rect(
+                area.x + 12f,
+                area.y + 48f,
+                area.width - 24f,
+                area.height - 104f);
+            if (previewRenderer != null && previewRenderer.WeaponTexture != null)
+            {
+                GUI.DrawTexture(
+                    preview,
+                    previewRenderer.WeaponTexture,
+                    ScaleMode.ScaleToFit,
+                    false);
+            }
+            else
+            {
+                GUI.Box(preview, "WEAPON PREVIEW");
+            }
+            Event current = Event.current;
+            if (current.type == EventType.MouseDrag &&
+                current.button == 0 &&
+                preview.Contains(current.mousePosition))
+            {
+                previewRenderer?.RotateWeapon(-current.delta.x * 0.8f);
+                current.Use();
+            }
+            GUI.Label(
+                new Rect(area.x + 16f, area.yMax - 42f, area.width - 32f, 24f),
+                "CLICK + DRAG TO ROTATE",
+                mutedStyle);
         }
 
         private void DrawWeaponTabs(Rect area)
@@ -240,6 +336,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                     : tabStyle))
             {
                 gridRuntime.SelectWeapon(0);
+                previewRenderer?.SelectWeapon(0);
                 seedText = loadout.Primary.Seed.ToString();
             }
 
@@ -251,6 +348,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                     : tabStyle))
             {
                 gridRuntime.SelectWeapon(1);
+                previewRenderer?.SelectWeapon(1);
                 seedText = loadout.Secondary.Seed.ToString();
             }
         }
@@ -700,6 +798,20 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             }
         }
 
+        private void EnsurePreview()
+        {
+            EnsureInputSource();
+            previewRenderer ??=
+                GetComponent<InventoryPreviewRenderer>() ??
+                gameObject.AddComponent<InventoryPreviewRenderer>();
+            previewRenderer.Configure(
+                inputSource != null ? inputSource.transform : null);
+            previewRenderer.SelectWeapon(
+                gridRuntime != null
+                    ? gridRuntime.ActiveWeaponIndex
+                    : 0);
+        }
+
         private static bool IsPristine(WeaponGridState state)
         {
             return state != null &&
@@ -710,6 +822,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
         private void EnsureStyles()
         {
+            GameTypography.ApplyToCurrentSkin();
             if (whiteTexture == null)
             {
                 whiteTexture = new Texture2D(1, 1);
@@ -719,18 +832,21 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
             titleStyle ??= new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 22,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.93f, 0.9f, 0.79f) }
             };
             headingStyle ??= new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 14,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.88f, 0.84f, 0.72f) }
             };
             bodyStyle ??= new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 12,
                 normal = { textColor = new Color(0.83f, 0.85f, 0.86f) }
             };
@@ -740,6 +856,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             };
             centeredStyle ??= new GUIStyle(GUI.skin.button)
             {
+                font = GameTypography.UiFont,
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 13,
                 fontStyle = FontStyle.Bold,
@@ -747,6 +864,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             };
             tabStyle ??= new GUIStyle(GUI.skin.button)
             {
+                font = GameTypography.UiFont,
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 12,
                 normal = { textColor = new Color(0.8f, 0.82f, 0.83f) }

@@ -36,6 +36,39 @@ namespace WorldBuilder.Gameplay.Characters
             animator = targetAnimator;
         }
 
+        public Transform ResolveAttachmentTransform(
+            Vector3 hitPoint)
+        {
+            animator ??= GetComponentInChildren<Animator>(true);
+            if (animator == null || !animator.isHuman)
+            {
+                return transform;
+            }
+
+            Transform closest = null;
+            float closestDistance = float.PositiveInfinity;
+            for (int index = 0;
+                 index < PhysicsBones.Length;
+                 index++)
+            {
+                Transform bone = animator.GetBoneTransform(
+                    PhysicsBones[index]);
+                if (bone == null)
+                {
+                    continue;
+                }
+                float distance = Vector3.SqrMagnitude(
+                    hitPoint - bone.position);
+                if (distance >= closestDistance)
+                {
+                    continue;
+                }
+                closestDistance = distance;
+                closest = bone;
+            }
+            return closest != null ? closest : transform;
+        }
+
         private void Awake()
         {
             health = GetComponent<Health>();

@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -186,6 +187,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private static void EnsureStyles()
         {
+            GameTypography.ApplyToCurrentSkin();
             if (title != null)
             {
                 return;
@@ -193,8 +195,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             title = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 26,
-                fontStyle = FontStyle.Bold,
+                fontStyle = FontStyle.Normal,
                 wordWrap = true,
                 normal =
                 {
@@ -204,16 +207,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             };
             heading = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 15,
-                fontStyle = FontStyle.Bold,
+                fontStyle = FontStyle.Normal,
                 normal =
                 {
-                    textColor =
-                        new Color(0.86f, 0.88f, 0.90f)
+                    textColor = Color.white
                 }
             };
             body = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 13,
                 wordWrap = true,
                 normal =
@@ -233,8 +237,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             };
             button = new GUIStyle(GUI.skin.button)
             {
+                font = GameTypography.UiFont,
                 fontSize = 14,
-                fontStyle = FontStyle.Bold,
+                fontStyle = FontStyle.Normal,
                 alignment = TextAnchor.MiddleLeft,
                 padding = new RectOffset(18, 14, 5, 5),
                 normal =
@@ -251,7 +256,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 14,
-                fontStyle = FontStyle.Bold
+                fontStyle = FontStyle.Normal
             };
         }
     }

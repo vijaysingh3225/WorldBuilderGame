@@ -49,6 +49,39 @@ namespace WorldBuilder.Editor
             AssetDatabase.SaveAssets();
         }
 
+        public static void PrepareSavedReviewFromCommandLine()
+        {
+            Scene review = EditorSceneManager.OpenScene(
+                ReviewScenePath,
+                OpenSceneMode.Single);
+            ProceduralRaidGenerator reviewGenerator =
+                UnityEngine.Object.FindFirstObjectByType<
+                    ProceduralRaidGenerator>(
+                    FindObjectsInactive.Include);
+            if (reviewGenerator != null)
+            {
+                for (int childIndex =
+                         reviewGenerator.transform.childCount - 1;
+                     childIndex >= 0;
+                     childIndex--)
+                {
+                    Transform child =
+                        reviewGenerator.transform.GetChild(childIndex);
+                    if (child.name.StartsWith(
+                            "Generated Raid ",
+                            StringComparison.Ordinal))
+                    {
+                        UnityEngine.Object.DestroyImmediate(
+                            child.gameObject);
+                    }
+                }
+            }
+            HideGameplayActors();
+            EditorSceneManager.SaveScene(review, ReviewScenePath);
+            AssetDatabase.SaveAssets();
+            EditorApplication.Exit(0);
+        }
+
         private void OnEnable()
         {
             seed = EditorPrefs.GetInt(SeedPreference, 20260730);
@@ -124,6 +157,24 @@ namespace WorldBuilder.Editor
                     previewRaidFog);
                 ApplySceneViewFog();
             }
+            ResolveGenerator();
+            if (generator != null)
+            {
+                ProceduralRaidGenerator.ForestFloorDebugMode nextDebug =
+                    (ProceduralRaidGenerator.ForestFloorDebugMode)
+                    EditorGUILayout.EnumPopup(
+                        "Forest Floor Debug",
+                        generator.HabitatDebugMode);
+                if (nextDebug != generator.HabitatDebugMode)
+                {
+                    Undo.RecordObject(
+                        generator,
+                        "Change Forest Floor Debug Mode");
+                    generator.SetForestFloorDebugMode(nextDebug);
+                    EditorUtility.SetDirty(generator);
+                    SceneView.RepaintAll();
+                }
+            }
 
             EditorGUILayout.Space(8f);
             DrawSummary();
@@ -175,6 +226,18 @@ namespace WorldBuilder.Editor
                 "Guard Groups",
                 generator.GeneratedGuardGroupCount.ToString());
             EditorGUILayout.LabelField(
+                "Ground Flora Studies",
+                generator.GeneratedGroundFloraStudyCount.ToString("N0"));
+            EditorGUILayout.LabelField(
+                "Flora Colonies",
+                generator.GeneratedGroundFloraColonyCount.ToString("N0"));
+            EditorGUILayout.LabelField(
+                "Tree-base Flora",
+                generator.GeneratedGroundFloraTreePocketCount.ToString("N0"));
+            EditorGUILayout.LabelField(
+                "Rock-shelter Flora",
+                generator.GeneratedGroundFloraBoulderPocketCount.ToString("N0"));
+            EditorGUILayout.LabelField(
                 "Active Renderers",
                 generator.GeneratedRendererCount.ToString("N0"));
             EditorGUILayout.LabelField(
@@ -183,6 +246,37 @@ namespace WorldBuilder.Editor
             EditorGUILayout.LabelField(
                 "Map Radius",
                 $"{generator.MapRadius:0} m");
+            EditorGUILayout.LabelField(
+                "Generation Time",
+                $"{generator.LastGenerationMilliseconds / 1000d:0.00} s");
+            if (generator.GenerationStageMilliseconds.TryGetValue(
+                    "ground-scenery",
+                    out double sceneryMilliseconds))
+            {
+                EditorGUILayout.LabelField(
+                    "  Scenery",
+                    $"{sceneryMilliseconds:0} ms");
+            }
+            if (generator.GenerationStageMilliseconds.TryGetValue(
+                    "terrain",
+                    out double terrainMilliseconds))
+            {
+                EditorGUILayout.LabelField(
+                    "  Terrain",
+                    $"{terrainMilliseconds:0} ms");
+            }
+            EditorGUILayout.Space(4f);
+            EditorGUILayout.LabelField(
+                "Dominant Forest Habitats",
+                EditorStyles.boldLabel);
+            foreach (ProceduralRaidGenerator.ForestHabitat habitat in
+                     Enum.GetValues(
+                         typeof(ProceduralRaidGenerator.ForestHabitat)))
+            {
+                EditorGUILayout.LabelField(
+                    ObjectNames.NicifyVariableName(habitat.ToString()),
+                    $"{generator.DominantHabitatPercentage(habitat):0.0}%");
+            }
         }
 
         private void Generate()
@@ -351,13 +445,13 @@ namespace WorldBuilder.Editor
             {
                 cameras[index].gameObject.SetActive(false);
             }
-            RaidPickup[] pickups =
-                UnityEngine.Object.FindObjectsByType<RaidPickup>(
+            RaidObelisk[] obelisks =
+                UnityEngine.Object.FindObjectsByType<RaidObelisk>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
-            for (int index = 0; index < pickups.Length; index++)
+            for (int index = 0; index < obelisks.Length; index++)
             {
-                pickups[index].gameObject.SetActive(false);
+                obelisks[index].gameObject.SetActive(false);
             }
             ExtractionZone[] extractionZones =
                 UnityEngine.Object.FindObjectsByType<ExtractionZone>(

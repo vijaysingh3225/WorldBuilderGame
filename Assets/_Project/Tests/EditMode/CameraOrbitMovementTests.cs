@@ -111,6 +111,72 @@ namespace WorldBuilder.Tests.EditMode
                 Is.True);
         }
 
+        [Test]
+        public void FasterPlayerWalkPreservesTheAuthoredWalkGait()
+        {
+            GameObject player =
+                new GameObject("faster-walk-player");
+            try
+            {
+                ThirdPersonMotor motor =
+                    player.AddComponent<ThirdPersonMotor>();
+                motor.ConfigureWalkSpeed(
+                    ThirdPersonMotor.DefaultPlayerWalkSpeed);
+
+                Assert.That(
+                    motor.WalkSpeed,
+                    Is.EqualTo(
+                            ThirdPersonMotor.DefaultWalkSpeed *
+                            1.5f)
+                        .Within(0.001f));
+                Assert.That(
+                    motor.SprintSpeed,
+                    Is.EqualTo(
+                            ThirdPersonMotor.DefaultSprintSpeed)
+                        .Within(0.001f),
+                    "Increasing walk speed must not change sprint speed.");
+
+                SetPrivateField(
+                    motor,
+                    "horizontalVelocity",
+                    Vector3.forward * motor.WalkSpeed);
+                SetPrivateField(
+                    motor,
+                    "targetHorizontalSpeed",
+                    motor.WalkSpeed);
+
+                Assert.That(
+                    motor.AnimationHorizontalSpeed,
+                    Is.EqualTo(ThirdPersonMotor.DefaultWalkSpeed)
+                        .Within(0.001f),
+                    "The faster player must still select the authored walk animation rather than blending toward jog.");
+                Assert.That(
+                    motor.WalkGaitPlaybackScale,
+                    Is.EqualTo(1.5f).Within(0.001f),
+                    "Walk cadence must increase in proportion to travel speed to prevent foot sliding.");
+
+                SetPrivateField(
+                    motor,
+                    "horizontalVelocity",
+                    Vector3.forward * motor.SprintSpeed);
+                SetPrivateField(
+                    motor,
+                    "targetHorizontalSpeed",
+                    motor.SprintSpeed);
+                Assert.That(
+                    motor.AnimationHorizontalSpeed,
+                    Is.EqualTo(motor.SprintSpeed).Within(0.001f));
+                Assert.That(
+                    motor.WalkGaitPlaybackScale,
+                    Is.EqualTo(1f).Within(0.001f),
+                    "Sprint cadence must remain unchanged.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(player);
+            }
+        }
+
         private static void SetPrivateField(
             object target,
             string name,

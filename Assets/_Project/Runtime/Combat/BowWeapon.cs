@@ -20,6 +20,7 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField] private AudioClip arrowImpactClip;
         [SerializeField] private AudioClip enemyHitFeedbackClip;
         [SerializeField] private AudioClip headshotFeedbackClip;
+        [SerializeField] private AudioClip arrowFlybyClip;
         [SerializeField] private AudioSource bowAudioSource;
         [SerializeField] private AudioSource hitFeedbackAudioSource;
         [SerializeField, Range(0f, 1f)] private float pullbackVolume = 0.30f;
@@ -111,6 +112,7 @@ namespace WorldBuilder.Gameplay.Combat
             enemyHitFeedbackClip;
         public AudioClip HeadshotFeedbackClip =>
             headshotFeedbackClip;
+        public AudioClip ArrowFlybyClip => arrowFlybyClip;
         public float PullbackSpatialBlend =>
             bowAudioSource != null
                 ? bowAudioSource.spatialBlend
@@ -144,7 +146,8 @@ namespace WorldBuilder.Gameplay.Combat
             AudioClip drawClip = null,
             AudioClip impactClip = null,
             AudioClip enemyHitClip = null,
-            AudioClip headshotClip = null)
+            AudioClip headshotClip = null,
+            AudioClip flybyClip = null)
         {
             input = intentSource;
             characterRoot = root;
@@ -154,6 +157,7 @@ namespace WorldBuilder.Gameplay.Combat
             arrowImpactClip = impactClip;
             enemyHitFeedbackClip = enemyHitClip;
             headshotFeedbackClip = headshotClip;
+            arrowFlybyClip = flybyClip;
             ConfigureAudio();
             SetWeaponEquipped(false);
         }
@@ -175,6 +179,22 @@ namespace WorldBuilder.Gameplay.Combat
         public void AbortDraw()
         {
             CancelDraw(false);
+        }
+
+        public bool CommitNpcFullDrawRelease()
+        {
+            if (playerOwned ||
+                !weaponEquipped ||
+                !drawHeldLastFrame ||
+                !arrowReady ||
+                DrawNormalized < MinimumNpcReleaseCharge)
+            {
+                return false;
+            }
+
+            QueueRelease();
+            drawHeldLastFrame = false;
+            return pendingRelease;
         }
 
         private void Awake()
@@ -408,7 +428,8 @@ namespace WorldBuilder.Gameplay.Combat
                 enemyHitFeedbackClip,
                 headshotFeedbackClip,
                 hitFeedbackAudioSource,
-                playerOwned);
+                playerOwned,
+                arrowFlybyClip);
 
             firedArrowCount++;
             lastShotCharge = charge;
@@ -745,7 +766,9 @@ namespace WorldBuilder.Gameplay.Combat
             playerOwned =
                 IsPlayerTransform(characterRoot);
             minimumDamage = playerOwned ? 12f : 10f;
-            maximumDamage = 100f;
+            maximumDamage = playerOwned
+                ? 100f
+                : EnemyDamageProfile.FullDrawTorsoDamage;
             if (bowAudioSource == null)
             {
                 bowAudioSource =

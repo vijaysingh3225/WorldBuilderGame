@@ -38,6 +38,8 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Audio/SFX/ArrowHit.mp3";
         private const string HeadshotFeedbackAudioPath =
             "Assets/_Project/Audio/SFX/HeadShot.mp3";
+        private const string ArrowFlybyAudioPath =
+            "Assets/_Project/Audio/SFX/Arrow Flyby.mp3";
         private static readonly Vector3 ShortSwordGuardLocalPosition =
             new Vector3(0.035220847f, -0.066798866f, -0.038464874f);
         private static readonly Quaternion ShortSwordGuardLocalRotation =
@@ -101,7 +103,7 @@ namespace WorldBuilder.Editor
             Material playerSecondaryMaterial = playerMaterial;
             Material enemyMaterial = GetOrCreateMaterial(
                 "TrainingDummyRed",
-                new Color(0.42f, 0.035f, 0.03f),
+                new Color(0.16f, 0.17f, 0.18f),
                 0.05f,
                 0f,
                 true);
@@ -338,7 +340,7 @@ namespace WorldBuilder.Editor
         {
             Material body = GetOrCreateMaterial(
                 "TrainingDummyRed",
-                new Color(0.42f, 0.035f, 0.03f),
+                new Color(0.16f, 0.17f, 0.18f),
                 0.05f,
                 0f,
                 true);
@@ -435,12 +437,15 @@ namespace WorldBuilder.Editor
             light.intensity = 1.25f;
             light.color = new Color(1f, 0.92f, 0.78f);
             light.shadows = LightShadows.Soft;
+            light.shadowStrength = 0.85f;
             lightObject.transform.rotation = Quaternion.Euler(48f, -32f, 0f);
 
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
             RenderSettings.ambientSkyColor = new Color(0.28f, 0.33f, 0.38f);
             RenderSettings.ambientEquatorColor = new Color(0.16f, 0.18f, 0.19f);
             RenderSettings.ambientGroundColor = new Color(0.07f, 0.08f, 0.08f);
+            RenderSettings.ambientIntensity = 1f;
+            RenderSettings.reflectionIntensity = 1f;
         }
 
         private static void CreateArena(
@@ -739,6 +744,8 @@ namespace WorldBuilder.Editor
             input = player.AddComponent<PlayerInputSource>();
             player.AddComponent<CharacterAimSource>();
             ThirdPersonMotor motor = player.AddComponent<ThirdPersonMotor>();
+            motor.ConfigureWalkSpeed(
+                ThirdPersonMotor.DefaultPlayerWalkSpeed);
             player.AddComponent<MeleeWeapon>();
             CreateHumanoidVisual(
                 player,
@@ -904,7 +911,9 @@ namespace WorldBuilder.Editor
                         AssetDatabase.LoadAssetAtPath<AudioClip>(
                             ArrowHitFeedbackAudioPath),
                         AssetDatabase.LoadAssetAtPath<AudioClip>(
-                            HeadshotFeedbackAudioPath));
+                            HeadshotFeedbackAudioPath),
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(
+                            ArrowFlybyAudioPath));
                     TwoSlotWeaponPresenter loadoutPresenter =
                         animator.gameObject.AddComponent<TwoSlotWeaponPresenter>();
                     loadoutPresenter.Configure(

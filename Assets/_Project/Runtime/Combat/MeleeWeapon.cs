@@ -33,13 +33,16 @@ namespace WorldBuilder.Gameplay.Combat
     [RequireComponent(typeof(PlayerInputSource))]
     public sealed class MeleeWeapon : MonoBehaviour
     {
+        public const float DefaultSwordDamage = 60f;
+        private const float LegacySwordDamage = 20f;
         private const int MaximumSweepSteps = 24;
 
         private readonly Collider[] hits = new Collider[24];
-        private readonly HashSet<IDamageable> damagedThisSwing = new HashSet<IDamageable>();
+        private readonly HashSet<IDamageable> damagedRecipientsThisSwing =
+            new HashSet<IDamageable>();
 
         [SerializeField] private string weaponId = "prototype-sword";
-        [SerializeField, Min(0f)] private float damage = 20f;
+        [SerializeField, Min(0f)] private float damage = DefaultSwordDamage;
         [SerializeField, Min(0.05f)] private float cooldown = 0.15f;
         [SerializeField] private Transform bladeTransform;
         [SerializeField, Min(0.1f)] private float bladeLength = 0.78f;
@@ -63,7 +66,12 @@ namespace WorldBuilder.Gameplay.Combat
 
         public float CooldownRemaining => Mathf.Max(0f, nextAttackTime - Time.time);
         public float Damage =>
-            Mathf.Max(0f, damage + runtimeDamageBonus);
+            Mathf.Max(
+                0f,
+                ResolveConfiguredDamage(
+                    weaponId,
+                    damage) +
+                runtimeDamageBonus);
         public float Cooldown => cooldown;
         public float Reach => bladeLength;
         public float Radius => bladeRadius;
@@ -169,7 +177,7 @@ namespace WorldBuilder.Gameplay.Combat
             nextAttackTime = Time.time + cooldown;
             swingStarted = true;
             damageWindowOpen = false;
-            damagedThisSwing.Clear();
+            damagedRecipientsThisSwing.Clear();
             CaptureBladePose();
             AttackStarted?.Invoke();
             GameplayEventLog.Publish("attack", gameObject, weaponId);
@@ -278,9 +286,13 @@ namespace WorldBuilder.Gameplay.Combat
                 }
 
                 IDamageable target = FindDamageable(hit);
+                IDamageable recipient =
+                    FindDamageRecipient(hit, target);
                 if (target == null ||
                     ReferenceEquals(target, ownerHealth) ||
-                    !damagedThisSwing.Add(target))
+                    ReferenceEquals(recipient, ownerHealth) ||
+                    recipient == null ||
+                    !damagedRecipientsThisSwing.Add(recipient))
                 {
                     continue;
                 }
@@ -343,6 +355,39 @@ namespace WorldBuilder.Gameplay.Combat
             }
 
             return null;
+        }
+
+        private static IDamageable FindDamageRecipient(
+            Collider hit,
+            IDamageable fallback)
+        {
+            EnemyDamageProfile enemyProfile =
+                hit.GetComponentInParent<
+                    EnemyDamageProfile>(true);
+            if (enemyProfile != null)
+            {
+                return enemyProfile;
+            }
+
+            Health health =
+                hit.GetComponentInParent<Health>(true);
+            return health != null
+                ? health
+                : fallback;
+        }
+
+        public static float ResolveConfiguredDamage(
+            string configuredWeaponId,
+            float configuredDamage)
+        {
+            bool legacyPrototypeSword =
+                configuredWeaponId == "prototype-sword" &&
+                Mathf.Approximately(
+                    configuredDamage,
+                    LegacySwordDamage);
+            return legacyPrototypeSword
+                ? DefaultSwordDamage
+                : Mathf.Max(0f, configuredDamage);
         }
 
         private void OnDrawGizmosSelected()

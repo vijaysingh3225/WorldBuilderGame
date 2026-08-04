@@ -95,6 +95,136 @@ namespace WorldBuilder.Tests
             }
         }
 
+        [Test]
+        public void EnemyArrowFlybyIsSpatialRangeLimitedAndSingleUse()
+        {
+            GameObject player = new GameObject("Player");
+            GameObject enemy = new GameObject("Enemy");
+            GameObject arrowObject =
+                new GameObject("Flyby Test Arrow");
+            GameObject emitter = null;
+            try
+            {
+                player.tag = "Player";
+                arrowObject.transform.position =
+                    new Vector3(0f, 0.595f, -5f);
+                AudioClip flyby =
+                    AssetDatabase.LoadAssetAtPath<AudioClip>(
+                        "Assets/_Project/Audio/SFX/" +
+                        "Arrow Flyby.mp3");
+                Assert.That(flyby, Is.Not.Null);
+                BowArrowProjectile arrow =
+                    arrowObject.AddComponent<
+                        BowArrowProjectile>();
+                arrow.Launch(
+                    enemy,
+                    Vector3.forward * 80f,
+                    10f,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    flyby);
+
+                MethodInfo advanceFlight =
+                    typeof(BowArrowProjectile).GetMethod(
+                        "AdvanceFlight",
+                        BindingFlags.Instance |
+                        BindingFlags.NonPublic);
+                Assert.That(advanceFlight, Is.Not.Null);
+                advanceFlight.Invoke(
+                    arrow,
+                    new object[] { 0.10f });
+
+                Assert.That(arrow.FlybyPlayed, Is.True);
+                emitter = GameObject.Find("Arrow Flyby Audio");
+                Assert.That(emitter, Is.Not.Null);
+                AudioSource source =
+                    emitter.GetComponent<AudioSource>();
+                Assert.That(source, Is.Not.Null);
+                Assert.That(source.spatialBlend, Is.EqualTo(1f));
+                Assert.That(source.minDistance, Is.EqualTo(1.1f));
+                Assert.That(source.maxDistance, Is.EqualTo(11f));
+                Assert.That(
+                    source.rolloffMode,
+                    Is.EqualTo(AudioRolloffMode.Logarithmic));
+
+                advanceFlight.Invoke(
+                    arrow,
+                    new object[] { 0.10f });
+                int emitterCount = 0;
+                foreach (AudioSource candidate in
+                    Object.FindObjectsByType<AudioSource>(
+                        FindObjectsSortMode.None))
+                {
+                    if (candidate.name == "Arrow Flyby Audio")
+                    {
+                        emitterCount++;
+                    }
+                }
+                Assert.That(
+                    emitterCount,
+                    Is.EqualTo(1),
+                    "One projectile should produce only one flyby cue.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(emitter);
+                Object.DestroyImmediate(arrowObject);
+                Object.DestroyImmediate(enemy);
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
+        public void EnemyArrowOutsideFlybyRadiusRemainsSilent()
+        {
+            GameObject player = new GameObject("Player");
+            GameObject enemy = new GameObject("Enemy");
+            GameObject arrowObject =
+                new GameObject("Distant Flyby Test Arrow");
+            try
+            {
+                player.tag = "Player";
+                arrowObject.transform.position =
+                    new Vector3(8f, 0.595f, -5f);
+                AudioClip flyby =
+                    AssetDatabase.LoadAssetAtPath<AudioClip>(
+                        "Assets/_Project/Audio/SFX/" +
+                        "Arrow Flyby.mp3");
+                BowArrowProjectile arrow =
+                    arrowObject.AddComponent<
+                        BowArrowProjectile>();
+                arrow.Launch(
+                    enemy,
+                    Vector3.forward * 80f,
+                    10f,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    flyby);
+                MethodInfo advanceFlight =
+                    typeof(BowArrowProjectile).GetMethod(
+                        "AdvanceFlight",
+                        BindingFlags.Instance |
+                        BindingFlags.NonPublic);
+                advanceFlight.Invoke(
+                    arrow,
+                    new object[] { 0.10f });
+
+                Assert.That(arrow.FlybyPlayed, Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(arrowObject);
+                Object.DestroyImmediate(enemy);
+                Object.DestroyImmediate(player);
+            }
+        }
+
         private static void AssertAudibleSamples(
             AudioClip clip)
         {
@@ -267,8 +397,9 @@ namespace WorldBuilder.Tests
                     Is.EqualTo(20f).Within(0.001f));
                 Assert.That(
                     enemyBow.MaximumDamage,
-                    Is.EqualTo(100f),
-                    "A fully drawn Raid arrow should retain its one-shot threat while using NPC aiming rules.");
+                    Is.EqualTo(
+                        EnemyDamageProfile.FullDrawTorsoDamage),
+                    "A fully drawn Raid arrow should match the player's current torso damage instead of one-shotting the player.");
             }
             finally
             {

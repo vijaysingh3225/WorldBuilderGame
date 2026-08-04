@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
@@ -15,12 +16,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField, Min(0f)] private float extractionReturnDelay =
             0.85f;
         [SerializeField, Min(0f)] private float deathReturnDelay =
-            2.0f;
+            3.25f;
 
         private readonly List<EnemyBrain> enemies =
             new List<EnemyBrain>();
         private readonly List<Health> enemyHealth =
             new List<Health>();
+        private readonly List<RaidObelisk> obelisks =
+            new List<RaidObelisk>();
         private GameplayLoopBootstrap bootstrap;
         private GameSession session;
         private WeaponGridSandboxToolkit gridToolkit;
@@ -29,11 +32,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private bool initialized;
         private bool playerDeathSubscribed;
         private bool completionPending;
+        private bool showCompletionOverlay;
         private float returnAt;
         private float actorRefreshAt;
         private int lootCollected;
+        private int obelisksActivated;
         private string statusMessage =
-            "Find an artifact, survive, and reach extraction.";
+            "Find and activate the four obelisks.";
         private string completionMessage = string.Empty;
 
         public GameSession Session => session;
@@ -42,6 +47,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             session.HasActiveRaid &&
             !completionPending;
         public int LootCollected => lootCollected;
+        public int ObelisksActivated => obelisksActivated;
+        public int ObeliskCount => obelisks.Count;
+
+        public event Action AllObelisksActivated;
+
+        public static bool ShouldShowCompletionOverlay(
+            RaidCompletionReason reason)
+        {
+            return reason != RaidCompletionReason.PlayerDied;
+        }
 
         public void Configure(Health player)
         {
@@ -140,7 +155,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 DrawBowCharge(new Rect(24f, 70f, 300f, 12f));
             }
 
-            if (completionPending)
+            if (completionPending && showCompletionOverlay)
             {
                 LoopSceneGui.DrawDimmer(0.42f);
                 Rect messageRect = new Rect(
@@ -208,6 +223,56 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     $"Could not collect pickup: {exception.Message}";
                 return false;
             }
+        }
+
+        public void RegisterObelisk(RaidObelisk obelisk)
+        {
+            if (obelisk == null || obelisks.Contains(obelisk))
+            {
+                return;
+            }
+
+            obelisks.Add(obelisk);
+            if (obelisk.IsActivated)
+            {
+                obelisksActivated++;
+            }
+        }
+
+        public bool TryActivateObelisk(RaidObelisk obelisk)
+        {
+            if (obelisk == null ||
+                obelisk.IsActivated ||
+                !RaidActive)
+            {
+                return false;
+            }
+
+            RegisterObelisk(obelisk);
+            obelisk.MarkActivated();
+            obelisksActivated++;
+            statusMessage =
+                $"Activated {obelisk.DisplayName}. " +
+                $"{obelisksActivated}/{Mathf.Max(4, obelisks.Count)} " +
+                "obelisks awakened.";
+            GameplayEventLog.Publish(
+                "raid-obelisk-activated",
+                obelisk.gameObject,
+                $"quadrant={obelisk.QuadrantIndex}; " +
+                $"count={obelisksActivated}");
+
+            if (obelisks.Count >= 4 &&
+                obelisksActivated >= obelisks.Count)
+            {
+                statusMessage =
+                    "All four obelisks are awake. Their purpose is still unknown.";
+                AllObelisksActivated?.Invoke();
+                GameplayEventLog.Publish(
+                    "raid-all-obelisks-activated",
+                    gameObject,
+                    "future-objective-hook");
+            }
+            return true;
         }
 
         public bool TryExtract()
@@ -304,6 +369,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                  index++)
             {
                 RegisterEnemy(discoveredEnemies[index]);
+            }
+
+            RaidObelisk[] discoveredObelisks =
+                FindObjectsByType<RaidObelisk>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None);
+            for (int index = 0;
+                 index < discoveredObelisks.Length;
+                 index++)
+            {
+                RegisterObelisk(discoveredObelisks[index]);
             }
 
             if (playerRoot == null)
@@ -403,6 +479,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         reason,
                         out RaidOutcomeReceipt receipt);
                 completionPending = true;
+                showCompletionOverlay =
+                    ShouldShowCompletionOverlay(
+                        result.CompletionReason);
                 returnAt =
                     Time.unscaledTime +
                     Mathf.Max(0f, returnDelay);
@@ -414,8 +493,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                             "item(s) returned";
                         break;
                     case RaidCompletionReason.PlayerDied:
-                        completionMessage =
-                            "YOU DIED  /  returning home";
+                        completionMessage = string.Empty;
                         break;
                     default:
                         completionMessage =
@@ -437,6 +515,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     out string error))
             {
                 statusMessage = error;
+                showCompletionOverlay = true;
                 completionMessage =
                     "RAID COMPLETE  /  Home Base scene unavailable";
                 returnAt = float.PositiveInfinity;

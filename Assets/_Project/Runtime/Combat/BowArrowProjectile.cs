@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
+using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Core;
 
 namespace WorldBuilder.Gameplay.Combat
@@ -49,6 +50,9 @@ namespace WorldBuilder.Gameplay.Combat
         private const float StuckLifetime = 45f;
         private const float SurfaceIntersectionLocalZ = 0.605f;
         private const float TrailLifetime = 0.14f;
+        private const float FlybyTriggerRadius = 7f;
+        private const float FlybyMinimumDistance = 1.1f;
+        private const float FlybyMaximumDistance = 11f;
 
         private static Material sharedTrailMaterial;
         private GameObject owner;
@@ -67,8 +71,11 @@ namespace WorldBuilder.Gameplay.Combat
         private AudioClip impactClip;
         private AudioClip enemyHitFeedbackClip;
         private AudioClip headshotFeedbackClip;
+        private AudioClip flybyClip;
         private AudioSource playerFeedbackAudioSource;
+        private Transform flybyTarget;
         private bool playerHitFeedbackEnabled;
+        private bool flybyPlayed;
         private float launchedAt;
         private bool stuck;
 
@@ -84,6 +91,8 @@ namespace WorldBuilder.Gameplay.Combat
             enemyHitFeedbackClip;
         public AudioClip HeadshotFeedbackClip =>
             headshotFeedbackClip;
+        public AudioClip FlybyClip => flybyClip;
+        public bool FlybyPlayed => flybyPlayed;
         public bool LastImpactDamagedEnemy
         {
             get;
@@ -104,18 +113,28 @@ namespace WorldBuilder.Gameplay.Combat
             AudioClip enemyHitClip = null,
             AudioClip headshotClip = null,
             AudioSource feedbackSource = null,
-            bool enablePlayerHitFeedback = false)
+            bool enablePlayerHitFeedback = false,
+            AudioClip arrowFlybyClip = null)
         {
             owner = instigator;
             damage = Mathf.Max(0f, shotDamage);
             impactClip = hitClip;
             enemyHitFeedbackClip = enemyHitClip;
             headshotFeedbackClip = headshotClip;
+            flybyClip = arrowFlybyClip;
             playerFeedbackAudioSource =
                 feedbackSource;
             playerHitFeedbackEnabled =
                 enablePlayerHitFeedback ||
                 IsOwnedByPlayer(instigator);
+            GameObject playerObject =
+                !playerHitFeedbackEnabled && flybyClip != null
+                    ? GameObject.FindGameObjectWithTag("Player")
+                    : null;
+            flybyTarget = playerObject != null
+                ? playerObject.transform
+                : null;
+            flybyPlayed = false;
             launchedAt = Time.time;
             launchWorldScale = transform.lossyScale;
             lastFlightRotation = transform.rotation;
@@ -193,6 +212,7 @@ namespace WorldBuilder.Gameplay.Combat
                     out RaycastHit hit))
             {
                 flightTipPosition = hit.point;
+                TryPlayFlyby(startTip, flightTipPosition);
                 lastFlightRotation = segmentRotation;
                 ImpactDirection = segmentDirection;
                 PublishFlightSignal(startTip, flightTipPosition, segmentDirection);
@@ -203,6 +223,7 @@ namespace WorldBuilder.Gameplay.Combat
             }
 
             flightTipPosition += displacement;
+            TryPlayFlyby(startTip, flightTipPosition);
             PublishFlightSignal(startTip, flightTipPosition, segmentDirection);
             flightVelocity += Physics.gravity * step;
             if (flightVelocity.sqrMagnitude > 0.04f)
@@ -338,6 +359,9 @@ namespace WorldBuilder.Gameplay.Combat
             EnemyDamageProfile enemyProfile =
                 hitCollider.GetComponentInParent<
                     EnemyDamageProfile>(true);
+            HumanoidRagdoll ragdoll =
+                hitCollider.GetComponentInParent<
+                    HumanoidRagdoll>(true);
             HumanoidHitRegion hitRegion =
                 damageZone != null
                     ? damageZone.Region
@@ -352,6 +376,9 @@ namespace WorldBuilder.Gameplay.Combat
                     : enemyProfile != null
                         ? enemyProfile.ResolveAttachmentTransform(
                             hitPoint)
+                        : ragdoll != null
+                            ? ragdoll.ResolveAttachmentTransform(
+                                hitPoint)
                         : hitCollider.transform;
             // Start the world impact and player confirmation before damage/death
             // callbacks can build a ragdoll. Both sounds now begin in this same
@@ -381,6 +408,76 @@ namespace WorldBuilder.Gameplay.Combat
         {
             ArrowInFlight?.Invoke(
                 new FlightSignal(this, owner, start, end, direction));
+        }
+
+        private void TryPlayFlyby(
+            Vector3 segmentStart,
+            Vector3 segmentEnd)
+        {
+            if (flybyPlayed ||
+                flybyClip == null ||
+                flybyTarget == null ||
+                playerHitFeedbackEnabled)
+            {
+                return;
+            }
+
+            Vector3 listenerPoint =
+                flybyTarget.position + Vector3.up * 1.2f;
+            Vector3 closestPoint = ClosestPointOnSegment(
+                segmentStart,
+                segmentEnd,
+                listenerPoint);
+            if (Vector3.Distance(
+                    closestPoint,
+                    listenerPoint) > FlybyTriggerRadius)
+            {
+                return;
+            }
+
+            flybyPlayed = true;
+            EnsureAudioDataLoaded(flybyClip);
+            GameObject emitter = new GameObject(
+                "Arrow Flyby Audio");
+            emitter.transform.position = closestPoint;
+            AudioSource source =
+                emitter.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = false;
+            source.spatialBlend = 1f;
+            source.dopplerLevel = 0f;
+            source.rolloffMode =
+                AudioRolloffMode.Logarithmic;
+            source.minDistance = FlybyMinimumDistance;
+            source.maxDistance = FlybyMaximumDistance;
+            source.priority = 48;
+            source.PlayOneShot(flybyClip, 0.90f);
+            if (Application.isPlaying)
+            {
+                Destroy(
+                    emitter,
+                    Mathf.Max(
+                        0.25f,
+                        flybyClip.length + 0.1f));
+            }
+        }
+
+        private static Vector3 ClosestPointOnSegment(
+            Vector3 start,
+            Vector3 end,
+            Vector3 point)
+        {
+            Vector3 segment = end - start;
+            float lengthSquared = segment.sqrMagnitude;
+            if (lengthSquared <= 0.000001f)
+            {
+                return start;
+            }
+
+            float progress = Mathf.Clamp01(
+                Vector3.Dot(point - start, segment) /
+                lengthSquared);
+            return start + segment * progress;
         }
 
         private void PlayPlayerHitFeedback(

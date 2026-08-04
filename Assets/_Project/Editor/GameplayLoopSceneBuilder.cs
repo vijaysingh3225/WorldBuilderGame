@@ -26,10 +26,26 @@ namespace WorldBuilder.Editor
             EnvironmentMeshFolder + "/RaidTreeTrunk.asset";
         private const string RaidTreeCanopyMeshPath =
             EnvironmentMeshFolder + "/RaidTreeCanopy.asset";
+        private const string RaidObeliskMeshPath =
+            EnvironmentMeshFolder + "/RaidObelisk.asset";
         private const string StylizedForestModelFolder =
             "Assets/_Project/Art/Environment/StylizedForest/Models/Stylized_forest_fbx";
         private const string StylizedForestTextureFolder =
             "Assets/_Project/Art/Environment/StylizedForest/Textures";
+        private const string CampModelFolder =
+            "Assets/_Project/Art/Environment/CampPack/Models";
+        private const string CampTextureFolder =
+            "Assets/_Project/Art/Environment/CampPack/Textures";
+        private const string CampConstructingModelFolder =
+            CampModelFolder + "/camp_constructing";
+        private const string CampItemsModelFolder =
+            CampModelFolder + "/camp_items";
+        private const string CampStructureMaterialPath =
+            "Assets/_Project/Art/Prototype/Materials/" +
+            "CampConstructing.mat";
+        private const string CampItemMaterialPath =
+            "Assets/_Project/Art/Prototype/Materials/" +
+            "CampItems.mat";
         private static readonly string[] StylizedForestTreeNames =
         {
             "SM_sf_birch_01",
@@ -94,6 +110,14 @@ namespace WorldBuilder.Editor
         private const string RaidPathDiffusePath =
             "Assets/_Project/Art/Environment/RaidSurfaces/" +
             "RaidPath.png";
+        private const string RaidForestGroundDiffusePath =
+            "Assets/_Project/Art/Environment/RaidSurfaces/" +
+            "ForestUndergrass.png";
+        private const string RaidBareGroundDiffusePath =
+            "Assets/_Project/Art/Environment/RaidSurfaces/" +
+            "ForestBareGround.png";
+        private const string RaidHabitatTextureFolder =
+            "Assets/_Project/Art/Environment/RaidSurfaces/";
 
         [MenuItem("WorldBuilder/Build Gameplay Loop")]
         public static void BuildAll()
@@ -156,6 +180,93 @@ namespace WorldBuilder.Editor
         {
             BuildEnvironmentAssetGallery();
             AssetDatabase.SaveAssets();
+        }
+
+        [UnityEditor.Callbacks.DidReloadScripts]
+        private static void ScheduleCampGalleryImport()
+        {
+            EditorApplication.delayCall += TryImportCampGalleryInPlace;
+        }
+
+        private static void TryImportCampGalleryInPlace()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                EditorApplication.playModeStateChanged -=
+                    HandleCampGalleryPlayModeState;
+                EditorApplication.playModeStateChanged +=
+                    HandleCampGalleryPlayModeState;
+                return;
+            }
+            if (EditorApplication.isCompiling ||
+                EditorApplication.isUpdating)
+            {
+                EditorApplication.delayCall += TryImportCampGalleryInPlace;
+                return;
+            }
+            string[] models = AssetDatabase.FindAssets(
+                "t:GameObject",
+                new[] { CampModelFolder });
+            if (models.Length < 33)
+            {
+                return;
+            }
+
+            Scene gallery = SceneManager.GetSceneByPath(
+                EnvironmentAssetGalleryScenePath);
+            bool closeWhenFinished = !gallery.IsValid() || !gallery.isLoaded;
+            if (closeWhenFinished)
+            {
+                gallery = EditorSceneManager.OpenScene(
+                    EnvironmentAssetGalleryScenePath,
+                    OpenSceneMode.Additive);
+            }
+            try
+            {
+                GameObject campRoot = FindGalleryRoot(
+                    gallery,
+                    "06 - Camp Construction Pack");
+                if (campRoot != null)
+                {
+                    if (ResizeGalleryObject(
+                            campRoot,
+                            "05_bonfire",
+                            0.85f))
+                    {
+                        EditorSceneManager.MarkSceneDirty(gallery);
+                        EditorSceneManager.SaveScene(
+                            gallery,
+                            EnvironmentAssetGalleryScenePath);
+                    }
+                    return;
+                }
+                CreateCampAssetGallery(gallery);
+                UpdateExistingGalleryFraming(gallery);
+                EditorSceneManager.MarkSceneDirty(gallery);
+                EditorSceneManager.SaveScene(
+                    gallery,
+                    EnvironmentAssetGalleryScenePath);
+                AssetDatabase.SaveAssets();
+            }
+            finally
+            {
+                if (closeWhenFinished && gallery.IsValid())
+                {
+                    EditorSceneManager.CloseScene(gallery, true);
+                }
+            }
+        }
+
+        private static void HandleCampGalleryPlayModeState(
+            PlayModeStateChange state)
+        {
+            if (state != PlayModeStateChange.EnteredEditMode)
+            {
+                return;
+            }
+            EditorApplication.playModeStateChanged -=
+                HandleCampGalleryPlayModeState;
+            EditorApplication.delayCall += TryImportCampGalleryInPlace;
         }
 
         [MenuItem("WorldBuilder/Open/Environment Asset Gallery")]
@@ -714,7 +825,7 @@ namespace WorldBuilder.Editor
                 raidSunLight.color =
                     new Color(0.94f, 0.86f, 0.72f, 1f);
                 raidSunLight.intensity = 1.35f;
-                raidSunLight.shadowStrength = 0.68f;
+                raidSunLight.shadowStrength = 0.60f;
                 raidSun.transform.rotation =
                     Quaternion.Euler(62f, -42f, 0f);
             }
@@ -723,12 +834,19 @@ namespace WorldBuilder.Editor
                 initializeOnAwake: true);
 
             Material ground =
-                GetOrCreateStylizedForestMaterial(
+                GetOrCreateTiledSurfaceMaterial(
                     "RaidGround",
-                    "Stylized_forest_tga/" +
-                    "T_Landscape_grass_BaseColor.TGA",
-                    false,
-                    new Color(0.72f, 0.64f, 0.50f, 1f));
+                    RaidForestGroundDiffusePath,
+                    null,
+                    Color.white,
+                    1f);
+            Material bareGround =
+                GetOrCreateTiledSurfaceMaterial(
+                    "RaidBareGround",
+                    RaidBareGroundDiffusePath,
+                    null,
+                    Color.white,
+                    1f);
             Material road =
                 GetOrCreateTiledSurfaceMaterial(
                     "RaidDirtRoad",
@@ -791,6 +909,7 @@ namespace WorldBuilder.Editor
             ApplyVertexTintShader(
                 grassDetails);
             ApplyMatteSurface(ground);
+            ApplyMatteSurface(bareGround);
             ApplyMatteSurface(road);
             ApplyMatteSurface(grassDetails);
             Material plantDetails =
@@ -860,6 +979,29 @@ namespace WorldBuilder.Editor
                 }
             }
 
+            const int MaximumCampGuardPoolSize = 9;
+            var campGuards = new EnemyBrain[
+                MaximumCampGuardPoolSize];
+            for (int index = 0;
+                 index < campGuards.Length;
+                 index++)
+            {
+                GameObject guard =
+                    CombatLabSceneBuilder.CreateRaidEnemy(
+                        new Vector3(0f, -20f, 0f),
+                        out Health _);
+                guard.name = $"Camp Guard Pool {index + 1}";
+                EnemyBrain brain = guard.GetComponent<EnemyBrain>();
+                campGuards[index] = brain;
+                if (brain != null)
+                {
+                    brain.ConfigureAsTrainingDummy(
+                        requireManualActivation: false);
+                    brain.enabled = false;
+                }
+                guard.SetActive(false);
+            }
+
             GameObject systems =
                 new GameObject(InfrastructureMarkerName);
             RaidPrototypeController raidController =
@@ -869,23 +1011,38 @@ namespace WorldBuilder.Editor
             crosshair.Configure(
                 player.GetComponentInChildren<BowWeapon>(true));
             AttachWeaponGrid(systems, player, input);
+            WeaponGridSandboxToolkit raidToolkit =
+                systems.GetComponent<WeaponGridSandboxToolkit>();
+            raidToolkit.SetToggleWithTab(false);
+            HomeInventoryController raidInventory =
+                systems.AddComponent<HomeInventoryController>();
+            raidInventory.Configure(null, input, raidToolkit);
             AttachSceneNavigation(systems, input);
 
-            CreatePickup(
-                "Keen Shard Pickup",
-                "keen-shard",
-                new Vector3(-4f, 0.75f, 7f),
-                new Color(0.93f, 0.38f, 0.19f));
-            CreatePickup(
-                "Iron Bond Pickup",
-                "iron-bond",
-                new Vector3(6f, 0.75f, 20f),
-                new Color(0.42f, 0.62f, 0.76f));
-            CreatePickup(
-                "Wind Step Pickup",
-                "wind-step",
-                new Vector3(-3f, 0.75f, 31f),
-                new Color(0.31f, 0.82f, 0.62f));
+            CreateRaidObelisk(
+                0,
+                "Obsidian Obelisk",
+                new Vector3(54f, 0f, 54f),
+                new Color(0.075f, 0.035f, 0.105f),
+                raidController);
+            CreateRaidObelisk(
+                1,
+                "Blood Obelisk",
+                new Vector3(-54f, 0f, 54f),
+                new Color(0.46f, 0.018f, 0.025f),
+                raidController);
+            CreateRaidObelisk(
+                2,
+                "Verdigris Obelisk",
+                new Vector3(-54f, 0f, -54f),
+                new Color(0.015f, 0.31f, 0.29f),
+                raidController);
+            CreateRaidObelisk(
+                3,
+                "Ember Obelisk",
+                new Vector3(54f, 0f, -54f),
+                new Color(0.52f, 0.20f, 0.025f),
+                raidController);
             ExtractionZone extractionZone =
                 CreateExtractionZone(
                 new Vector3(0f, 0.05f, 65f),
@@ -898,13 +1055,16 @@ namespace WorldBuilder.Editor
                 extractionZone,
                 LoadStylizedForestTreePrefabs(),
                 LoadStylizedForestPrefabs(
-                    StylizedForestGrassNames),
+                    StylizedForestGrassNames,
+                    true),
                 LoadStylizedForestPrefabs(
-                    StylizedForestUndergrowthNames),
+                    StylizedForestUndergrowthNames,
+                    true),
                 LoadStylizedForestPrefabs(
                     StylizedForestRockNames),
                 bridgePrefab,
                 ground,
+                bareGround,
                 road,
                 water,
                 bridge,
@@ -916,6 +1076,48 @@ namespace WorldBuilder.Editor
                 plantDetails,
                 rocks,
                 raidSkybox);
+            generator.ConfigureForestFloorTextures(
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    RaidHabitatTextureFolder +
+                    "ForestMossyLoam_BaseColor_2048.png"),
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    RaidHabitatTextureFolder +
+                    "ForestCanopyDuff_BaseColor_2048.png"),
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    RaidHabitatTextureFolder +
+                    "ForestMossCarpet_BaseColor_2048.png"),
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    RaidHabitatTextureFolder +
+                    "ForestCreepingGroundcover_BaseColor_2048.png"),
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    RaidHabitatTextureFolder +
+                    "ForestStonyLichenSoil_BaseColor_2048.png"));
+            generator.ConfigureGroundFloraStudies(
+                GroundFloraStudyAssetBuilder.BuildOrLoadStudies());
+            generator.ConfigureForestCamps(
+                campGuards,
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampConstructingModelFolder +
+                    "/12_tent.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/05_bonfire.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/12_pot.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/10_holder.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/09_firewood.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/08_closed_chest.blend"),
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    CampStructureMaterialPath),
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    CampItemMaterialPath));
             extractionZone.Configure(
                 raidController,
                 "Far Trail Extraction");
@@ -978,6 +1180,10 @@ namespace WorldBuilder.Editor
                 new GameObject("03 - All Rocks").transform;
             Transform grassRoot =
                 new GameObject("04 - All Grass").transform;
+            Transform floraStudiesRoot =
+                new GameObject(
+                    GroundFloraStudyAssetBuilder.GalleryRootName)
+                    .transform;
 
             GameObject[] treePrefabs =
                 LoadStylizedForestTreePrefabs();
@@ -1088,6 +1294,41 @@ namespace WorldBuilder.Editor
                     null);
             }
 
+            GameObject[] floraStudies =
+                GroundFloraStudyAssetBuilder.BuildOrLoadStudies();
+            for (int index = 0;
+                 index < floraStudies.Length;
+                 index++)
+            {
+                int column = index % 6;
+                int row = index / 6;
+                GameObject instance =
+                    PrefabUtility.InstantiatePrefab(
+                        floraStudies[index],
+                        scene) as GameObject;
+                instance.name =
+                    $"{index + 1:00} - " +
+                    GroundFloraStudyAssetBuilder
+                        .StudyDisplayName(index);
+                instance.transform.SetParent(
+                    floraStudiesRoot,
+                    true);
+                instance.transform.position =
+                    new Vector3(
+                        (column - 2.5f) * 6.15f,
+                        0f,
+                        -15.1f - row * 3.25f);
+                instance.transform.rotation =
+                    Quaternion.Euler(
+                        0f,
+                        row * 17f + column * 7f,
+                        0f);
+                instance.transform.localScale =
+                    Vector3.one * 1.8f;
+            }
+
+            CreateCampAssetGallery(scene);
+
             GameObject cameraObject =
                 new GameObject("Gallery Camera");
             cameraObject.tag = "MainCamera";
@@ -1095,12 +1336,12 @@ namespace WorldBuilder.Editor
                 cameraObject.AddComponent<Camera>();
             cameraObject.AddComponent<AudioListener>();
             camera.transform.position =
-                new Vector3(0f, 15f, -40f);
+                new Vector3(0f, 36f, -92f);
             camera.transform.LookAt(
-                new Vector3(0f, 3.2f, 0f));
-            camera.fieldOfView = 50f;
+                new Vector3(0f, 4.5f, 22f));
+            camera.fieldOfView = 54f;
             camera.nearClipPlane = 0.1f;
-            camera.farClipPlane = 120f;
+            camera.farClipPlane = 220f;
             camera.clearFlags =
                 CameraClearFlags.Skybox;
 
@@ -1118,17 +1359,17 @@ namespace WorldBuilder.Editor
             };
             mesh.vertices = new[]
             {
-                new Vector3(-34f, 0f, -20f),
-                new Vector3(-34f, 0f, 18f),
-                new Vector3(34f, 0f, 18f),
-                new Vector3(34f, 0f, -20f)
+                new Vector3(-48f, 0f, -28f),
+                new Vector3(-48f, 0f, 76f),
+                new Vector3(48f, 0f, 76f),
+                new Vector3(48f, 0f, -28f)
             };
             mesh.uv = new[]
             {
                 new Vector2(0f, 0f),
-                new Vector2(0f, 5f),
-                new Vector2(10f, 5f),
-                new Vector2(10f, 0f)
+                new Vector2(0f, 13f),
+                new Vector2(14f, 13f),
+                new Vector2(14f, 0f)
             };
             mesh.colors = new[]
             {
@@ -1268,6 +1509,279 @@ namespace WorldBuilder.Editor
                 : bark;
         }
 
+        private static void CreateCampAssetGallery(Scene scene)
+        {
+            Transform root =
+                new GameObject("06 - Camp Construction Pack").transform;
+            SceneManager.MoveGameObjectToScene(root.gameObject, scene);
+            CreateCampCategory(
+                scene,
+                root,
+                "camp_constructing",
+                "Camp Structures",
+                24f,
+                GetOrCreateCampMaterial(
+                    "CampConstructing",
+                    "Camp_constructing",
+                    "Camp_constructing_Camp_constructing_BaseColor.png",
+                    "Camp_constructing_Camp_constructing_Normal.png"));
+            CreateCampCategory(
+                scene,
+                root,
+                "camp_items",
+                "Camp Props",
+                48f,
+                GetOrCreateCampMaterial(
+                    "CampItems",
+                    "Camp_items",
+                    "Camp_items_Camp_items_AlbedoTransparency.png",
+                    "Camp_items_Camp_items_Normal.png"));
+            CreateCampCategory(
+                scene,
+                root,
+                "camp_towers",
+                "Camp Towers",
+                72f,
+                GetOrCreateCampMaterial(
+                    "CampTowers",
+                    "Camp_towers",
+                    "Camp_towers_Camp_towers_AlbedoTransparency.png",
+                    "Camp_towers_Camp_towers_Normal.png"));
+        }
+
+        private static void CreateCampCategory(
+            Scene scene,
+            Transform parent,
+            string folderName,
+            string displayName,
+            float startZ,
+            Material material)
+        {
+            string folder = CampModelFolder + "/" + folderName;
+            string[] guids = AssetDatabase.FindAssets(
+                "t:GameObject",
+                new[] { folder });
+            System.Array.Sort(guids, (left, right) =>
+                string.CompareOrdinal(
+                    AssetDatabase.GUIDToAssetPath(left),
+                    AssetDatabase.GUIDToAssetPath(right)));
+            Transform categoryRoot =
+                new GameObject(displayName).transform;
+            categoryRoot.SetParent(parent, false);
+            const int columns = 7;
+            const float columnSpacing = 13f;
+            const float rowSpacing = 10.5f;
+            for (int index = 0; index < guids.Length; index++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[index]);
+                if (Path.GetFileNameWithoutExtension(path).StartsWith("0_all"))
+                {
+                    continue;
+                }
+                GameObject prefab =
+                    AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab == null)
+                {
+                    continue;
+                }
+                int row = index / columns;
+                int column = index % columns;
+                int remaining = guids.Length - row * columns;
+                int rowCount = Mathf.Min(columns, remaining);
+                float centeredColumn =
+                    column - (rowCount - 1) * 0.5f;
+                CreateGalleryInstance(
+                    scene,
+                    prefab,
+                    categoryRoot,
+                    new Vector3(
+                        centeredColumn * columnSpacing,
+                        0f,
+                        startZ + row * rowSpacing),
+                    GetCampGalleryHeight(folderName, prefab.name),
+                    material,
+                    null,
+                    null,
+                    null,
+                    null);
+            }
+        }
+
+        private static float GetCampGalleryHeight(
+            string category,
+            string assetName)
+        {
+            string lower = assetName.ToLowerInvariant();
+            if (category == "camp_towers")
+            {
+                return lower.Contains("big_tower") ? 9f :
+                    lower.Contains("tall_tower") ? 8f : 4.5f;
+            }
+            if (category == "camp_constructing")
+            {
+                return lower.Contains("big_tent") ? 6.5f :
+                    lower.Contains("gate") ? 4.5f :
+                    lower.Contains("tent") ? 4f : 3.25f;
+            }
+            return lower.Contains("big_spike") ? 3.5f :
+                lower.Contains("bonfire") ? 0.85f :
+                lower.Contains("spike") ? 2.5f : 1.7f;
+        }
+
+        private static Material GetOrCreateCampMaterial(
+            string materialName,
+            string textureFolder,
+            string baseColorFile,
+            string normalFile)
+        {
+            string materialPath =
+                "Assets/_Project/Art/Prototype/Materials/" +
+                materialName + ".mat";
+            Material material =
+                AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (material == null)
+            {
+                material = new Material(shader)
+                {
+                    name = materialName
+                };
+                AssetDatabase.CreateAsset(material, materialPath);
+            }
+            else if (shader != null)
+            {
+                material.shader = shader;
+            }
+            string textureRoot =
+                CampTextureFolder + "/" + textureFolder + "/";
+            string normalPath = textureRoot + normalFile;
+            EnsureNormalMapImport(normalPath);
+            Texture2D baseColor =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    textureRoot + baseColorFile);
+            Texture2D normal =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
+            material.SetTexture("_BaseMap", baseColor);
+            material.SetTexture("_MainTex", baseColor);
+            material.SetTexture("_BumpMap", normal);
+            material.SetFloat("_BumpScale", 1f);
+            material.SetFloat("_Metallic", 0.05f);
+            material.SetFloat("_Smoothness", 0.24f);
+            if (normal != null)
+            {
+                material.EnableKeyword("_NORMALMAP");
+            }
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        private static void EnsureNormalMapImport(string path)
+        {
+            TextureImporter importer =
+                AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer == null ||
+                importer.textureType == TextureImporterType.NormalMap)
+            {
+                return;
+            }
+            importer.textureType = TextureImporterType.NormalMap;
+            importer.SaveAndReimport();
+        }
+
+        private static GameObject FindGalleryRoot(
+            Scene scene,
+            string objectName)
+        {
+            GameObject[] roots = scene.GetRootGameObjects();
+            for (int index = 0; index < roots.Length; index++)
+            {
+                if (roots[index].name == objectName)
+                {
+                    return roots[index];
+                }
+            }
+            return null;
+        }
+
+        private static bool ResizeGalleryObject(
+            GameObject root,
+            string objectName,
+            float targetHeight)
+        {
+            Transform[] descendants =
+                root.GetComponentsInChildren<Transform>(true);
+            Transform target = null;
+            for (int index = 0; index < descendants.Length; index++)
+            {
+                if (descendants[index].name == objectName)
+                {
+                    target = descendants[index];
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                return false;
+            }
+            Renderer[] renderers =
+                target.GetComponentsInChildren<Renderer>(true);
+            if (!TryGetRendererBounds(renderers, out Bounds bounds) ||
+                bounds.size.y <= 0.001f ||
+                Mathf.Abs(bounds.size.y - targetHeight) <= 0.01f)
+            {
+                return false;
+            }
+            target.localScale *= targetHeight / bounds.size.y;
+            TryGetRendererBounds(renderers, out Bounds resizedBounds);
+            Vector3 position = target.position;
+            position.y -= resizedBounds.min.y;
+            target.position = position;
+            return true;
+        }
+
+        private static void UpdateExistingGalleryFraming(Scene scene)
+        {
+            GameObject ground = FindGalleryRoot(scene, "Raid Green Ground");
+            MeshFilter groundFilter =
+                ground != null ? ground.GetComponent<MeshFilter>() : null;
+            Mesh mesh =
+                groundFilter != null ? groundFilter.sharedMesh : null;
+            if (mesh != null)
+            {
+                mesh.vertices = new[]
+                {
+                    new Vector3(-48f, 0f, -28f),
+                    new Vector3(-48f, 0f, 76f),
+                    new Vector3(48f, 0f, 76f),
+                    new Vector3(48f, 0f, -28f)
+                };
+                mesh.uv = new[]
+                {
+                    new Vector2(0f, 0f),
+                    new Vector2(0f, 13f),
+                    new Vector2(14f, 13f),
+                    new Vector2(14f, 0f)
+                };
+                mesh.RecalculateBounds();
+            }
+
+            GameObject cameraObject =
+                FindGalleryRoot(scene, "Gallery Camera");
+            Camera camera =
+                cameraObject != null
+                    ? cameraObject.GetComponent<Camera>()
+                    : null;
+            if (camera != null)
+            {
+                camera.transform.position =
+                    new Vector3(0f, 36f, -92f);
+                camera.transform.LookAt(
+                    new Vector3(0f, 4.5f, 22f));
+                camera.fieldOfView = 54f;
+                camera.farClipPlane = 220f;
+            }
+        }
+
         private static Material GetOrCreateGalleryGrassMaterial(
             Material source)
         {
@@ -1347,7 +1861,8 @@ namespace WorldBuilder.Editor
         }
 
         private static GameObject[] LoadStylizedForestPrefabs(
-            string[] prefabNames)
+            string[] prefabNames,
+            bool ensureReadable = false)
         {
             GameObject[] prefabs =
                 new GameObject[prefabNames.Length];
@@ -1355,10 +1870,22 @@ namespace WorldBuilder.Editor
                  index < prefabs.Length;
                  index++)
             {
+                string assetPath =
+                    $"{StylizedForestModelFolder}/" +
+                    $"{prefabNames[index]}.FBX";
+                ModelImporter importer =
+                    AssetImporter.GetAtPath(assetPath) as
+                    ModelImporter;
+                if (ensureReadable &&
+                    importer != null &&
+                    !importer.isReadable)
+                {
+                    importer.isReadable = true;
+                    importer.SaveAndReimport();
+                }
                 prefabs[index] =
                     AssetDatabase.LoadAssetAtPath<GameObject>(
-                        $"{StylizedForestModelFolder}/" +
-                        $"{prefabNames[index]}.FBX");
+                        assetPath);
             }
             return prefabs;
         }
@@ -2099,6 +2626,13 @@ namespace WorldBuilder.Editor
                 BuildRaidTreeCanopyMesh);
         }
 
+        private static Mesh GetOrCreateRaidObeliskMesh()
+        {
+            return GetOrUpdateEnvironmentMesh(
+                RaidObeliskMeshPath,
+                BuildRaidObeliskMesh);
+        }
+
         private static Mesh GetOrUpdateEnvironmentMesh(
             string assetPath,
             System.Func<Mesh> factory)
@@ -2223,6 +2757,65 @@ namespace WorldBuilder.Editor
                 triangles);
         }
 
+        private static Mesh BuildRaidObeliskMesh()
+        {
+            const int sides = 4;
+            var vertices =
+                new System.Collections.Generic.List<Vector3>();
+            var triangles =
+                new System.Collections.Generic.List<int>();
+            Vector3 apex = new Vector3(0f, 4.25f, 0f);
+            for (int side = 0; side < sides; side++)
+            {
+                float angleA =
+                    Mathf.PI * 0.25f +
+                    side * Mathf.PI * 0.5f;
+                float angleB =
+                    Mathf.PI * 0.25f +
+                    (side + 1) * Mathf.PI * 0.5f;
+                Vector3 bottomA = new Vector3(
+                    Mathf.Cos(angleA) * 0.62f,
+                    -0.35f,
+                    Mathf.Sin(angleA) * 0.62f);
+                Vector3 bottomB = new Vector3(
+                    Mathf.Cos(angleB) * 0.62f,
+                    -0.35f,
+                    Mathf.Sin(angleB) * 0.62f);
+                Vector3 shoulderA = new Vector3(
+                    Mathf.Cos(angleA) * 0.44f,
+                    3.08f,
+                    Mathf.Sin(angleA) * 0.44f);
+                Vector3 shoulderB = new Vector3(
+                    Mathf.Cos(angleB) * 0.44f,
+                    3.08f,
+                    Mathf.Sin(angleB) * 0.44f);
+                AddQuad(
+                    vertices,
+                    triangles,
+                    bottomA,
+                    shoulderA,
+                    shoulderB,
+                    bottomB);
+                AddTriangle(
+                    vertices,
+                    triangles,
+                    shoulderA,
+                    apex,
+                    shoulderB);
+                AddTriangle(
+                    vertices,
+                    triangles,
+                    Vector3.down * 0.35f,
+                    bottomB,
+                    bottomA);
+            }
+
+            return CreateFacetedMesh(
+                "Raid Obelisk",
+                vertices,
+                triangles);
+        }
+
         private static Mesh CreateFacetedMesh(
             string name,
             System.Collections.Generic.List<Vector3> vertices,
@@ -2294,31 +2887,77 @@ namespace WorldBuilder.Editor
             }
         }
 
-        private static void CreatePickup(
+        private static void CreateRaidObelisk(
+            int quadrantIndex,
             string name,
-            string definitionId,
             Vector3 position,
-            Color color)
+            Color color,
+            RaidPrototypeController raidController)
         {
-            GameObject pickup =
-                GameObject.CreatePrimitive(PrimitiveType.Cube);
-            pickup.name = name;
-            pickup.transform.position = position;
-            pickup.transform.localScale = Vector3.one * 0.55f;
-            pickup.transform.rotation = Quaternion.Euler(32f, 45f, 18f);
-            pickup.GetComponent<Renderer>().sharedMaterial =
-                CombatLabSceneBuilder.GetStandardMaterial(
-                    name.Replace(" ", string.Empty),
-                    color,
-                    0.45f,
-                    0.1f);
-            Collider collider = pickup.GetComponent<Collider>();
-            collider.isTrigger = true;
-            Rigidbody body = pickup.AddComponent<Rigidbody>();
+            GameObject root = new GameObject(name);
+            root.transform.position = position;
+
+            BoxCollider trigger = root.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.center = new Vector3(0f, 1.65f, 0f);
+            trigger.size = new Vector3(3.2f, 4.3f, 3.2f);
+            Rigidbody body = root.AddComponent<Rigidbody>();
             body.isKinematic = true;
             body.useGravity = false;
-            RaidPickup raidPickup = pickup.AddComponent<RaidPickup>();
-            raidPickup.Configure(definitionId, name.Replace(" Pickup", ""));
+
+            Material material =
+                CombatLabSceneBuilder.GetStandardMaterial(
+                    name.Replace(" ", string.Empty) + "Stone",
+                    color,
+                    0.72f,
+                    0.64f);
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", color * 0.08f);
+            EditorUtility.SetDirty(material);
+
+            GameObject monument = new GameObject("Faceted Monument");
+            monument.transform.SetParent(root.transform, false);
+            MeshFilter filter = monument.AddComponent<MeshFilter>();
+            filter.sharedMesh = GetOrCreateRaidObeliskMesh();
+            MeshRenderer renderer =
+                monument.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            BoxCollider solid = monument.AddComponent<BoxCollider>();
+            solid.center = new Vector3(0f, 1.38f, 0f);
+            solid.size = new Vector3(0.92f, 3.46f, 0.92f);
+
+            GameObject baseObject =
+                GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            baseObject.name = "Buried Stone Base";
+            baseObject.transform.SetParent(root.transform, false);
+            baseObject.transform.localPosition =
+                new Vector3(0f, -0.12f, 0f);
+            baseObject.transform.localScale =
+                new Vector3(1.45f, 0.18f, 1.45f);
+            baseObject.GetComponent<Renderer>().sharedMaterial = material;
+            Object.DestroyImmediate(
+                baseObject.GetComponent<Collider>());
+
+            GameObject glowObject = new GameObject("Activation Glow");
+            glowObject.transform.SetParent(root.transform, false);
+            glowObject.transform.localPosition =
+                new Vector3(0f, 2.35f, 0f);
+            Light glow = glowObject.AddComponent<Light>();
+            glow.type = LightType.Point;
+            glow.range = 20f;
+            glow.intensity = 18f;
+            glow.shadows = LightShadows.Soft;
+            glow.enabled = false;
+
+            RaidObelisk obelisk = root.AddComponent<RaidObelisk>();
+            obelisk.Configure(
+                quadrantIndex,
+                name,
+                color,
+                raidController,
+                renderer,
+                glow);
+            raidController.RegisterObelisk(obelisk);
         }
 
         private static ExtractionZone CreateExtractionZone(

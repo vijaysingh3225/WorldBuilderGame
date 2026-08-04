@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Loop.Scenes;
 using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Gameplay.Characters
@@ -12,6 +13,13 @@ namespace WorldBuilder.Gameplay.Characters
     [RequireComponent(typeof(Health))]
     public sealed class EnemyBrain : MonoBehaviour
     {
+        public enum WeaponLoadout
+        {
+            Adaptive,
+            BowOnly,
+            SwordOnly
+        }
+
         public enum EnemyState
         {
             Idle,
@@ -40,20 +48,30 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.5f)] private float minimumGuardDistance = 1.25f;
         [SerializeField, Min(0.1f)] private float minimumBowHold = 1.22f;
         [SerializeField, Min(0.1f)] private float maximumBowHold = 1.38f;
-        [SerializeField, Min(0.1f)] private float minimumBowRecovery = 1.35f;
-        [SerializeField, Min(0.1f)] private float maximumBowRecovery = 2.25f;
+        [SerializeField, Min(0.1f)] private float minimumBowRecovery = 0.45f;
+        [SerializeField, Min(0.1f)] private float maximumBowRecovery = 0.75f;
         [Header("Perception")]
-        [SerializeField, Min(1f)] private float passiveSightRange = 42f;
+        [SerializeField, Min(1f)] private float passiveSightRange = 32f;
         [SerializeField, Min(1f)] private float alertedSightRange = 100f;
-        [SerializeField, Range(10f, 360f)] private float passiveViewAngle = 120f;
+        [SerializeField, Range(10f, 360f)] private float passiveViewAngle = 100f;
         [SerializeField, Range(10f, 360f)] private float alertedViewAngle = 220f;
+        [SerializeField, Min(0.1f)] private float immediateRecognitionRange = 6f;
+        [SerializeField, Min(0.1f)] private float minimumRecognitionDuration = 0.55f;
+        [SerializeField, Min(0.1f)] private float maximumRecognitionDuration = 1.65f;
+        [SerializeField, Min(1f)] private float forestSightRange = 18f;
+        [SerializeField, Min(1f)] private float forestRecognitionMultiplier = 2.25f;
+        [SerializeField, Min(1f)] private float crouchedRecognitionMultiplier = 1.55f;
+        [SerializeField, Min(0f)] private float passiveAwarenessDecay = 1.35f;
+        [SerializeField, Min(0.1f)] private float runningHearingRange = 16f;
+        [SerializeField, Min(0f)] private float runningHearingReactionDuration = 0.45f;
+        [SerializeField, Min(0f)] private float forestTrailClearance = 5f;
         [SerializeField, Min(0.1f)] private float investigationDuration = 9f;
+        [SerializeField, Min(0.1f)]
+        private float confirmedEmptySearchDuration = 3.2f;
         [SerializeField, Min(0.1f)] private float investigationGuessDistance = 10f;
         [SerializeField, Min(0.1f)] private float investigationStopDistance = 1.25f;
         [SerializeField, Min(0f)] private float lostSightWaitDuration = 1.25f;
         [SerializeField, Min(0.1f)] private float investigationSwordDistance = 2.6f;
-        [SerializeField, Min(0f)] private float cornerProbeDistance = 1.4f;
-        [SerializeField, Min(0.1f)] private float bowOcclusionHoldDuration = 2.4f;
         [SerializeField, Min(0.1f)] private float searchAimInterval = 0.8f;
         [SerializeField, Min(0.1f)] private float nearMissRadius = 1.35f;
         [SerializeField, Min(0.1f)] private float impactHearingRadius = 10f;
@@ -99,13 +117,14 @@ namespace WorldBuilder.Gameplay.Characters
         private bool loggedFirstArrowHit;
         private bool loggedFirstSwordHit;
         private Vector3 heldAimPoint;
+        private Vector3 lastVisibleTargetPoint;
         private bool aimingForHeadshot;
         private Vector3 lastKnownPosition;
         private Vector3 lastKnownApproachDirection;
         private float investigationTimer;
+        private bool reachedLastKnownPosition;
         private float lostSightWaitTimer;
         private float searchAimTimer;
-        private float bowOcclusionTimer;
         private float searchSide = 1f;
         private bool patrolWhenIdle;
         private bool manualActivationOnly = true;
@@ -116,7 +135,7 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3[] patrolRoute;
         private int patrolRouteIndex;
         private int patrolRouteDirection = 1;
-        private bool bowOnlyLoadout;
+        private WeaponLoadout weaponLoadout;
         private float alertReactionTimer;
         private float impactLookTimer;
         private Vector3 alertFocusPoint;
@@ -125,6 +144,13 @@ namespace WorldBuilder.Gameplay.Characters
         private float rangedStrafeTimer;
         private Vector3 patrolLookDirection;
         private int lastHeardArrowId;
+        private float passiveAwareness;
+        private ThirdPersonMotor targetMotor;
+        private ProceduralRaidGenerator raidEnvironment;
+        private Vector3 lastSafeNavigationPosition;
+        private bool hasSafeNavigationPosition;
+        private readonly RaycastHit[] navigationProbeHits =
+            new RaycastHit[16];
 
         private const float MinimumCommittedBowCharge = 0.995f;
         private const float FullDrawSafetyDuration = 0.12f;
@@ -137,10 +163,13 @@ namespace WorldBuilder.Gameplay.Characters
         public bool IsAlerted => alerted;
         public bool HasVisualContact => hasVisualContact;
         public Vector3 LastKnownPosition => lastKnownPosition;
+        public WeaponLoadout ConfiguredWeaponLoadout =>
+            weaponLoadout;
 
         public void Configure(Transform pursuitTarget)
         {
             target = pursuitTarget;
+            targetMotor = null;
             patrolWhenIdle = true;
             ActivateCombat(
                 preserveCurrentHealth: false,
@@ -160,9 +189,24 @@ namespace WorldBuilder.Gameplay.Characters
         {
             manualActivationOnly = false;
             patrolWhenIdle = true;
-            bowOnlyLoadout = true;
+            if (weaponLoadout == WeaponLoadout.Adaptive)
+            {
+                weaponLoadout = WeaponLoadout.BowOnly;
+            }
             ResolveReferences();
-            weaponSlots?.ConfigureBowOnlyLoadout();
+            ApplyConfiguredWeaponLoadout();
+        }
+
+        public void ConfigureCampGuardLoadout(
+            WeaponLoadout loadout)
+        {
+            weaponLoadout = loadout == WeaponLoadout.SwordOnly
+                ? WeaponLoadout.SwordOnly
+                : WeaponLoadout.BowOnly;
+            manualActivationOnly = false;
+            patrolWhenIdle = true;
+            ResolveReferences();
+            ApplyConfiguredWeaponLoadout();
         }
 
         public void ConfigurePatrolRoute(
@@ -216,8 +260,10 @@ namespace WorldBuilder.Gameplay.Characters
             manualActivationOnly = requireManualActivation;
             alerted = false;
             hasVisualContact = false;
+            passiveAwareness = 0f;
             drawingBow = false;
             investigationTimer = 0f;
+            reachedLastKnownPosition = false;
             lostSightWaitTimer = 0f;
             patrolWhenIdle = false;
             ResolveReferences();
@@ -354,15 +400,15 @@ namespace WorldBuilder.Gameplay.Characters
                 return;
             }
 
-            if (alertReactionTimer > 0f)
-            {
-                UpdateAlertReaction();
-                return;
-            }
-
             if (drawingBow)
             {
                 UpdateBowDraw(hasVisualContact);
+                return;
+            }
+
+            if (alertReactionTimer > 0f)
+            {
+                UpdateAlertReaction();
                 return;
             }
 
@@ -380,7 +426,9 @@ namespace WorldBuilder.Gameplay.Characters
                 ? toTarget / distance
                 : transform.forward;
 
-            if (bowOnlyLoadout || distance > bowRange)
+            if (weaponLoadout == WeaponLoadout.BowOnly ||
+                (weaponLoadout != WeaponLoadout.SwordOnly &&
+                 distance > bowRange))
             {
                 swordModeActive = false;
                 UpdateRangedCombat(chestPoint);
@@ -389,11 +437,60 @@ namespace WorldBuilder.Gameplay.Characters
             {
                 if (!swordModeActive)
                 {
-                    swordModeActive = true;
-                    EnterGuardPhase();
+                    EnterSwordEngagement();
                 }
                 UpdateSwordCombat(direction, distance, chestPoint);
             }
+        }
+
+        private void LateUpdate()
+        {
+            if (state == EnemyState.Dead)
+            {
+                return;
+            }
+
+            ResolveRaidEnvironment();
+            if (raidEnvironment == null)
+            {
+                return;
+            }
+
+            controller ??= GetComponent<CharacterController>();
+            float padding = controller != null
+                ? controller.radius + 0.12f
+                : 0.37f;
+            if (raidEnvironment.IsEnemyNavigationPositionSafe(
+                    transform.position,
+                    padding))
+            {
+                lastSafeNavigationPosition = transform.position;
+                hasSafeNavigationPosition = true;
+                return;
+            }
+
+            if (!hasSafeNavigationPosition)
+            {
+                return;
+            }
+
+            bool controllerWasEnabled =
+                controller != null && controller.enabled;
+            if (controllerWasEnabled)
+            {
+                controller.enabled = false;
+            }
+            transform.position = lastSafeNavigationPosition;
+            if (controllerWasEnabled)
+            {
+                controller.enabled = true;
+            }
+            motor?.StopMotion();
+            SetIntent(Vector2.zero, false, false);
+            GameplayEventLog.Publish(
+                "enemy-river-entry-prevented",
+                gameObject,
+                "restored-last-dry-position");
         }
 
         private void ResolvePlayerTarget()
@@ -460,10 +557,7 @@ namespace WorldBuilder.Gameplay.Characters
                     HumanoidAnimatorPresenter.GaitPlaybackParameter,
                     1f);
             }
-            if (bowOnlyLoadout)
-            {
-                weaponSlots?.ConfigureBowOnlyLoadout();
-            }
+            ApplyConfiguredWeaponLoadout();
             SetDormantPresenterState(false);
             if (controller != null)
             {
@@ -486,6 +580,7 @@ namespace WorldBuilder.Gameplay.Characters
 
             input?.SetDiagnosticOverride(default);
             actionTimer = 0.35f;
+            passiveAwareness = 0f;
             if (beginAlerted)
             {
                 ResolvePlayerTarget();
@@ -542,7 +637,6 @@ namespace WorldBuilder.Gameplay.Characters
             heldAimPoint = ResolvePerfectAimPoint();
             SetAim(heldAimPoint);
             drawingBow = true;
-            bowOcclusionTimer = bowOcclusionHoldDuration;
             actionTimer = Mathf.Max(
                 UnityEngine.Random.Range(
                     minimumBowHold,
@@ -555,35 +649,30 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdateBowDraw(bool targetVisible)
         {
-            Vector2 strafeIntent = ResolveRangedStrafeIntent();
             if (!targetVisible)
             {
-                bowOcclusionTimer -= Time.deltaTime;
+                actionTimer -= Time.deltaTime;
                 SetAim(heldAimPoint);
-                if (bowOcclusionTimer > 0f)
-                {
-                    SetIntent(strafeIntent, false, true);
-                    ChangeState(EnemyState.Windup);
-                    return;
-                }
-
-                bowWeapon?.AbortDraw();
-                SetIntent(strafeIntent, false, false);
-                drawingBow = false;
-                lostSightWaitTimer = 0f;
-                actionTimer = UnityEngine.Random.Range(
-                    minimumBowRecovery,
-                    maximumBowRecovery);
-                ChangeState(EnemyState.Investigating);
+                SetIntent(
+                    ResolveOccludedBowMovement(),
+                    false,
+                    true);
+                ChangeState(EnemyState.Windup);
                 return;
             }
 
-            bowOcclusionTimer = bowOcclusionHoldDuration;
+            Vector2 strafeIntent = ResolveRangedStrafeIntent();
             heldAimPoint = ResolvePerfectAimPoint();
             SetAim(heldAimPoint);
             actionTimer -= Time.deltaTime;
             if (actionTimer > 0f ||
                 !IsCommittedBowShotReady())
+            {
+                SetIntent(strafeIntent, false, true);
+                return;
+            }
+
+            if (!bowWeapon.CommitNpcFullDrawRelease())
             {
                 SetIntent(strafeIntent, false, true);
                 return;
@@ -599,8 +688,47 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdatePerception(Vector3 targetChest)
         {
+            if (!alerted && TryHearRunningTarget())
+            {
+                BeginRunningAlert();
+                return;
+            }
+
             bool hadVisualContact = hasVisualContact;
-            hasVisualContact = CanSeeTarget(targetChest);
+            bool targetVisible = TryResolveVisibleTargetPoint(
+                targetChest,
+                out Vector3 visiblePoint);
+            if (!alerted)
+            {
+                bool targetInForest = IsTargetInForest();
+                float distance = Vector3.Distance(
+                    transform.position,
+                    target.position);
+                bool withinContextRange =
+                    distance <= (targetInForest
+                        ? forestSightRange
+                        : passiveSightRange);
+                bool crouched = ResolveTargetMotor() != null &&
+                    targetMotor.IsCrouched;
+                bool recognized =
+                    (distance <= immediateRecognitionRange &&
+                     targetVisible) ||
+                    AdvancePassiveAwareness(
+                        Time.deltaTime,
+                        targetVisible && withinContextRange,
+                        distance,
+                        targetInForest,
+                        crouched);
+                if (!recognized)
+                {
+                    hasVisualContact = false;
+                    return;
+                }
+
+                passiveAwareness = 0f;
+            }
+
+            hasVisualContact = targetVisible;
             if (!hasVisualContact)
             {
                 if (hadVisualContact)
@@ -612,6 +740,7 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             alerted = true;
+            lastVisibleTargetPoint = visiblePoint;
             lastKnownPosition = target.position;
             Vector3 approachDirection =
                 Vector3.ProjectOnPlane(
@@ -623,33 +752,238 @@ namespace WorldBuilder.Gameplay.Characters
                     approachDirection.normalized;
             }
             investigationTimer = investigationDuration;
+            reachedLastKnownPosition = false;
             lostSightWaitTimer = lostSightWaitDuration;
             searchAimTimer = searchAimInterval;
         }
 
-        private bool CanSeeTarget(Vector3 targetChest)
+        private bool AdvancePassiveAwareness(
+            float deltaTime,
+            bool visible,
+            float distance,
+            bool targetInForest,
+            bool crouched)
+        {
+            if (!visible)
+            {
+                passiveAwareness = Mathf.MoveTowards(
+                    passiveAwareness,
+                    0f,
+                    passiveAwarenessDecay *
+                        Mathf.Max(0f, deltaTime));
+                return false;
+            }
+
+            float requiredDuration =
+                CalculatePassiveRecognitionDuration(
+                    distance,
+                    targetInForest,
+                    crouched);
+            passiveAwareness = Mathf.Clamp01(
+                passiveAwareness +
+                Mathf.Max(0f, deltaTime) /
+                    Mathf.Max(0.01f, requiredDuration));
+            return passiveAwareness >= 1f;
+        }
+
+        private float CalculatePassiveRecognitionDuration(
+            float distance,
+            bool targetInForest,
+            bool crouched)
+        {
+            float maximumRange = targetInForest
+                ? forestSightRange
+                : passiveSightRange;
+            float distanceFactor = Mathf.InverseLerp(
+                immediateRecognitionRange,
+                Mathf.Max(
+                    immediateRecognitionRange + 0.01f,
+                    maximumRange),
+                distance);
+            float duration = Mathf.Lerp(
+                minimumRecognitionDuration,
+                maximumRecognitionDuration,
+                distanceFactor);
+            if (targetInForest)
+            {
+                duration *= forestRecognitionMultiplier;
+            }
+            if (crouched)
+            {
+                duration *= crouchedRecognitionMultiplier;
+            }
+            return duration;
+        }
+
+        private bool TryHearRunningTarget()
+        {
+            ThirdPersonMotor movement = ResolveTargetMotor();
+            if (movement == null || target == null)
+            {
+                return false;
+            }
+
+            bool running =
+                movement.HorizontalSpeed >
+                    movement.WalkSpeed + 0.5f ||
+                movement.TargetHorizontalSpeed >=
+                    movement.SprintSpeed - 0.1f;
+            return running &&
+                Vector3.Distance(
+                    transform.position,
+                    target.position) <= runningHearingRange;
+        }
+
+        private void BeginRunningAlert()
+        {
+            Vector3 sourcePosition = target.position;
+            alertFocusPoint = sourcePosition;
+            Vector3 direction = Vector3.ProjectOnPlane(
+                sourcePosition - transform.position,
+                Vector3.up);
+            alertSourceDirection =
+                direction.sqrMagnitude > 0.001f
+                    ? -direction.normalized
+                    : -transform.forward;
+            alertReactionTimer = runningHearingReactionDuration;
+            impactLookTimer = runningHearingReactionDuration;
+            AlertAt(sourcePosition, "player-running-heard");
+        }
+
+        private ThirdPersonMotor ResolveTargetMotor()
+        {
+            if (target == null)
+            {
+                targetMotor = null;
+                return null;
+            }
+
+            if (targetMotor == null ||
+                targetMotor.transform != target)
+            {
+                targetMotor =
+                    target.GetComponent<ThirdPersonMotor>();
+            }
+            return targetMotor;
+        }
+
+        private bool IsTargetInForest()
         {
             if (target == null)
             {
                 return false;
             }
 
-            Vector3 origin = ResolveSightOrigin();
-            Vector3 toTarget = targetChest - origin;
-            float distance = toTarget.magnitude;
+            ResolveRaidEnvironment();
+            return raidEnvironment != null &&
+                raidEnvironment.DistanceToNearestTrail(
+                    target.position) > forestTrailClearance;
+        }
+
+        private bool CanSeeTarget(Vector3 targetChest)
+        {
+            return TryResolveVisibleTargetPoint(
+                targetChest,
+                out _);
+        }
+
+        private bool TryResolveVisibleTargetPoint(
+            Vector3 targetChest,
+            out Vector3 visiblePoint)
+        {
+            visiblePoint = targetChest;
+            if (target == null)
+            {
+                return false;
+            }
+
+            Vector3 origin = drawingBow &&
+                bowWeapon != null &&
+                bowWeapon.WeaponEquipped
+                    ? bowWeapon.PresentedArrowTip
+                    : ResolveSightOrigin();
             float maximumDistance =
                 alerted ? alertedSightRange : passiveSightRange;
+            float viewAngle =
+                alerted ? alertedViewAngle : passiveViewAngle;
+            Vector3 headPoint = ResolveTargetHeadPoint();
+            Vector3 targetRight = target.right;
+            Vector3 firstPoint = aimingForHeadshot
+                ? headPoint
+                : targetChest;
+            Vector3 secondPoint = aimingForHeadshot
+                ? targetChest
+                : headPoint;
+            if (HasDirectTargetRay(
+                    origin,
+                    firstPoint,
+                    maximumDistance,
+                    viewAngle))
+            {
+                visiblePoint = firstPoint;
+                return true;
+            }
+            if (HasDirectTargetRay(
+                    origin,
+                    secondPoint,
+                    maximumDistance,
+                    viewAngle))
+            {
+                visiblePoint = secondPoint;
+                return true;
+            }
+            Vector3 rightShoulder =
+                targetChest + targetRight * 0.24f;
+            if (HasDirectTargetRay(
+                    origin,
+                    rightShoulder,
+                    maximumDistance,
+                    viewAngle))
+            {
+                visiblePoint = rightShoulder;
+                return true;
+            }
+            Vector3 leftShoulder =
+                targetChest - targetRight * 0.24f;
+            if (HasDirectTargetRay(
+                    origin,
+                    leftShoulder,
+                    maximumDistance,
+                    viewAngle))
+            {
+                visiblePoint = leftShoulder;
+                return true;
+            }
+            Vector3 pelvisPoint =
+                target.position + Vector3.up * 0.82f;
+            if (HasDirectTargetRay(
+                    origin,
+                    pelvisPoint,
+                    maximumDistance,
+                    viewAngle))
+            {
+                visiblePoint = pelvisPoint;
+                return true;
+            }
+            return false;
+        }
+
+        private bool HasDirectTargetRay(
+            Vector3 origin,
+            Vector3 targetPoint,
+            float maximumDistance,
+            float viewAngle)
+        {
+            Vector3 toTarget = targetPoint - origin;
+            float distance = toTarget.magnitude;
             if (distance <= 0.001f ||
                 distance > maximumDistance)
             {
                 return false;
             }
-
             Vector3 planarDirection = Vector3.ProjectOnPlane(
                 toTarget,
                 Vector3.up);
-            float viewAngle =
-                alerted ? alertedViewAngle : passiveViewAngle;
             if (planarDirection.sqrMagnitude > 0.001f &&
                 Vector3.Angle(
                     transform.forward,
@@ -693,7 +1027,6 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdateInvestigation()
         {
-            investigationTimer -= Time.deltaTime;
             if (lostSightWaitTimer > 0f)
             {
                 lostSightWaitTimer -= Time.deltaTime;
@@ -706,9 +1039,7 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             Vector3 investigationDestination =
-                lastKnownPosition +
-                lastKnownApproachDirection *
-                cornerProbeDistance;
+                lastKnownPosition;
             Vector3 toLastKnown = Vector3.ProjectOnPlane(
                 investigationDestination - transform.position,
                 Vector3.up);
@@ -725,11 +1056,15 @@ namespace WorldBuilder.Gameplay.Characters
                 : transform.forward;
             if (weaponSlots != null)
             {
-                int desiredSlot =
-                    distanceToLastKnown >
-                        investigationSwordDistance
-                        ? TwoSlotWeaponPresenter.SecondarySlot
-                        : TwoSlotWeaponPresenter.PrimarySlot;
+                int desiredSlot = weaponLoadout ==
+                        WeaponLoadout.BowOnly
+                    ? TwoSlotWeaponPresenter.SecondarySlot
+                    : weaponLoadout == WeaponLoadout.SwordOnly
+                        ? TwoSlotWeaponPresenter.PrimarySlot
+                        : distanceToLastKnown >
+                            investigationSwordDistance
+                            ? TwoSlotWeaponPresenter.SecondarySlot
+                            : TwoSlotWeaponPresenter.PrimarySlot;
                 if (weaponSlots.ActiveSlot != desiredSlot &&
                     !weaponSlots.IsTransitioning)
                 {
@@ -753,20 +1088,14 @@ namespace WorldBuilder.Gameplay.Characters
                 searchRight * (searchSide * 1.4f);
             SetAim(searchPoint);
 
-            if (investigationTimer <= 0f)
-            {
-                SetIntent(Vector2.zero, false, false);
-                alerted = false;
-                hasVisualContact = false;
-                aimSource?.ClearOverride();
-                ChangeState(EnemyState.Idle);
-                return;
-            }
-
             if (distance > investigationStopDistance)
             {
+                reachedLastKnownPosition = false;
                 Vector3 movement =
-                    ResolveObstacleAwareDirection(direction);
+                    ResolveRiverAwareDirection(
+                        direction,
+                        investigationDestination);
+                movement = ResolveObstacleAwareDirection(movement);
                 SetIntent(
                     WorldDirectionToInput(movement),
                     false,
@@ -777,6 +1106,24 @@ namespace WorldBuilder.Gameplay.Characters
 
             SetIntent(Vector2.zero, false, false);
             ChangeState(EnemyState.Alerted);
+            if (!reachedLastKnownPosition)
+            {
+                reachedLastKnownPosition = true;
+                investigationTimer =
+                    confirmedEmptySearchDuration;
+            }
+            investigationTimer -= Time.deltaTime;
+            if (investigationTimer > 0f)
+            {
+                return;
+            }
+
+            alerted = false;
+            hasVisualContact = false;
+            swordModeActive = false;
+            reachedLastKnownPosition = false;
+            aimSource?.ClearOverride();
+            ChangeState(EnemyState.Idle);
         }
 
         private void UpdatePatrol()
@@ -838,6 +1185,9 @@ namespace WorldBuilder.Gameplay.Characters
                 toDestination.sqrMagnitude > 0.001f
                     ? toDestination.normalized
                     : transform.forward;
+            direction = ResolveRiverAwareDirection(
+                direction,
+                patrolDestination);
             direction = ResolveObstacleAwareDirection(direction);
             SetIntent(
                 WorldDirectionToInput(direction),
@@ -898,34 +1248,218 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3 ResolveObstacleAwareDirection(
             Vector3 desiredDirection)
         {
-            Vector3 origin =
-                transform.position +
-                Vector3.up * 0.65f +
-                desiredDirection * 0.38f;
-            if (!Physics.SphereCast(
-                    origin,
-                    0.20f,
-                    desiredDirection,
-                    out RaycastHit hit,
-                    1.1f,
-                    sightMask,
-                    QueryTriggerInteraction.Ignore) ||
-                hit.collider == null ||
-                hit.collider.transform.IsChildOf(transform) ||
-                hit.collider.GetComponentInParent<EnemyBrain>() != null ||
-                (target != null &&
-                    (hit.collider.transform == target ||
-                     hit.collider.transform.IsChildOf(target))))
+            desiredDirection = Vector3.ProjectOnPlane(
+                desiredDirection,
+                Vector3.up);
+            if (desiredDirection.sqrMagnitude <= 0.0001f)
             {
-                return desiredDirection;
+                return Vector3.zero;
+            }
+            desiredDirection.Normalize();
+
+            const float probeDistance = 1.35f;
+            float forwardClearance = NavigationClearance(
+                desiredDirection,
+                probeDistance);
+            if (forwardClearance >= probeDistance - 0.01f)
+            {
+                return ConstrainImmediateRiverStep(
+                    desiredDirection);
             }
 
-            Vector3 tangent = Vector3.Cross(
-                Vector3.up,
-                desiredDirection) * orbitDirection;
-            return (
-                tangent * 0.85f +
-                desiredDirection * 0.35f).normalized;
+            Vector3 left = Quaternion.AngleAxis(
+                -58f,
+                Vector3.up) * desiredDirection;
+            Vector3 right = Quaternion.AngleAxis(
+                58f,
+                Vector3.up) * desiredDirection;
+            float leftClearance = NavigationClearance(
+                left,
+                probeDistance * 1.25f);
+            float rightClearance = NavigationClearance(
+                right,
+                probeDistance * 1.25f);
+            bool chooseRight = rightClearance > leftClearance + 0.05f ||
+                (Mathf.Abs(rightClearance - leftClearance) <= 0.05f &&
+                 orbitDirection > 0f);
+            orbitDirection = chooseRight ? 1f : -1f;
+            Vector3 avoidance = chooseRight ? right : left;
+            Vector3 result = (
+                avoidance * 0.92f +
+                desiredDirection * 0.18f).normalized;
+            return ConstrainImmediateRiverStep(result);
+        }
+
+        private float NavigationClearance(
+            Vector3 direction,
+            float maximumDistance)
+        {
+            Vector3 origin = transform.position +
+                Vector3.up * 0.72f +
+                direction * 0.22f;
+            int hitCount = Physics.SphereCastNonAlloc(
+                origin,
+                0.20f,
+                direction,
+                navigationProbeHits,
+                maximumDistance,
+                sightMask,
+                QueryTriggerInteraction.Ignore);
+            float clearance = maximumDistance;
+            for (int index = 0; index < hitCount; index++)
+            {
+                Collider collider =
+                    navigationProbeHits[index].collider;
+                if (ShouldIgnoreNavigationCollider(collider))
+                {
+                    continue;
+                }
+                clearance = Mathf.Min(
+                    clearance,
+                    navigationProbeHits[index].distance);
+            }
+            return clearance;
+        }
+
+        private bool ShouldIgnoreNavigationCollider(
+            Collider collider)
+        {
+            if (collider == null ||
+                collider.transform.IsChildOf(transform) ||
+                collider.GetComponentInParent<EnemyBrain>() != null ||
+                (target != null &&
+                    (collider.transform == target ||
+                     collider.transform.IsChildOf(target))))
+            {
+                return true;
+            }
+
+            for (Transform current = collider.transform;
+                 current != null;
+                 current = current.parent)
+            {
+                if (current.name.StartsWith(
+                        "Road Bridge",
+                        StringComparison.Ordinal) ||
+                    current.name == "Terrain Disc")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private Vector3 ConstrainImmediateRiverStep(
+            Vector3 direction)
+        {
+            ResolveRaidEnvironment();
+            if (raidEnvironment == null ||
+                direction.sqrMagnitude <= 0.0001f)
+            {
+                return direction;
+            }
+            direction.Normalize();
+            float padding = controller != null
+                ? controller.radius + 0.12f
+                : 0.37f;
+            Vector3 step = transform.position +
+                direction * 1.35f;
+            if (raidEnvironment.IsEnemyNavigationPositionSafe(
+                    step,
+                    padding))
+            {
+                return direction;
+            }
+
+            if (raidEnvironment.TryResolveEnemyRiverWaypoint(
+                    transform.position,
+                    step,
+                    out Vector3 waypoint))
+            {
+                Vector3 towardWaypoint = Vector3.ProjectOnPlane(
+                    waypoint - transform.position,
+                    Vector3.up);
+                if (towardWaypoint.sqrMagnitude > 0.001f)
+                {
+                    return towardWaypoint.normalized;
+                }
+            }
+            return Vector3.zero;
+        }
+
+        private void ResolveRaidEnvironment()
+        {
+            damageProfile ??=
+                GetComponent<EnemyDamageProfile>();
+            if (damageProfile == null ||
+                damageProfile.Variant !=
+                    EnemyCombatVariant.RaidEnemy)
+            {
+                raidEnvironment = null;
+                return;
+            }
+            if (raidEnvironment == null)
+            {
+                raidEnvironment =
+                    FindFirstObjectByType<ProceduralRaidGenerator>();
+            }
+        }
+
+        private Vector3 ResolveRiverAwareDirection(
+            Vector3 proposedDirection,
+            Vector3 strategicDestination)
+        {
+            ResolveRaidEnvironment();
+            Vector3 flatDirection = Vector3.ProjectOnPlane(
+                proposedDirection,
+                Vector3.up);
+            if (flatDirection.sqrMagnitude <= 0.0001f ||
+                raidEnvironment == null)
+            {
+                return flatDirection;
+            }
+            flatDirection.Normalize();
+
+            if (raidEnvironment.TryResolveEnemyRiverWaypoint(
+                    transform.position,
+                    strategicDestination,
+                    out Vector3 waypoint))
+            {
+                Vector3 towardWaypoint = Vector3.ProjectOnPlane(
+                    waypoint - transform.position,
+                    Vector3.up);
+                if (towardWaypoint.sqrMagnitude > 0.001f)
+                {
+                    return towardWaypoint.normalized;
+                }
+            }
+
+            Vector3 step = transform.position +
+                flatDirection * 1.15f;
+            float padding = controller != null
+                ? controller.radius + 0.12f
+                : 0.37f;
+            if (raidEnvironment.IsEnemyNavigationPositionSafe(
+                    step,
+                    padding))
+            {
+                return flatDirection;
+            }
+
+            if (raidEnvironment.TryResolveEnemyRiverWaypoint(
+                    transform.position,
+                    step,
+                    out waypoint))
+            {
+                Vector3 towardWaypoint = Vector3.ProjectOnPlane(
+                    waypoint - transform.position,
+                    Vector3.up);
+                if (towardWaypoint.sqrMagnitude > 0.001f)
+                {
+                    return towardWaypoint.normalized;
+                }
+            }
+            return Vector3.zero;
         }
 
         private Vector3 ResolveSightOrigin()
@@ -944,7 +1478,15 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 believedSourcePosition,
             string reason)
         {
-            CancelBowAttackForInterruption();
+            bool preserveCommittedDraw =
+                alerted &&
+                drawingBow &&
+                target != null &&
+                bowWeapon != null;
+            if (!preserveCommittedDraw)
+            {
+                CancelBowAttackForInterruption();
+            }
             alerted = true;
             hasVisualContact = false;
             lastKnownPosition = believedSourcePosition;
@@ -957,12 +1499,23 @@ namespace WorldBuilder.Gameplay.Characters
                     ? approachDirection.normalized
                     : transform.forward;
             investigationTimer = investigationDuration;
+            reachedLastKnownPosition = false;
             lostSightWaitTimer = 0f;
             searchAimTimer = searchAimInterval;
-            actionTimer = 0f;
+            if (!preserveCommittedDraw)
+            {
+                actionTimer = 0f;
+            }
             swordModeActive = false;
-            EnterGuardPhase();
-            ChangeState(EnemyState.Alerted);
+            if (preserveCommittedDraw)
+            {
+                ChangeState(EnemyState.Windup);
+            }
+            else
+            {
+                EnterGuardPhase();
+                ChangeState(EnemyState.Alerted);
+            }
             GameplayEventLog.Publish(
                 "enemy-alerted",
                 gameObject,
@@ -1031,7 +1584,33 @@ namespace WorldBuilder.Gameplay.Characters
                 movement -= direction * 0.34f;
             }
 
+            movement = ResolveRiverAwareDirection(
+                movement,
+                target != null
+                    ? target.position
+                    : transform.position + movement * 2f);
+
             return WorldDirectionToInput(movement);
+        }
+
+        private Vector2 ResolveOccludedBowMovement()
+        {
+            Vector3 towardLastKnown = Vector3.ProjectOnPlane(
+                lastKnownPosition - transform.position,
+                Vector3.up);
+            float distance = towardLastKnown.magnitude;
+            if (distance <= investigationStopDistance)
+            {
+                return ResolveRangedStrafeIntent();
+            }
+
+            Vector3 direction = ResolveRiverAwareDirection(
+                towardLastKnown / distance,
+                lastKnownPosition);
+            Vector3 obstacleAware =
+                ResolveObstacleAwareDirection(direction);
+            return WorldDirectionToInput(
+                obstacleAware * 0.78f);
         }
 
         private void HandleArrowInFlight(
@@ -1112,6 +1691,7 @@ namespace WorldBuilder.Gameplay.Characters
                     beginAlerted: false);
             }
 
+            bool alreadyEngaged = alerted;
             ResolvePlayerTarget();
             Vector3 direction = Vector3.ProjectOnPlane(
                 flightDirection,
@@ -1123,8 +1703,12 @@ namespace WorldBuilder.Gameplay.Characters
             direction.Normalize();
             alertFocusPoint = focusPoint;
             alertSourceDirection = direction;
-            alertReactionTimer = reactionDuration;
-            impactLookTimer = lookDuration;
+            alertReactionTimer = alreadyEngaged
+                ? 0f
+                : reactionDuration;
+            impactLookTimer = alreadyEngaged
+                ? 0f
+                : lookDuration;
             AlertAt(
                 transform.position -
                     direction * investigationGuessDistance,
@@ -1178,7 +1762,21 @@ namespace WorldBuilder.Gameplay.Characters
                 return;
             }
 
-            SetAim(targetChest);
+            bool aggressiveSwordAdvance =
+                weaponLoadout == WeaponLoadout.SwordOnly &&
+                (meleePhase == MeleePhase.Closing ||
+                 meleePhase == MeleePhase.Attacking);
+            if (aggressiveSwordAdvance)
+            {
+                // A facing override intentionally suppresses sprinting in the
+                // player motor. While charging, travel direction already faces
+                // the sword guard toward the target, so release the override.
+                aimSource?.ClearOverride();
+            }
+            else
+            {
+                SetAim(targetChest);
+            }
             switch (meleePhase)
             {
                 case MeleePhase.EstablishGuard:
@@ -1241,6 +1839,10 @@ namespace WorldBuilder.Gameplay.Characters
                     Mathf.Clamp(radialError, -0.25f, 0.25f);
             }
 
+            movement = ResolveRiverAwareDirection(
+                movement,
+                transform.position + movement * 2f);
+
             SetIntent(
                 WorldDirectionToInput(movement),
                 false,
@@ -1261,8 +1863,15 @@ namespace WorldBuilder.Gameplay.Characters
         {
             if (distance > swordRange + 0.20f)
             {
+                Vector3 movement = ResolveRiverAwareDirection(
+                    direction,
+                    target != null
+                        ? target.position
+                        : transform.position + direction * distance);
+                movement = ResolveObstacleAwareDirection(movement);
                 SetIntent(
-                    WorldDirectionToInput(direction),
+                    WorldDirectionToInput(movement),
+                    false,
                     false,
                     true);
                 ChangeState(EnemyState.Pursuing);
@@ -1270,10 +1879,13 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             meleePhase = MeleePhase.Attacking;
-            comboPulsesRemaining =
-                UnityEngine.Random.Range(1, 4);
+            comboPulsesRemaining = 3;
             nextAttackPulse = 0f;
-            SetIntent(Vector2.zero, false, false);
+            SetIntent(
+                WorldDirectionToInput(direction),
+                false,
+                false,
+                true);
         }
 
         private void UpdateMeleeAttack(
@@ -1293,12 +1905,18 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             SetIntent(
-                distance > 0.72f
+                distance > 0.58f
                     ? WorldDirectionToInput(
-                        direction * 0.42f)
+                        ResolveRiverAwareDirection(
+                            direction,
+                            target != null
+                                ? target.position
+                                : transform.position +
+                                    direction * distance))
                     : Vector2.zero,
                 attackPressed,
-                false);
+                false,
+                true);
             ChangeState(
                 attackPressed ||
                 (swordAttack != null && swordAttack.IsAttacking)
@@ -1329,6 +1947,9 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 movement = needsSpace
                 ? -direction * 0.82f + tangent * 0.22f
                 : tangent * 0.30f;
+            movement = ResolveRiverAwareDirection(
+                movement,
+                transform.position + movement * 2f);
             SetIntent(
                 WorldDirectionToInput(movement),
                 false,
@@ -1356,11 +1977,29 @@ namespace WorldBuilder.Gameplay.Characters
             comboPulsesRemaining = 0;
         }
 
+        private void EnterSwordEngagement()
+        {
+            swordModeActive = true;
+            if (weaponLoadout == WeaponLoadout.SwordOnly)
+            {
+                meleePhase = MeleePhase.Closing;
+                meleePhaseTimer = 0f;
+                comboPulsesRemaining = 0;
+                ChangeState(EnemyState.Pursuing);
+                return;
+            }
+
+            EnterGuardPhase();
+        }
+
         private Vector3 ResolvePerfectAimPoint()
         {
-            Vector3 targetPoint = aimingForHeadshot
-                ? ResolveTargetHeadPoint()
-                : ResolveTargetChestPoint();
+            Vector3 targetPoint = hasVisualContact &&
+                lastVisibleTargetPoint != Vector3.zero
+                    ? lastVisibleTargetPoint
+                    : aimingForHeadshot
+                        ? ResolveTargetHeadPoint()
+                        : ResolveTargetChestPoint();
             Vector3 velocity = Vector3.zero;
             ThirdPersonMotor targetMotor =
                 target.GetComponent<ThirdPersonMotor>();
@@ -1541,13 +2180,14 @@ namespace WorldBuilder.Gameplay.Characters
         private void SetIntent(
             Vector2 move,
             bool attack,
-            bool block)
+            bool block,
+            bool sprint = false)
         {
             input?.SetDiagnosticOverride(
                 new PlayerIntent(
                     move,
                     Vector2.zero,
-                    false,
+                    sprint,
                     false,
                     false,
                     false,
@@ -1591,6 +2231,18 @@ namespace WorldBuilder.Gameplay.Characters
             stancePresenter ??=
                 GetComponentInChildren<AimStanceLocomotionPresenter>(true);
             animator ??= GetComponentInChildren<Animator>(true);
+        }
+
+        private void ApplyConfiguredWeaponLoadout()
+        {
+            if (weaponLoadout == WeaponLoadout.BowOnly)
+            {
+                weaponSlots?.ConfigureBowOnlyLoadout();
+            }
+            else if (weaponLoadout == WeaponLoadout.SwordOnly)
+            {
+                weaponSlots?.ConfigureSwordOnlyLoadout();
+            }
         }
 
         private void EnsureDamageProfile()

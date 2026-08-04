@@ -19,6 +19,101 @@ namespace WorldBuilder.Tests.EditMode
 {
     public sealed class GameplaySceneInfrastructureTests
     {
+        [TestCase(1920f, 1080f)]
+        [TestCase(1454f, 676f)]
+        [TestCase(1280f, 720f)]
+        [TestCase(1024f, 768f)]
+        public void InventoryPanelExactlyFillsCommonScreenSizes(
+            float screenWidth,
+            float screenHeight)
+        {
+            Rect panel = HomeInventoryController.CalculatePanelRect(
+                screenWidth,
+                screenHeight);
+
+            Assert.That(panel, Is.EqualTo(
+                new Rect(0f, 0f, screenWidth, screenHeight)));
+        }
+
+        [Test]
+        public void InventoryUsesThreeEqualColumnsAndOneStorageCellSize()
+        {
+            const float screenWidth = 1500f;
+            float spacing =
+                HomeInventoryController.CalculateInventorySectionSpacing(
+                    screenWidth);
+            Rect content = new Rect(
+                spacing +
+                    HomeInventoryController.InventoryHorizontalAlignmentOffset,
+                124f,
+                screenWidth - spacing * 2f,
+                554f);
+            Rect equipment =
+                HomeInventoryController.CalculateInventoryColumn(
+                    content,
+                    0,
+                    spacing);
+            Rect backpack =
+                HomeInventoryController.CalculateInventoryColumn(
+                    content,
+                    1,
+                    spacing);
+            Rect loot =
+                HomeInventoryController.CalculateInventoryColumn(
+                    content,
+                    2,
+                    spacing);
+
+            Assert.That(equipment.width, Is.EqualTo(backpack.width));
+            Assert.That(backpack.width, Is.EqualTo(loot.width));
+            Assert.That(
+                backpack.center.x,
+                Is.EqualTo(
+                    screenWidth * 0.5f +
+                    HomeInventoryController.InventoryHorizontalAlignmentOffset));
+            Assert.That(
+                backpack.x - equipment.xMax,
+                Is.EqualTo(spacing * 0.25f));
+            Assert.That(
+                loot.x - backpack.xMax,
+                Is.EqualTo(spacing * 0.25f));
+            Assert.That(
+                backpack.center.x - equipment.center.x,
+                Is.EqualTo(loot.center.x - backpack.center.x));
+
+            float sharedCellSize =
+                HomeInventoryController.CalculateSharedStorageCellSize(
+                    backpack.width,
+                    backpack.height);
+            Assert.That(sharedCellSize, Is.GreaterThan(0f));
+            Assert.That(
+                sharedCellSize * 5f + 5f * 4f,
+                Is.LessThanOrEqualTo(loot.width - 32f));
+            Assert.That(
+                sharedCellSize * 6f + 5f * 5f,
+                Is.LessThanOrEqualTo(backpack.height - 56f));
+        }
+
+        [TestCase(1920f, 1080f)]
+        [TestCase(1454f, 676f)]
+        [TestCase(1280f, 720f)]
+        [TestCase(1024f, 768f)]
+        public void WeaponGridWindowStaysInsideCommonScreenSizes(
+            float screenWidth,
+            float screenHeight)
+        {
+            Rect panel = WeaponGridSandboxToolkit.CalculateWindowRect(
+                screenWidth,
+                screenHeight);
+
+            Assert.That(panel.xMin, Is.GreaterThanOrEqualTo(16f));
+            Assert.That(panel.yMin, Is.GreaterThanOrEqualTo(16f));
+            Assert.That(panel.xMax, Is.LessThanOrEqualTo(screenWidth - 16f));
+            Assert.That(panel.yMax, Is.LessThanOrEqualTo(screenHeight - 16f));
+            Assert.That(panel.width, Is.LessThanOrEqualTo(900f));
+            Assert.That(panel.height, Is.LessThanOrEqualTo(540f));
+        }
+
         [Test]
         public void BuildSettingsKeepEveryPrototypeSceneInLoopOrder()
         {
@@ -79,10 +174,7 @@ namespace WorldBuilder.Tests.EditMode
                 serialized.FindProperty("playerInput")
                     .objectReferenceValue,
                 Is.SameAs(player.GetComponent<PlayerInputSource>()));
-            Assert.That(
-                Object.FindFirstObjectByType<HomeInventoryController>(
-                    FindObjectsInactive.Include),
-                Is.Not.Null);
+            AssertInventoryLayout();
             Assert.That(
                 Object.FindObjectsByType<HomeStorageChest>(
                     FindObjectsInactive.Include,
@@ -205,11 +297,67 @@ namespace WorldBuilder.Tests.EditMode
             GameObject player =
                 GameObject.FindGameObjectWithTag("Player");
             Assert.That(player, Is.Not.Null);
-            EnemyBrain[] enemies =
+            ThirdPersonMotor playerMotor =
+                player.GetComponent<ThirdPersonMotor>();
+            Assert.That(playerMotor, Is.Not.Null);
+            Assert.That(
+                playerMotor.WalkSpeed,
+                Is.EqualTo(ThirdPersonMotor.DefaultPlayerWalkSpeed)
+                    .Within(0.001f));
+            Assert.That(
+                playerMotor.SprintSpeed,
+                Is.EqualTo(ThirdPersonMotor.DefaultSprintSpeed)
+                    .Within(0.001f));
+            Material playerMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    "Assets/_Project/Art/Prototype/" +
+                    "Materials/Player.mat");
+            Assert.That(playerMaterial, Is.Not.Null);
+            Assert.That(
+                playerMaterial.GetTexture("_BaseMap"),
+                Is.Null);
+            Assert.That(
+                playerMaterial.GetTexture("_BumpMap"),
+                Is.Null);
+            Assert.That(
+                Vector4.Distance(
+                    playerMaterial.GetColor("_BaseColor"),
+                    new Color(0.36f, 0.36f, 0.36f, 1f)),
+                Is.LessThan(0.001f));
+            EnemyBrain[] allRaidEnemies =
                 Object.FindObjectsByType<EnemyBrain>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
+            EnemyBrain[] enemies = allRaidEnemies
+                .Where(enemy => enemy.name.StartsWith("Raider "))
+                .ToArray();
             Assert.That(enemies, Has.Length.EqualTo(8));
+            Assert.That(
+                allRaidEnemies.Count(
+                    enemy => enemy.name.StartsWith(
+                        "Camp Guard Pool ")),
+                Is.EqualTo(9));
+            foreach (EnemyBrain enemy in enemies)
+            {
+                SerializedObject perception =
+                    new SerializedObject(enemy);
+                Assert.That(
+                    perception.FindProperty("passiveSightRange")
+                        .floatValue,
+                    Is.EqualTo(32f).Within(0.001f));
+                Assert.That(
+                    perception.FindProperty("passiveViewAngle")
+                        .floatValue,
+                    Is.EqualTo(100f).Within(0.001f));
+                Assert.That(
+                    perception.FindProperty("forestSightRange")
+                        .floatValue,
+                    Is.EqualTo(18f).Within(0.001f));
+                Assert.That(
+                    perception.FindProperty("runningHearingRange")
+                        .floatValue,
+                    Is.EqualTo(16f).Within(0.001f));
+            }
             Assert.That(
                 enemies.All(enemy => !enemy.enabled),
                 Is.True,
@@ -218,7 +366,48 @@ namespace WorldBuilder.Tests.EditMode
                 Object.FindObjectsByType<RaidPickup>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None),
-                Has.Length.EqualTo(3));
+                Is.Empty,
+                "The former floating Raid pickups should no longer exist.");
+            RaidObelisk[] obelisks =
+                Object.FindObjectsByType<RaidObelisk>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None);
+            Assert.That(obelisks, Has.Length.EqualTo(4));
+            Assert.That(
+                obelisks.Select(obelisk => obelisk.QuadrantIndex)
+                    .Distinct().Count(),
+                Is.EqualTo(4));
+            Assert.That(
+                obelisks.Select(obelisk => obelisk.MonumentColor)
+                    .Distinct().Count(),
+                Is.EqualTo(4));
+            foreach (RaidObelisk obelisk in obelisks)
+            {
+                Assert.That(obelisk.IsActivated, Is.False);
+                Assert.That(
+                    obelisk.GetComponent<BoxCollider>().isTrigger,
+                    Is.True);
+                Assert.That(
+                    obelisk.GetComponentInChildren<MeshFilter>()
+                        .sharedMesh.name,
+                    Is.EqualTo("Raid Obelisk"));
+                Assert.That(
+                    obelisk.GetComponentsInChildren<Renderer>(true),
+                    Is.Not.Empty);
+                SerializedObject serializedObelisk =
+                    new SerializedObject(obelisk);
+                Assert.That(
+                    serializedObelisk.FindProperty(
+                            "activatedEmissionMultiplier")
+                        .floatValue,
+                    Is.EqualTo(22f));
+                Light glow =
+                    obelisk.GetComponentInChildren<Light>(true);
+                Assert.That(glow, Is.Not.Null);
+                Assert.That(glow.enabled, Is.False);
+                Assert.That(glow.intensity, Is.EqualTo(18f));
+                Assert.That(glow.range, Is.EqualTo(20f));
+            }
             Assert.That(
                 Object.FindFirstObjectByType<ExtractionZone>(
                     FindObjectsInactive.Include),
@@ -247,9 +436,19 @@ namespace WorldBuilder.Tests.EditMode
                 Is.SameAs(
                     player.GetComponentInChildren<BowWeapon>(true)));
             Assert.That(
+                crosshair.BowWeapon.ArrowFlybyClip,
+                Is.Not.Null,
+                "Raid arrows should carry the spatial flyby cue.");
+            Assert.That(
+                AssetDatabase.GetAssetPath(
+                    crosshair.BowWeapon.ArrowFlybyClip),
+                Is.EqualTo(
+                    "Assets/_Project/Audio/SFX/Arrow Flyby.mp3"));
+            Assert.That(
                 Object.FindFirstObjectByType<SceneNavigationMenu>(
                     FindObjectsInactive.Include),
                 Is.Not.Null);
+            AssertInventoryLayout();
             AssertSharedGrid();
             AssertDirectMode(GameLaunchMode.RaidSandbox);
         }
@@ -261,11 +460,47 @@ namespace WorldBuilder.Tests.EditMode
             yield return new EnterPlayMode();
             yield return null;
 
-            EnemyBrain[] enemies =
+            EnemyBrain[] allRaidEnemies =
                 Object.FindObjectsByType<EnemyBrain>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
+            EnemyBrain[] enemies = allRaidEnemies
+                .Where(enemy => enemy.name.StartsWith("Raider "))
+                .ToArray();
             Assert.That(enemies, Has.Length.EqualTo(8));
+            EnemyBrain[] activeCampGuards = allRaidEnemies
+                .Where(enemy =>
+                    enemy.name.StartsWith("Camp Guard Pool ") &&
+                    enemy.gameObject.activeSelf)
+                .ToArray();
+            Assert.That(activeCampGuards.Length, Is.InRange(1, 9));
+            foreach (EnemyBrain campGuard in activeCampGuards)
+            {
+                Assert.That(
+                    campGuard.ConfiguredWeaponLoadout,
+                    Is.Not.EqualTo(
+                        EnemyBrain.WeaponLoadout.Adaptive));
+                TwoSlotWeaponPresenter campLoadout =
+                    campGuard.GetComponentInChildren<
+                        TwoSlotWeaponPresenter>(true);
+                Assert.That(campLoadout, Is.Not.Null);
+                if (campGuard.ConfiguredWeaponLoadout ==
+                    EnemyBrain.WeaponLoadout.BowOnly)
+                {
+                    Assert.That(campLoadout.BowIsEquipped, Is.True);
+                    Assert.That(campLoadout.BowIsVisible, Is.True);
+                    Assert.That(campLoadout.SwordIsVisible, Is.False);
+                }
+                else
+                {
+                    Assert.That(campLoadout.BowIsEquipped, Is.False);
+                    Assert.That(
+                        campLoadout.BowIsVisible,
+                        Is.False,
+                        "Sword-only camp guards must not carry a bow on their back.");
+                    Assert.That(campLoadout.SwordIsVisible, Is.True);
+                }
+            }
             Vector3[] startingPositions =
                 enemies.Select(enemy => enemy.transform.position).ToArray();
 
@@ -298,6 +533,7 @@ namespace WorldBuilder.Tests.EditMode
                         TwoSlotWeaponPresenter>(true);
                 Assert.That(loadout, Is.Not.Null);
                 Assert.That(loadout.BowIsEquipped, Is.True);
+                Assert.That(loadout.BowIsVisible, Is.True);
                 Assert.That(loadout.SwordIsVisible, Is.False);
 
                 int index = System.Array.IndexOf(enemies, enemy);
@@ -451,6 +687,24 @@ namespace WorldBuilder.Tests.EditMode
                 Is.Not.Null);
         }
 
+        private static void AssertInventoryLayout()
+        {
+            Assert.That(
+                Object.FindFirstObjectByType<HomeInventoryController>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null,
+                "Home and raid scenes should share the backpack-first Tab inventory.");
+            WeaponGridSandboxToolkit toolkit =
+                Object.FindFirstObjectByType<WeaponGridSandboxToolkit>(
+                    FindObjectsInactive.Include);
+            Assert.That(toolkit, Is.Not.Null);
+            SerializedObject serialized = new SerializedObject(toolkit);
+            Assert.That(
+                serialized.FindProperty("toggleWithTab").boolValue,
+                Is.False,
+                "Tab belongs to the inventory; weapon grids open from equipped weapon cards.");
+        }
+
         private static void AssertDirectMode(GameLaunchMode expected)
         {
             GameplayLoopBootstrap bootstrap =
@@ -490,6 +744,26 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(11),
                 "Every supplied birch, broadleaf, and pine variant must drive runtime forest generation.");
             Assert.That(
+                serialized.FindProperty("campGuardPool").arraySize,
+                Is.EqualTo(9));
+            string[] campPrefabFields =
+            {
+                "campTentPrefab",
+                "campfirePrefab",
+                "campPotPrefab",
+                "campDryingRackPrefab",
+                "campFirewoodPrefab",
+                "campChestPrefab"
+            };
+            foreach (string field in campPrefabFields)
+            {
+                Assert.That(
+                    serialized.FindProperty(field)
+                        .objectReferenceValue,
+                    Is.Not.Null,
+                    field);
+            }
+            Assert.That(
                 serialized.FindProperty("treeBarkMaterial")
                     .objectReferenceValue,
                 Is.Not.Null);
@@ -505,6 +779,25 @@ namespace WorldBuilder.Tests.EditMode
                 serialized.FindProperty("pineLeavesMaterial")
                     .objectReferenceValue,
                 Is.Not.Null);
+            string[] habitatTextureFields =
+            {
+                "mossyLoamTexture",
+                "canopyDuffTexture",
+                "mossCarpetTexture",
+                "creepingGroundcoverTexture",
+                "stonyLichenSoilTexture"
+            };
+            foreach (string field in habitatTextureFields)
+            {
+                Texture2D texture = serialized.FindProperty(field)
+                    .objectReferenceValue as Texture2D;
+                Assert.That(texture, Is.Not.Null, field);
+                Assert.That(
+                    AssetDatabase.GetAssetPath(texture),
+                    Does.StartWith(
+                        "Assets/_Project/Art/Environment/" +
+                        "RaidSurfaces/Forest"));
+            }
             Material skybox = serialized.FindProperty("skyboxMaterial")
                 .objectReferenceValue as Material;
             Assert.That(skybox, Is.Not.Null);
@@ -523,11 +816,31 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(1500),
                 "The Raid should exceed the original per-area tree density to break long forest sightlines.");
             Assert.That(
+                serialized.FindProperty("treeScaleMultiplier")
+                    .floatValue,
+                Is.EqualTo(1.75f).Within(0.001f));
+            Assert.That(
                 serialized.FindProperty("grassCount").intValue,
                 Is.EqualTo(128000));
             Assert.That(
                 serialized.FindProperty("undergrowthCount").intValue,
-                Is.EqualTo(2800));
+                Is.EqualTo(4200));
+            Assert.That(
+                serialized.FindProperty("groundFloraStudyPrefabs")
+                    .arraySize,
+                Is.EqualTo(GroundFloraStudyAssetBuilder.StudyCount));
+            Assert.That(
+                serialized.FindProperty("groundFloraStudyCount")
+                    .intValue,
+                Is.EqualTo(4800));
+            Assert.That(
+                serialized.FindProperty("groundFloraGeneralShare")
+                    .floatValue,
+                Is.EqualTo(0.70f).Within(0.001f));
+            Assert.That(
+                serialized.FindProperty("groundFloraTreePocketShare")
+                    .floatValue,
+                Is.EqualTo(0.18f).Within(0.001f));
             Assert.That(
                 serialized.FindProperty("boulderCount").intValue,
                 Is.EqualTo(192));

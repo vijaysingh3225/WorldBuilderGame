@@ -413,10 +413,11 @@ namespace WorldBuilder.Gameplay.Diagnostics
                         maximumBlockStrafeFacingError);
                     RequireAimWalkSpeed(
                         "sword block strafe");
-                    RequireSwordGuardLateral(
-                        "sword block strafe");
+                    RequireSwordGuardWalk(
+                        "sword block strafe",
+                        1f);
                     recorder.MarkLastFrame(
-                        "sword-block-aim-forward-shuffle-held",
+                        "sword-block-standard-walk-held",
                         true);
                 }
             });
@@ -443,7 +444,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                         maximumBlockBackpedalFacingError);
                     RequireSwordGuardWalk(
                         "sword block backpedal",
-                        -1f);
+                        1f);
                 }
             });
             EnqueueFixed(
@@ -1618,27 +1619,11 @@ namespace WorldBuilder.Gameplay.Diagnostics
             }
         }
 
-        private void RequireSwordGuardLateral(
-            string label)
-        {
-            if (stancePresenter == null ||
-                stancePresenter.SwordShuffleWeight < 0.85f ||
-                Mathf.Abs(
-                    stancePresenter.CurrentStanceYaw) > 5f)
-            {
-                throw new InvalidOperationException(
-                    $"{label} did not enter the aim-forward sword shuffle: " +
-                    $"shuffle={(stancePresenter != null ? stancePresenter.SwordShuffleWeight : -1f):0.000}, " +
-                    $"yaw={(stancePresenter != null ? stancePresenter.CurrentStanceYaw : -1f):0.0}.");
-            }
-        }
-
         private void RequireSwordGuardWalk(
             string label,
             float expectedPlayback)
         {
             if (stancePresenter == null ||
-                stancePresenter.SwordShuffleWeight > 0.15f ||
                 Mathf.Abs(
                     stancePresenter.CurrentStanceYaw) > 5f ||
                 stancePresenter.GaitPlaybackDirection *
@@ -1646,7 +1631,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             {
                 throw new InvalidOperationException(
                     $"{label} did not keep aim-forward authored walking: " +
-                    $"shuffle={(stancePresenter != null ? stancePresenter.SwordShuffleWeight : -1f):0.000}, " +
                     $"yaw={(stancePresenter != null ? stancePresenter.CurrentStanceYaw : -1f):0.0}, " +
                     $"playback={(stancePresenter != null ? stancePresenter.GaitPlaybackDirection : 0f):0.00}.");
             }

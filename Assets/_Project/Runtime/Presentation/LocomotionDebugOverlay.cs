@@ -236,6 +236,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void EnsureStyles()
         {
+            GameTypography.ApplyToCurrentSkin();
             if (panelStyle != null)
             {
                 return;
@@ -244,6 +245,7 @@ namespace WorldBuilder.Gameplay.Presentation
             panelStyle = new GUIStyle(GUI.skin.box);
             labelStyle = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 fontSize = 13,
                 normal = { textColor = Color.white }
             };

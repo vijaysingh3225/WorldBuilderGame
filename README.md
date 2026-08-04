@@ -29,7 +29,7 @@ The slice is successful when movement and camera control remain stable, authored
 
 The temporary Humanoid and animation clips come from the free Standard edition of the Quaternius Universal Animation Library under CC0 1.0. Source and license details live beside the FBX in `Assets/_Project/Art/Prototype/Humanoid`.
 
-The Weapon Grid, procedural raid assembly, extraction loop, and multiplayer runtime are intentionally not in this first slice. Their architectural seams are preserved without paying their implementation cost prematurely.
+The project now also includes the first deterministic procedural Raid, extraction loop, and an Edit Mode map-review workflow. See [Docs/WORLD_GENERATION_PERFORMANCE.md](Docs/WORLD_GENERATION_PERFORMANCE.md) for the generation performance contract and the required path from the current 144 m proof to streamed multi-mile worlds. The Weapon Grid remains an experimental sandbox direction, and multiplayer runtime is intentionally not implemented.
 
 ## Design source of truth
 

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using WorldBuilder.Gameplay.Loop;
+using WorldBuilder.Gameplay.Loop.Scenes;
 
 namespace WorldBuilder.Tests.EditMode
 {
@@ -416,6 +417,23 @@ namespace WorldBuilder.Tests.EditMode
                 Is.Not.EqualTo(profile.WeaponTwo.WeaponInstanceId));
             Assert.Throws<ArgumentOutOfRangeException>(() => profile.GetWeapon(0));
             Assert.Throws<ArgumentOutOfRangeException>(() => profile.GetWeapon(3));
+        }
+
+        [Test]
+        public void PlayerDeathDoesNotShowRaidCompletionOverlay()
+        {
+            Assert.That(
+                RaidPrototypeController.ShouldShowCompletionOverlay(
+                    RaidCompletionReason.PlayerDied),
+                Is.False);
+            Assert.That(
+                RaidPrototypeController.ShouldShowCompletionOverlay(
+                    RaidCompletionReason.Extracted),
+                Is.True);
+            Assert.That(
+                RaidPrototypeController.ShouldShowCompletionOverlay(
+                    RaidCompletionReason.Abandoned),
+                Is.True);
         }
 
         private static GameSession CreateRaidSandboxSession()

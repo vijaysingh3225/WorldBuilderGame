@@ -120,6 +120,135 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void DistantPassiveSightRequiresSustainedExposure()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            Physics.SyncTransforms();
+
+            UpdatePerception(brain);
+
+            Assert.That(brain.IsAlerted, Is.False);
+            Assert.That(
+                brain.HasVisualContact,
+                Is.False,
+                "One clear passive sight sample at range must not become instant combat awareness.");
+            Assert.That(
+                GetPrivateField<float>(brain, "passiveAwareness"),
+                Is.GreaterThan(0f));
+        }
+
+        [Test]
+        public void ForestAndCrouchIncreaseRecognitionTime()
+        {
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            MethodInfo calculateDuration =
+                ResolvePrivateMethod(
+                    "CalculatePassiveRecognitionDuration");
+
+            float trailDuration = (float)
+                calculateDuration.Invoke(
+                    brain,
+                    new object[] { 14f, false, false });
+            float forestDuration = (float)
+                calculateDuration.Invoke(
+                    brain,
+                    new object[] { 14f, true, false });
+            float crouchedForestDuration = (float)
+                calculateDuration.Invoke(
+                    brain,
+                    new object[] { 14f, true, true });
+
+            Assert.That(
+                forestDuration,
+                Is.GreaterThan(trailDuration * 2f));
+            Assert.That(
+                crouchedForestDuration,
+                Is.GreaterThan(forestDuration));
+        }
+
+        [Test]
+        public void WalkingBehindGuardStaysQuietButNearbyRunningAlerts()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, -10f));
+            ThirdPersonMotor playerMotor =
+                player.AddComponent<ThirdPersonMotor>();
+            playerMotor.ConfigureWalkSpeed(
+                ThirdPersonMotor.DefaultPlayerWalkSpeed);
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+
+            SetPrivateField(
+                playerMotor,
+                "horizontalVelocity",
+                Vector3.forward * playerMotor.WalkSpeed);
+            SetPrivateField(
+                playerMotor,
+                "targetHorizontalSpeed",
+                playerMotor.WalkSpeed);
+            Physics.SyncTransforms();
+            UpdatePerception(brain);
+
+            Assert.That(
+                brain.IsAlerted,
+                Is.False,
+                "A guard must not detect ordinary walking through its back-facing vision cone.");
+
+            SetPrivateField(
+                playerMotor,
+                "horizontalVelocity",
+                Vector3.forward * playerMotor.SprintSpeed);
+            SetPrivateField(
+                playerMotor,
+                "targetHorizontalSpeed",
+                playerMotor.SprintSpeed);
+            UpdatePerception(brain);
+
+            Assert.That(brain.IsAlerted, Is.True);
+            Assert.That(brain.HasVisualContact, Is.False);
+            Assert.That(
+                GetPrivateField<float>(
+                    brain,
+                    "alertReactionTimer"),
+                Is.EqualTo(0.45f).Within(0.001f));
+            Assert.That(
+                brain.LastKnownPosition,
+                Is.EqualTo(player.transform.position));
+        }
+
+        [Test]
+        public void AnyExposedUpperBodyGlimpseRestoresVisualContact()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(500f, 0f, 506f));
+            enemy = CreateEnemy(
+                new Vector3(500f, 0f, 500f));
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            obstruction = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            obstruction.transform.position =
+                new Vector3(500f, 0.50f, 503f);
+            obstruction.transform.localScale =
+                new Vector3(2f, 1.00f, 0.6f);
+            Physics.SyncTransforms();
+
+            Assert.That(
+                EvaluateSight(brain),
+                Is.True,
+                "An exposed head or shoulder should be enough for an engaged archer to shoot.");
+        }
+
+        [Test]
         public void LosingSightPreservesTheLastVisiblePosition()
         {
             player = CreateTarget(
@@ -150,6 +279,106 @@ namespace WorldBuilder.Tests
             Assert.That(brain.IsAlerted, Is.True);
             Assert.That(brain.HasVisualContact, Is.False);
             Assert.That(brain.LastKnownPosition, Is.EqualTo(lastVisible));
+        }
+
+        [Test]
+        public void InvestigationCannotExpireBeforeEnemyReachesLastSeenPoint()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            SetPrivateField(brain, "alerted", true);
+            SetPrivateField(
+                brain,
+                "lastKnownPosition",
+                player.transform.position);
+            SetPrivateField(brain, "lostSightWaitTimer", 0f);
+            SetPrivateField(brain, "investigationTimer", 0.01f);
+            SetPrivateField(
+                brain,
+                "reachedLastKnownPosition",
+                false);
+
+            InvokePrivate(brain, "UpdateInvestigation");
+
+            Assert.That(brain.IsAlerted, Is.True);
+            Assert.That(
+                GetPrivateField<float>(brain, "investigationTimer"),
+                Is.EqualTo(0.01f).Within(0.0001f),
+                "Travel time must not consume the confirmed-empty search window.");
+
+            enemy.transform.position = player.transform.position;
+            InvokePrivate(brain, "UpdateInvestigation");
+
+            Assert.That(
+                GetPrivateField<bool>(
+                    brain,
+                    "reachedLastKnownPosition"),
+                Is.True);
+            Assert.That(
+                GetPrivateField<float>(brain, "investigationTimer"),
+                Is.GreaterThan(3f),
+                "The search countdown should begin only after reaching the exact last-seen point.");
+        }
+
+        [Test]
+        public void NavigationSteersAroundSolidSceneryInsteadOfStalling()
+        {
+            enemy = CreateEnemy(
+                new Vector3(500f, 0f, 500f));
+            obstruction = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            obstruction.transform.position =
+                new Vector3(500f, 0.72f, 501f);
+            obstruction.transform.localScale =
+                new Vector3(0.8f, 1.4f, 0.35f);
+            Physics.SyncTransforms();
+
+            Vector3 movement = (Vector3)
+                ResolvePrivateMethod(
+                        "ResolveObstacleAwareDirection")
+                    .Invoke(
+                        enemy.GetComponent<EnemyBrain>(),
+                        new object[] { Vector3.forward });
+
+            Assert.That(movement.z, Is.GreaterThan(0.15f));
+            Assert.That(
+                Mathf.Abs(movement.x),
+                Is.GreaterThan(0.45f),
+                "A blocked guard should choose a clear side path rather than walking indefinitely into scenery.");
+        }
+
+        [Test]
+        public void BridgeGeometryDoesNotPushNavigationOffTheDeck()
+        {
+            enemy = CreateEnemy(
+                new Vector3(500f, 0f, 500f));
+            obstruction = new GameObject("Road Bridge Test");
+            GameObject bridgeRail = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            bridgeRail.transform.SetParent(
+                obstruction.transform,
+                false);
+            bridgeRail.transform.position =
+                new Vector3(500f, 0.72f, 501f);
+            bridgeRail.transform.localScale =
+                new Vector3(0.8f, 1.4f, 0.35f);
+            Physics.SyncTransforms();
+
+            Vector3 movement = (Vector3)
+                ResolvePrivateMethod(
+                        "ResolveObstacleAwareDirection")
+                    .Invoke(
+                        enemy.GetComponent<EnemyBrain>(),
+                        new object[] { Vector3.forward });
+
+            Assert.That(
+                Vector3.Angle(movement, Vector3.forward),
+                Is.LessThan(0.01f),
+                "Decorative bridge collision must not make an AI dodge sideways into the river.");
         }
 
         [Test]
@@ -269,6 +498,31 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void OccludedDrawingArcherAdvancesTowardLastSeenCoverEdge()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            SetPrivateField(
+                brain,
+                "lastKnownPosition",
+                player.transform.position);
+
+            Vector2 intent = (Vector2)
+                ResolvePrivateMethod("ResolveOccludedBowMovement")
+                    .Invoke(brain, null);
+
+            Assert.That(intent.magnitude, Is.GreaterThan(0.7f));
+            Assert.That(
+                intent.y,
+                Is.GreaterThan(Mathf.Abs(intent.x) * 3f),
+                "An occluded archer should close on the last seen position instead of endlessly strafing in place.");
+        }
+
+        [Test]
         public void RaidArcherCannotCommitAPartialDraw()
         {
             enemy = CreateEnemy(Vector3.zero);
@@ -299,6 +553,162 @@ namespace WorldBuilder.Tests
                         "IsCommittedBowShotReady")
                     .Invoke(brain, null),
                 Is.True);
+        }
+
+        [Test]
+        public void SwordOnlyGuardChargesFullComboThenBacksOffBlocking()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 8f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            PlayerInputSource input =
+                enemy.AddComponent<PlayerInputSource>();
+            SetPrivateField(brain, "input", input);
+            brain.Configure(player.transform);
+            brain.ConfigureCampGuardLoadout(
+                EnemyBrain.WeaponLoadout.SwordOnly);
+
+            ResolvePrivateMethod("EnterSwordEngagement")
+                .Invoke(brain, null);
+            Assert.That(
+                GetPrivateField<object>(brain, "meleePhase").ToString(),
+                Is.EqualTo("Closing"),
+                "A newly alerted sword guard should charge instead of opening with a guard orbit.");
+
+            ResolvePrivateMethod("UpdateMeleeClosing").Invoke(
+                brain,
+                new object[] { Vector3.forward, 5f });
+            Assert.That(input.CurrentIntent.SprintHeld, Is.True);
+            Assert.That(input.CurrentIntent.BlockHeld, Is.False);
+            Assert.That(input.CurrentIntent.Move.y, Is.GreaterThan(0.9f));
+
+            ResolvePrivateMethod("UpdateMeleeClosing").Invoke(
+                brain,
+                new object[] { Vector3.forward, 0.8f });
+            Assert.That(
+                GetPrivateField<int>(brain, "comboPulsesRemaining"),
+                Is.EqualTo(3));
+
+            for (int strike = 0; strike < 3; strike++)
+            {
+                SetPrivateField(brain, "nextAttackPulse", 0f);
+                ResolvePrivateMethod("UpdateMeleeAttack").Invoke(
+                    brain,
+                    new object[] { Vector3.forward, 0.9f });
+                Assert.That(
+                    input.CurrentIntent.AttackPressed,
+                    Is.True,
+                    $"Sword combo strike {strike + 1} should be authorized.");
+                Assert.That(input.CurrentIntent.SprintHeld, Is.True);
+                Assert.That(input.CurrentIntent.Move.y, Is.GreaterThan(0.9f));
+            }
+
+            Assert.That(
+                GetPrivateField<object>(brain, "meleePhase").ToString(),
+                Is.EqualTo("Disengaging"));
+            ResolvePrivateMethod("UpdateMeleeDisengage").Invoke(
+                brain,
+                new object[] { Vector3.forward, 0.7f });
+            Assert.That(input.CurrentIntent.BlockHeld, Is.True);
+            Assert.That(input.CurrentIntent.SprintHeld, Is.False);
+            Assert.That(
+                input.CurrentIntent.Move.y,
+                Is.LessThan(-0.5f),
+                "The sword guard should make space behind its block after the combo.");
+        }
+
+        [Test]
+        public void OccludedRaidArcherKeepsCommittedShotReadyForFirstGlimpse()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            BowWeapon bow = CreateTestBow(enemy);
+            SetPrivateField(brain, "bowWeapon", bow);
+            SetPrivateField(brain, "drawingBow", true);
+            SetPrivateField(
+                brain,
+                "heldAimPoint",
+                player.transform.position + Vector3.up * 1.2f);
+            SetPrivateField(brain, "actionTimer", 0f);
+            SetPrivateField(bow, "drawHeldLastFrame", true);
+            SetPrivateField(bow, "arrowReady", true);
+            SetPrivateField(
+                bow,
+                "heldDuration",
+                bow.FullDrawDuration);
+
+            ResolvePrivateMethod("UpdateBowDraw").Invoke(
+                brain,
+                new object[] { false });
+
+            Assert.That(
+                GetPrivateField<bool>(brain, "drawingBow"),
+                Is.True,
+                "Cover must pause release without cancelling an engaged archer's shot.");
+            Assert.That(bow.IsDrawing, Is.True);
+            Assert.That(
+                brain.CurrentState,
+                Is.EqualTo(EnemyBrain.EnemyState.Windup));
+
+            ResolvePrivateMethod("UpdateBowDraw").Invoke(
+                brain,
+                new object[] { true });
+
+            Assert.That(
+                GetPrivateField<bool>(brain, "drawingBow"),
+                Is.False,
+                "A fully drawn archer should commit immediately when sight returns.");
+            Assert.That(
+                brain.CurrentState,
+                Is.EqualTo(EnemyBrain.EnemyState.Recovering));
+            bow.CommitPendingReleaseAtRenderedCamera();
+            Assert.That(
+                bow.FiredArrowCount,
+                Is.EqualTo(1),
+                "The first valid glimpse must produce a projectile, not only a state transition.");
+            Object.DestroyImmediate(
+                bow.LastFiredProjectile.gameObject);
+        }
+
+        [Test]
+        public void DamageDoesNotCancelAnEngagedArchersCommittedDraw()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            BowWeapon bow = CreateTestBow(enemy);
+            SetPrivateField(brain, "bowWeapon", bow);
+            SetPrivateField(brain, "alerted", true);
+            SetPrivateField(brain, "drawingBow", true);
+            SetPrivateField(brain, "actionTimer", 0.3f);
+            SetPrivateField(bow, "drawHeldLastFrame", true);
+            SetPrivateField(bow, "heldDuration", 0.72f);
+
+            enemy.GetComponent<Health>().ReceiveDamage(
+                new DamageRequest(
+                    player,
+                    2f,
+                    enemy.transform.position,
+                    Vector3.back,
+                    "prototype-bow"));
+
+            Assert.That(
+                GetPrivateField<bool>(brain, "drawingBow"),
+                Is.True,
+                "Taking a survivable hit must not disarm an engaged archer.");
+            Assert.That(bow.IsDrawing, Is.True);
+            Assert.That(
+                GetPrivateField<float>(brain, "actionTimer"),
+                Is.EqualTo(0.3f).Within(0.001f));
         }
 
         [Test]

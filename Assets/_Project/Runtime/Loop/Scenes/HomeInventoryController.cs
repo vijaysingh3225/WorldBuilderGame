@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Presentation;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
@@ -11,31 +12,45 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     [DisallowMultipleComponent]
     public sealed class HomeInventoryController : MonoBehaviour
     {
+        public const float InventoryHorizontalAlignmentOffset = 72f;
         private const int PackColumns = 4;
         private const int PackRows = 6;
-        private const int ChestColumns = 10;
-        private const int ChestRows = 5;
+        private const int ChestColumns = 5;
+        private const int ChestRows = 10;
+        private const float StorageCellGap = 5f;
 
         [SerializeField] private HomeBaseController homeBase;
         [SerializeField] private PlayerInputSource playerInput;
         [SerializeField] private WeaponGridSandboxToolkit gridToolkit;
+        [SerializeField] private InventoryPreviewRenderer previewRenderer;
 
         private bool isOpen;
         private bool chestOpen;
-        private string activeChestId =
-            PlayerProfile.DefaultChestId;
+        private string activeChestId = PlayerProfile.DefaultChestId;
         private string activeChestName = "CHEST 1";
         private float previousTimeScale = 1f;
         private CursorLockMode previousCursorLock;
         private bool previousCursorVisible;
         private bool previousInputCapture;
+        private Vector2 lootScrollPosition;
         private string statusMessage =
-            "Click an item to move it between the pack and chest.";
+            "The equipped backpack owns this 4 x 6 inventory.";
         private GUIStyle cellStyle;
         private GUIStyle emptyCellStyle;
+        private GUIStyle equipmentSlotStyle;
+        private GUIStyle equippedSlotStyle;
+        private GUIStyle weaponCardStyle;
+        private GUIStyle centeredTitleStyle;
+        private GUIStyle slotLabelStyle;
 
         public bool IsOpen => isOpen;
         public bool ChestOpen => chestOpen;
+
+        public void OpenInventory()
+        {
+            chestOpen = false;
+            Open();
+        }
 
         public void Configure(
             HomeBaseController controller,
@@ -49,23 +64,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         public void OpenChest()
         {
-            OpenChest(
-                PlayerProfile.DefaultChestId,
-                "CHEST 1");
+            OpenChest(PlayerProfile.DefaultChestId, "CHEST 1");
         }
 
-        public void OpenChest(
-            string chestId,
-            string chestName)
+        public void OpenChest(string chestId, string chestName)
         {
-            activeChestId =
-                string.IsNullOrWhiteSpace(chestId)
-                    ? PlayerProfile.DefaultChestId
-                    : chestId.Trim();
-            activeChestName =
-                string.IsNullOrWhiteSpace(chestName)
-                    ? "CHEST"
-                    : chestName.Trim().ToUpperInvariant();
+            activeChestId = string.IsNullOrWhiteSpace(chestId)
+                ? PlayerProfile.DefaultChestId
+                : chestId.Trim();
+            activeChestName = string.IsNullOrWhiteSpace(chestName)
+                ? "CHEST"
+                : chestName.Trim().ToUpperInvariant();
+            lootScrollPosition = Vector2.zero;
             chestOpen = true;
             Open();
         }
@@ -77,19 +87,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return;
             }
-
-            if (isOpen &&
-                keyboard.escapeKey.wasPressedThisFrame)
+            if (gridToolkit != null && gridToolkit.IsOpen)
+            {
+                if (keyboard.tabKey.wasPressedThisFrame ||
+                    keyboard.iKey.wasPressedThisFrame)
+                {
+                    Close();
+                }
+                return;
+            }
+            if (isOpen && keyboard.escapeKey.wasPressedThisFrame)
             {
                 Close();
                 return;
             }
-
-            if (gridToolkit != null && gridToolkit.IsOpen)
-            {
-                return;
-            }
-
             if (keyboard.tabKey.wasPressedThisFrame ||
                 keyboard.iKey.wasPressedThisFrame)
             {
@@ -121,126 +132,332 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             EnsureStyles();
-            LoopSceneGui.DrawDimmer(0.68f);
-            float width = Mathf.Min(
-                chestOpen ? 1120f : 620f,
-                Screen.width - 28f);
-            float height = Mathf.Min(700f, Screen.height - 28f);
-            Rect panel = new Rect(
-                (Screen.width - width) * 0.5f,
-                (Screen.height - height) * 0.5f,
-                width,
-                height);
-            LoopSceneGui.DrawPanel(
-                panel,
-                new Color(0.38f, 0.60f, 0.42f));
+            bool childGridOpen =
+                gridToolkit != null && gridToolkit.IsOpen;
+            bool previousEnabled = GUI.enabled;
+            GUI.enabled = !childGridOpen;
+            DrawInventoryScreen(
+                CalculatePanelRect(Screen.width, Screen.height));
+            GUI.enabled = previousEnabled;
+        }
 
-            float x = panel.x + 26f;
-            float y = panel.y + 20f;
-            GUI.Label(
-                new Rect(x, y, panel.width - 100f, 36f),
-                chestOpen ? "BASE STORAGE" : "PLAYER INVENTORY",
-                LoopSceneGui.Title);
+        private void DrawInventoryScreen(Rect panel)
+        {
+            LoopSceneGui.DrawPanel(panel, new Color(0.43f, 0.52f, 0.48f));
+
+            float sectionSpacing =
+                CalculateInventorySectionSpacing(panel.width);
+            float x =
+                panel.x +
+                sectionSpacing +
+                InventoryHorizontalAlignmentOffset;
+            float y = panel.y + sectionSpacing;
             GUI.Label(
                 new Rect(
                     x,
-                    y + 36f,
-                    panel.width - 100f,
-                    24f),
-                "Tab / I / Esc closes",
+                    y,
+                    panel.width - sectionSpacing * 2f,
+                    34f),
+                chestOpen ? "INVENTORY  /  BASE STORAGE" : "INVENTORY",
+                centeredTitleStyle);
+            GUI.Label(
+                new Rect(
+                    x,
+                    y + 30f,
+                    panel.width - sectionSpacing * 2f - 42f,
+                    20f),
+                "Drag preview to rotate  |  Tab / I / Esc closes",
                 LoopSceneGui.Muted);
             if (GUI.Button(
-                new Rect(panel.xMax - 54f, y, 28f, 28f),
+                new Rect(
+                    panel.xMax - sectionSpacing - 26f,
+                    y,
+                    26f,
+                    26f),
                 "X"))
             {
                 Close();
                 return;
             }
 
-            PlayerProfile profile =
-                homeBase != null ? homeBase.Profile : null;
+            PlayerProfile profile = ResolveProfile();
             if (profile == null)
             {
                 GUI.Label(
-                    new Rect(x, y + 90f, panel.width - 52f, 42f),
+                    new Rect(x, y + 90f, panel.width - 48f, 42f),
                     "Profile data is not ready.",
                     LoopSceneGui.Body);
                 return;
             }
 
-            float gridTop = y + 86f;
-            float packWidth = chestOpen ? 350f : panel.width - 52f;
-            Rect packArea = new Rect(
+            float contentTop = y + 52f;
+            float contentBottom = panel.yMax - sectionSpacing;
+            Rect contentArea = new Rect(
                 x,
-                gridTop,
-                packWidth,
-                panel.height - 180f);
+                contentTop,
+                panel.width - sectionSpacing * 2f,
+                contentBottom - contentTop);
+            Rect characterArea = CalculateInventoryColumn(
+                contentArea,
+                0,
+                sectionSpacing);
+            Rect inventoryArea = CalculateInventoryColumn(
+                contentArea,
+                1,
+                sectionSpacing);
+            Rect lootArea = CalculateInventoryColumn(
+                contentArea,
+                2,
+                sectionSpacing);
+            float sharedCellSize = CalculateSharedStorageCellSize(
+                inventoryArea.width,
+                inventoryArea.height);
+            DrawCharacterLoadout(characterArea);
+
+            IReadOnlyList<StorageEntry> packEntries = BuildPackEntries(profile);
             DrawContainer(
-                packArea,
-                "PACK  /  4 × 6",
-                BuildPackEntries(profile),
+                inventoryArea,
+                "EQUIPPED BACKPACK  /  4 x 6",
+                packEntries,
                 PackColumns,
                 PackRows,
+                sharedCellSize,
+                false,
                 entry =>
                 {
-                    if (chestOpen)
+                    if (!chestOpen)
                     {
                         statusMessage =
-                            profile.MoveToChest(
-                                entry.EntryId,
-                                activeChestId)
-                                ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to {activeChestName.ToLowerInvariant()}."
-                                : $"{activeChestName} is full.";
-                        Persist();
+                            "Item rearranging will use spatial shapes in a later pass.";
+                        return;
                     }
+                    statusMessage = profile.MoveToChest(
+                        entry.EntryId,
+                        activeChestId)
+                        ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to {activeChestName.ToLowerInvariant()}."
+                        : $"{activeChestName} is full.";
+                    Persist();
                 });
 
             if (chestOpen)
             {
-                Rect chestArea = new Rect(
-                    packArea.xMax + 22f,
-                    gridTop,
-                    panel.xMax - packArea.xMax - 48f,
-                    packArea.height);
                 DrawContainer(
-                    chestArea,
-                    $"{activeChestName}  /  5 × 10",
-                    BuildChestEntries(
-                        profile,
-                        activeChestId),
+                    lootArea,
+                    $"{activeChestName}  /  5 x 10",
+                    BuildChestEntries(profile, activeChestId),
                     ChestColumns,
                     ChestRows,
+                    sharedCellSize,
+                    true,
                     entry =>
                     {
                         statusMessage =
                             profile.TryMoveToInventory(entry.EntryId)
-                                ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to pack."
-                                : "The 4 × 6 pack is full.";
+                                ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to backpack."
+                                : "The 4 x 6 backpack is full.";
                         Persist();
                     });
+            }
+            else
+            {
+                DrawInventorySection(lootArea);
             }
 
             GUI.Label(
                 new Rect(
                     x,
-                    panel.yMax - 66f,
-                    panel.width - 200f,
-                    34f),
+                    panel.yMax - sectionSpacing + 8f,
+                    panel.width - sectionSpacing * 2f,
+                    20f),
                 statusMessage,
                 LoopSceneGui.Muted);
-            if (gridToolkit != null &&
-                GUI.Button(
-                    new Rect(
-                        panel.xMax - 190f,
-                        panel.yMax - 72f,
-                        164f,
-                        42f),
-                    "WEAPON GRIDS",
-                    LoopSceneGui.Button))
+        }
+
+        public static Rect CalculatePanelRect(float screenWidth, float screenHeight)
+        {
+            return new Rect(
+                0f,
+                0f,
+                Mathf.Max(0f, screenWidth),
+                Mathf.Max(0f, screenHeight));
+        }
+
+        public static Rect CalculateInventoryColumn(
+            Rect contentArea,
+            int columnIndex,
+            float sectionSpacing)
+        {
+            int index = Mathf.Clamp(columnIndex, 0, 2);
+            float columnGap = sectionSpacing * 0.25f;
+            float width = Mathf.Max(
+                0f,
+                (contentArea.width - sectionSpacing * 2f) / 3f);
+            float centerX =
+                contentArea.center.x -
+                width * 0.5f;
+            float x = index switch
             {
-                Close();
-                gridToolkit.Open();
+                0 => centerX - columnGap - width,
+                1 => centerX,
+                _ => centerX + width + columnGap
+            };
+            return new Rect(
+                x,
+                contentArea.y,
+                width,
+                contentArea.height);
+        }
+
+        public static float CalculateInventorySectionSpacing(
+            float screenWidth)
+        {
+            return Mathf.Clamp(screenWidth * 0.06f, 48f, 72f);
+        }
+
+        public static float CalculateSharedStorageCellSize(
+            float columnWidth,
+            float columnHeight)
+        {
+            const float horizontalPadding = 32f;
+            const float verticalPadding = 56f;
+            const float scrollBarAllowance = 14f;
+            float widthLimit =
+                (columnWidth - horizontalPadding - scrollBarAllowance -
+                    StorageCellGap * (ChestColumns - 1)) /
+                ChestColumns;
+            float heightLimit =
+                (columnHeight - verticalPadding -
+                    StorageCellGap * (PackRows - 1)) /
+                PackRows;
+            return Mathf.Max(
+                18f,
+                Mathf.Floor(Mathf.Min(widthLimit, heightLimit)));
+        }
+
+        private void DrawCharacterLoadout(Rect area)
+        {
+            DrawInventorySection(area);
+            GUI.Label(
+                new Rect(area.x + 16f, area.y + 10f, area.width - 32f, 24f),
+                "CHARACTER AND EQUIPMENT",
+                LoopSceneGui.Heading);
+
+            float weaponHeight = Mathf.Clamp(area.height * 0.19f, 82f, 104f);
+            Rect modelArea = new Rect(
+                area.x + 74f,
+                area.y + 32f,
+                area.width - 148f,
+                area.height - weaponHeight - 48f);
+            if (previewRenderer != null &&
+                previewRenderer.CharacterTexture != null)
+            {
+                GUI.DrawTexture(
+                    modelArea,
+                    previewRenderer.CharacterTexture,
+                    ScaleMode.ScaleToFit,
+                    true);
             }
+            else
+            {
+                GUI.Box(modelArea, "PLAYER PREVIEW", emptyCellStyle);
+            }
+            HandlePreviewRotation(
+                modelArea,
+                delta => previewRenderer?.RotateCharacter(delta));
+
+            float slotSize = Mathf.Clamp(area.width * 0.145f, 48f, 58f);
+            float left = area.x + 9f;
+            float right = area.xMax - slotSize - 9f;
+            float top = area.y + 48f;
+            float stride = slotSize + 24f;
+            DrawEquipmentSlot(new Rect(left, top, slotSize, slotSize), "HEAD", false);
+            DrawEquipmentSlot(new Rect(left, top + stride, slotSize, slotSize), "CHEST", false);
+            DrawEquipmentSlot(new Rect(left, top + stride * 2f, slotSize, slotSize), "HANDS", false);
+            DrawEquipmentSlot(new Rect(right, top, slotSize, slotSize), "LEGS", false);
+            DrawEquipmentSlot(new Rect(right, top + stride, slotSize, slotSize), "FEET", false);
+            DrawEquipmentSlot(new Rect(right, top + stride * 2f, slotSize, slotSize), "BACKPACK", true);
+
+            Rect weaponRow = new Rect(
+                area.x + 9f,
+                area.yMax - weaponHeight - 8f,
+                area.width - 18f,
+                weaponHeight);
+            float cardWidth = (weaponRow.width - 10f) * 0.5f;
+            DrawWeaponCard(
+                new Rect(weaponRow.x, weaponRow.y, cardWidth, weaponRow.height),
+                0,
+                "PRIMARY  /  1",
+                previewRenderer != null ? previewRenderer.PrimaryThumbnail : null);
+            DrawWeaponCard(
+                new Rect(weaponRow.x + cardWidth + 10f, weaponRow.y, cardWidth, weaponRow.height),
+                1,
+                "SECONDARY  /  2",
+                previewRenderer != null ? previewRenderer.SecondaryThumbnail : null);
+        }
+
+        private void DrawEquipmentSlot(Rect rect, string label, bool equipped)
+        {
+            GUI.Box(
+                rect,
+                equipped ? "PACK\n4 x 6" : string.Empty,
+                equipped ? equippedSlotStyle : equipmentSlotStyle);
+            GUI.Label(
+                new Rect(rect.x, rect.y - 18f, rect.width, 17f),
+                label,
+                slotLabelStyle);
+        }
+
+        private void DrawWeaponCard(
+            Rect rect,
+            int weaponIndex,
+            string label,
+            Texture thumbnail)
+        {
+            Color previousColor = GUI.color;
+            GUI.color = new Color(0.18f, 0.19f, 0.20f, 1f);
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = new Color(0.40f, 0.42f, 0.43f, 1f);
+            const float border = 2f;
+            GUI.DrawTexture(
+                new Rect(rect.x, rect.y, rect.width, border),
+                Texture2D.whiteTexture);
+            GUI.DrawTexture(
+                new Rect(rect.x, rect.yMax - border, rect.width, border),
+                Texture2D.whiteTexture);
+            GUI.DrawTexture(
+                new Rect(rect.x, rect.y, border, rect.height),
+                Texture2D.whiteTexture);
+            GUI.DrawTexture(
+                new Rect(rect.xMax - border, rect.y, border, rect.height),
+                Texture2D.whiteTexture);
+            GUI.color = previousColor;
+
+            if (GUI.Button(rect, GUIContent.none, weaponCardStyle))
+            {
+                OpenWeaponGrid(weaponIndex);
+                return;
+            }
+            GUI.Label(
+                new Rect(rect.x + 10f, rect.y + 6f, rect.width - 20f, 20f),
+                label,
+                LoopSceneGui.Muted);
+            if (thumbnail != null)
+            {
+                GUI.DrawTexture(
+                    new Rect(rect.x + 8f, rect.y + 25f, rect.width - 16f, rect.height - 31f),
+                    thumbnail,
+                    ScaleMode.ScaleToFit,
+                    true);
+            }
+        }
+
+        private void OpenWeaponGrid(int weaponIndex)
+        {
+            if (gridToolkit == null)
+            {
+                return;
+            }
+            gridToolkit.OpenWeapon(weaponIndex);
         }
 
         private void DrawContainer(
@@ -249,56 +466,113 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             IReadOnlyList<StorageEntry> entries,
             int columns,
             int rows,
+            float cellSize,
+            bool scrollable,
             Action<StorageEntry> onItemPressed)
         {
+            DrawInventorySection(area);
             GUI.Label(
-                new Rect(area.x, area.y, area.width, 26f),
+                new Rect(area.x + 16f, area.y + 11f, area.width - 32f, 26f),
                 heading,
                 LoopSceneGui.Heading);
-            float gap = 5f;
-            float cellSize = Mathf.Min(
-                (area.width - gap * (columns - 1)) / columns,
-                (area.height - 42f - gap * (rows - 1)) / rows);
             float boardWidth =
-                columns * cellSize + (columns - 1) * gap;
-            float startX = area.x + (area.width - boardWidth) * 0.5f;
-            float startY = area.y + 36f;
+                columns * cellSize +
+                (columns - 1) * StorageCellGap;
+            float boardHeight =
+                rows * cellSize +
+                (rows - 1) * StorageCellGap;
+            Rect viewport = new Rect(
+                area.x + 16f,
+                area.y + 43f,
+                area.width - 32f,
+                area.height - 56f);
+            float startX;
+            float startY;
+            if (scrollable)
+            {
+                bool needsVerticalScroll =
+                    boardHeight > viewport.height;
+                float viewWidth = Mathf.Max(
+                    boardWidth,
+                    viewport.width -
+                        (needsVerticalScroll ? 14f : 0f));
+                Rect scrollContent = new Rect(
+                    0f,
+                    0f,
+                    viewWidth,
+                    Mathf.Max(boardHeight, viewport.height));
+                lootScrollPosition = GUI.BeginScrollView(
+                    viewport,
+                    lootScrollPosition,
+                    scrollContent,
+                    false,
+                    needsVerticalScroll);
+                startX = (viewWidth - boardWidth) * 0.5f;
+                startY = 0f;
+            }
+            else
+            {
+                startX =
+                    viewport.x +
+                    (viewport.width - boardWidth) * 0.5f;
+                startY = viewport.y;
+            }
             int capacity = columns * rows;
             for (int index = 0; index < capacity; index++)
             {
                 int column = index % columns;
                 int row = index / columns;
                 Rect cell = new Rect(
-                    startX + column * (cellSize + gap),
-                    startY + row * (cellSize + gap),
+                    startX + column * (cellSize + StorageCellGap),
+                    startY + row * (cellSize + StorageCellGap),
                     cellSize,
                     cellSize);
-                StorageEntry entry =
-                    index < entries.Count ? entries[index] : null;
+                StorageEntry entry = index < entries.Count ? entries[index] : null;
                 if (entry == null)
                 {
                     GUI.Box(cell, GUIContent.none, emptyCellStyle);
                     continue;
                 }
-
-                string label =
-                    GetInitials(entry.DefinitionId) +
-                    (entry.Quantity > 1 ? $"\n×{entry.Quantity}" : "");
+                string label = GetInitials(entry.DefinitionId) +
+                    (entry.Quantity > 1 ? $"\nx{entry.Quantity}" : "");
                 if (GUI.Button(cell, label, cellStyle))
                 {
                     onItemPressed?.Invoke(entry);
                 }
             }
+            if (scrollable)
+            {
+                GUI.EndScrollView();
+            }
         }
 
-        private static List<StorageEntry> BuildPackEntries(
-            PlayerProfile profile)
+        private static void DrawInventorySection(Rect area)
         {
-            var entries = new List<StorageEntry>(
-                profile.InventoryEntryIds.Count);
-            for (int index = 0;
-                 index < profile.InventoryEntryIds.Count;
-                 index++)
+            Color previousColor = GUI.color;
+            GUI.color = new Color(0.24f, 0.25f, 0.27f, 0.98f);
+            GUI.DrawTexture(area, Texture2D.whiteTexture);
+
+            GUI.color = new Color(0.56f, 0.59f, 0.61f, 1f);
+            const float border = 2f;
+            GUI.DrawTexture(
+                new Rect(area.x, area.y, area.width, border),
+                Texture2D.whiteTexture);
+            GUI.DrawTexture(
+                new Rect(area.x, area.yMax - border, area.width, border),
+                Texture2D.whiteTexture);
+            GUI.DrawTexture(
+                new Rect(area.x, area.y, border, area.height),
+                Texture2D.whiteTexture);
+            GUI.DrawTexture(
+                new Rect(area.xMax - border, area.y, border, area.height),
+                Texture2D.whiteTexture);
+            GUI.color = previousColor;
+        }
+
+        private static List<StorageEntry> BuildPackEntries(PlayerProfile profile)
+        {
+            var entries = new List<StorageEntry>(profile.InventoryEntryIds.Count);
+            for (int index = 0; index < profile.InventoryEntryIds.Count; index++)
             {
                 StorageEntry entry = profile.FindStorageEntry(
                     profile.InventoryEntryIds[index]);
@@ -307,7 +581,6 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     entries.Add(entry);
                 }
             }
-
             return entries;
         }
 
@@ -316,22 +589,28 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             string chestId)
         {
             var entries = new List<StorageEntry>();
-            IReadOnlyList<string> entryIds =
-                profile.GetChestEntryIds(chestId);
-            for (int index = 0;
-                 index < entryIds.Count;
-                 index++)
+            IReadOnlyList<string> entryIds = profile.GetChestEntryIds(chestId);
+            for (int index = 0; index < entryIds.Count; index++)
             {
-                StorageEntry entry =
-                    profile.FindStorageEntry(
-                        entryIds[index]);
+                StorageEntry entry = profile.FindStorageEntry(entryIds[index]);
                 if (entry != null)
                 {
                     entries.Add(entry);
                 }
             }
-
             return entries;
+        }
+
+        private PlayerProfile ResolveProfile()
+        {
+            if (homeBase != null && homeBase.Profile != null)
+            {
+                return homeBase.Profile;
+            }
+            GameplayLoopBootstrap bootstrap = GameplaySceneRuntime.ResolveBootstrap();
+            return bootstrap != null && bootstrap.Session != null
+                ? bootstrap.Session.ActiveProfile
+                : null;
         }
 
         private void Open()
@@ -340,17 +619,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return;
             }
-
             previousTimeScale = Time.timeScale;
             previousCursorLock = Cursor.lockState;
             previousCursorVisible = Cursor.visible;
             if (playerInput != null)
             {
-                previousInputCapture =
-                    playerInput.UserInterfaceCaptureActive;
+                previousInputCapture = playerInput.UserInterfaceCaptureActive;
                 playerInput.SetUserInterfaceCapture(true);
             }
-
+            previewRenderer ??=
+                GetComponent<InventoryPreviewRenderer>() ??
+                gameObject.AddComponent<InventoryPreviewRenderer>();
+            previewRenderer.Configure(
+                playerInput != null ? playerInput.transform : null);
+            previewRenderer.ResetCharacterView();
             Time.timeScale = 0f;
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
@@ -363,17 +645,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return;
             }
-
+            if (gridToolkit != null && gridToolkit.IsOpen)
+            {
+                gridToolkit.Close();
+            }
             Persist();
             Time.timeScale = previousTimeScale;
             Cursor.lockState = previousCursorLock;
             Cursor.visible = previousCursorVisible;
             if (playerInput != null)
             {
-                playerInput.SetUserInterfaceCapture(
-                    previousInputCapture);
+                playerInput.SetUserInterfaceCapture(previousInputCapture);
             }
-
             chestOpen = false;
             activeChestId = PlayerProfile.DefaultChestId;
             activeChestName = "CHEST 1";
@@ -384,41 +667,84 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             try
             {
-                homeBase?.SaveProfile();
+                if (homeBase != null)
+                {
+                    homeBase.SaveProfile();
+                }
+                else
+                {
+                    GameplayLoopBootstrap bootstrap =
+                        GameplaySceneRuntime.ResolveBootstrap();
+                    bootstrap.Session?.SaveProfile();
+                }
             }
             catch (Exception exception)
             {
-                statusMessage =
-                    $"Could not save inventory: {exception.Message}";
+                statusMessage = $"Could not save inventory: {exception.Message}";
             }
         }
 
         private void EnsureStyles()
         {
+            GameTypography.ApplyToCurrentSkin();
             cellStyle ??= new GUIStyle(GUI.skin.button)
             {
+                font = GameTypography.UiFont,
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 12,
-                fontStyle = FontStyle.Bold,
+                fontStyle = FontStyle.Normal,
                 wordWrap = true,
-                normal =
-                {
-                    textColor = new Color(0.92f, 0.91f, 0.83f)
-                }
+                normal = { textColor = new Color(0.92f, 0.91f, 0.83f) }
             };
             emptyCellStyle ??= new GUIStyle(GUI.skin.box)
             {
-                normal =
-                {
-                    background = Texture2D.grayTexture
-                }
+                normal = { background = Texture2D.grayTexture }
             };
+            equipmentSlotStyle ??= new GUIStyle(GUI.skin.box)
+            {
+                font = GameTypography.UiFont,
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 11,
+                normal = { textColor = new Color(0.47f, 0.52f, 0.54f) }
+            };
+            equippedSlotStyle ??= new GUIStyle(equipmentSlotStyle)
+            {
+                fontStyle = FontStyle.Normal,
+                normal = { textColor = new Color(0.92f, 0.79f, 0.48f) }
+            };
+            weaponCardStyle ??= new GUIStyle()
+            {
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Color.clear }
+            };
+            centeredTitleStyle ??= new GUIStyle(LoopSceneGui.Title)
+            {
+                alignment = TextAnchor.UpperCenter,
+                normal = { textColor = new Color(1f, 0.91f, 0.68f, 1f) }
+            };
+            slotLabelStyle ??= new GUIStyle(LoopSceneGui.Muted)
+            {
+                alignment = TextAnchor.LowerCenter,
+                fontSize = 10,
+                normal = { textColor = Color.white }
+            };
+        }
+
+        private static void HandlePreviewRotation(Rect area, Action<float> rotate)
+        {
+            Event current = Event.current;
+            if (current.type == EventType.MouseDrag &&
+                current.button == 0 &&
+                area.Contains(current.mousePosition))
+            {
+                rotate?.Invoke(-current.delta.x * 0.8f);
+                current.Use();
+            }
         }
 
         private static string GetInitials(string value)
         {
-            string friendly =
-                GameplaySceneRuntime.FriendlyId(value);
+            string friendly = GameplaySceneRuntime.FriendlyId(value);
             string[] words = friendly.Split(
                 new[] { ' ' },
                 StringSplitOptions.RemoveEmptyEntries);
@@ -426,14 +752,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return "?";
             }
-
             return words.Length == 1
-                ? words[0].Substring(
-                    0,
-                    Mathf.Min(2, words[0].Length)).ToUpperInvariant()
-                : string.Concat(
-                    words[0][0],
-                    words[words.Length - 1][0]).ToUpperInvariant();
+                ? words[0].Substring(0, Mathf.Min(2, words[0].Length))
+                    .ToUpperInvariant()
+                : string.Concat(words[0][0], words[words.Length - 1][0])
+                    .ToUpperInvariant();
         }
     }
 }

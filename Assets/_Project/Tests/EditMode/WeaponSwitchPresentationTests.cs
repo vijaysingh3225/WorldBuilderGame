@@ -272,6 +272,96 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void SwordRunIntensityLeavesWalkUntouchedAndReachesFullSprintPose()
+        {
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    CalculateSwordRunIntensity(0f),
+                Is.EqualTo(0f).Within(0.001f));
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    CalculateSwordRunIntensity(
+                        AimStanceLocomotionPresenter.
+                            SwordRunIntensityStart),
+                Is.EqualTo(0f).Within(0.001f));
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    CalculateSwordRunIntensity(1f),
+                Is.EqualTo(1f).Within(0.001f));
+        }
+
+        [Test]
+        public void SwordRunBrandishDirectionPointsMostlyForwardAndSlightlyRight()
+        {
+            Vector3 direction =
+                AimStanceLocomotionPresenter.
+                    CalculateSwordRunBrandishDirection(
+                        Vector3.right,
+                        Vector3.up,
+                        Vector3.forward);
+
+            Assert.That(
+                Vector3.Dot(direction, Vector3.forward),
+                Is.GreaterThan(0.9f));
+            Assert.That(direction.y, Is.GreaterThan(0f));
+            Assert.That(direction.x, Is.GreaterThan(0.25f));
+            Assert.That(
+                Vector3.Dot(direction, Vector3.forward),
+                Is.GreaterThan(direction.x));
+        }
+
+        [Test]
+        public void SwordAttackHandoffsReserveVisibleBlendTime()
+        {
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    AttackEntryBlendDuration,
+                Is.GreaterThanOrEqualTo(0.08f));
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    MinimumAttackTransitionDuration,
+                Is.GreaterThanOrEqualTo(0.07f));
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    MinimumAttackReturnDuration,
+                Is.GreaterThanOrEqualTo(0.2f));
+            Assert.That(
+                HumanoidAnimatorPresenter.
+                    MinimumLocomotionDampTime,
+                Is.GreaterThanOrEqualTo(0.15f));
+        }
+
+        [Test]
+        public void RunningSwordRecoveryHandsDirectlyToLocomotionPose()
+        {
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    CalculateRunningReturnProgress(
+                        ShortSwordAttackPresenter.
+                            RunningRecoveryHandoffStart,
+                        true),
+                Is.EqualTo(0f).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    CalculateRunningReturnProgress(
+                        0.75f,
+                        true),
+                Is.InRange(0.45f, 0.55f));
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    CalculateRunningReturnProgress(
+                        1f,
+                        true),
+                Is.EqualTo(1f).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.
+                    CalculateRunningReturnProgress(
+                        1f,
+                        false),
+                Is.EqualTo(1f).Within(0.001f));
+        }
+
+        [Test]
         public void FullBowFingerLockRestoresCapturedGrip()
         {
             GameObject fingerObject = new GameObject("Bow Finger");

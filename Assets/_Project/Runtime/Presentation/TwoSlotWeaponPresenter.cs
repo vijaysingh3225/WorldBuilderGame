@@ -164,6 +164,8 @@ namespace WorldBuilder.Gameplay.Presentation
         public event Action<int> ActiveSlotChanged;
 
         public int ActiveSlot => activeSlot;
+        public Transform PrimaryWeaponRoot => swordRoot;
+        public Transform SecondaryWeaponRoot => bowRoot;
         public bool IsTransitioning => transitioning;
         public bool SwordIsOnBack =>
             !transitioning &&
@@ -179,6 +181,9 @@ namespace WorldBuilder.Gameplay.Presentation
         public bool SwordIsVisible =>
             swordRoot != null &&
             swordRoot.gameObject.activeSelf;
+        public bool BowIsVisible =>
+            bowRoot != null &&
+            bowRoot.gameObject.activeSelf;
         public Vector3 PresentedDrawPalmDirection =>
             hasRightHandAnatomicalFrame && rightHand != null
                 ? rightHand.TransformDirection(
@@ -338,8 +343,49 @@ namespace WorldBuilder.Gameplay.Presentation
                 swordRoot.gameObject.SetActive(false);
             }
 
+            if (bowRoot != null)
+            {
+                bowRoot.gameObject.SetActive(true);
+            }
+
             EquipBow();
             bowPoseWeight = 1f;
+            ActiveSlotChanged?.Invoke(activeSlot);
+        }
+
+        public void ConfigureSwordOnlyLoadout()
+        {
+            ResolveRig();
+            if (carryParent == null)
+            {
+                CaptureCarryTransform();
+            }
+            transitioning = false;
+            transitionPhase = TransitionPhase.None;
+            transitionProgress = 1f;
+            targetSlot = PrimarySlot;
+            activeSlot = PrimarySlot;
+            StowBow();
+            bowPoseWeight = 0f;
+            bowWeapon?.SetWeaponEquipped(false);
+            if (bowRoot != null)
+            {
+                bowRoot.gameObject.SetActive(false);
+            }
+            if (swordRoot != null)
+            {
+                swordRoot.SetParent(
+                    carryParent != null
+                        ? carryParent
+                        : rightHand,
+                    false);
+                swordRoot.localPosition = carryLocalPosition;
+                swordRoot.localRotation = carryLocalRotation;
+                swordRoot.localScale = carryLocalScale;
+                swordRoot.gameObject.SetActive(true);
+            }
+            SetSwordReadyWeight(1f);
+            SetSwordAvailability(true);
             ActiveSlotChanged?.Invoke(activeSlot);
         }
 

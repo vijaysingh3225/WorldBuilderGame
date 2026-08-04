@@ -3,6 +3,95 @@ using UnityEngine;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
+    /// <summary>
+    /// Supplies one clean, dynamically rasterized typeface to player-facing IMGUI.
+    /// The ordered fallbacks keep the same classical serif character across desktop
+    /// platforms without shipping a platform font inside the game.
+    /// </summary>
+    public static class GameTypography
+    {
+        private const int RasterizationSize = 24;
+
+        private static readonly string[] PreferredFontNames =
+        {
+            "Georgia",
+            "Palatino Linotype",
+            "Book Antiqua",
+            "Times New Roman",
+            "Noto Serif",
+            "Liberation Serif"
+        };
+
+        private static Font uiFont;
+
+        public static Font UiFont
+        {
+            get
+            {
+                if (uiFont == null)
+                {
+                    uiFont = CreateUiFont();
+                }
+
+                return uiFont;
+            }
+        }
+
+        public static void ApplyToCurrentSkin()
+        {
+            if (GUI.skin != null)
+            {
+                GUI.skin.font = UiFont;
+            }
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetCachedFont()
+        {
+            Font.textureRebuilt -= HandleFontTextureRebuilt;
+            uiFont = null;
+        }
+
+        private static Font CreateUiFont()
+        {
+            Font font = Font.CreateDynamicFontFromOSFont(
+                PreferredFontNames,
+                RasterizationSize);
+            if (font != null)
+            {
+                font.hideFlags = HideFlags.HideAndDontSave;
+                ConfigureFontTexture(font);
+                Font.textureRebuilt -= HandleFontTextureRebuilt;
+                Font.textureRebuilt += HandleFontTextureRebuilt;
+                return font;
+            }
+
+            return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        }
+
+        private static void HandleFontTextureRebuilt(Font rebuiltFont)
+        {
+            if (rebuiltFont == uiFont)
+            {
+                ConfigureFontTexture(rebuiltFont);
+            }
+        }
+
+        private static void ConfigureFontTexture(Font font)
+        {
+            Texture texture = font != null && font.material != null
+                ? font.material.mainTexture
+                : null;
+            if (texture == null)
+            {
+                return;
+            }
+
+            texture.filterMode = FilterMode.Point;
+            texture.anisoLevel = 0;
+        }
+    }
+
     [DisallowMultipleComponent]
     public sealed class FloatingDamageNumberOverlay : MonoBehaviour
     {
@@ -130,6 +219,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void EnsureStyles()
         {
+            GameTypography.ApplyToCurrentSkin();
             if (numberStyle != null)
             {
                 return;
@@ -137,8 +227,9 @@ namespace WorldBuilder.Gameplay.Presentation
 
             numberStyle = new GUIStyle(GUI.skin.label)
             {
+                font = GameTypography.UiFont,
                 alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
+                fontStyle = FontStyle.Normal,
                 clipping = TextClipping.Overflow
             };
             shadowStyle = new GUIStyle(numberStyle);

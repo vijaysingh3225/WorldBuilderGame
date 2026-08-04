@@ -168,12 +168,6 @@ namespace WorldBuilder.Gameplay.Combat
                             : FullDrawLimbDamage / 100f;
                 amount *= regionMultiplier;
             }
-            else if (request.SourceId ==
-                     "prototype-sword")
-            {
-                amount = health.Maximum;
-            }
-
             health.ReceiveDamage(
                 new DamageRequest(
                     request.Instigator,

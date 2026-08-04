@@ -10,6 +10,9 @@ namespace WorldBuilder.Gameplay.Characters
     public sealed class ThirdPersonMotor : MonoBehaviour
     {
         public const float DefaultWalkSpeed = 1.85f;
+        public const float PlayerWalkSpeedMultiplier = 1.5f;
+        public const float DefaultPlayerWalkSpeed =
+            DefaultWalkSpeed * PlayerWalkSpeedMultiplier;
         public const float DefaultJogSpeed = 3.1f;
         public const float DefaultSprintSpeed = 4.6f;
         public const float DefaultCrouchSpeed = 1.0f;
@@ -83,6 +86,17 @@ namespace WorldBuilder.Gameplay.Characters
         public float TurnSpeed => turnSpeed;
         public float WalkSpeed =>
             walkSpeed + runtimeSpeedBonus;
+        public float AnimationHorizontalSpeed =>
+            UsesWalkGait
+                ? HorizontalSpeed *
+                    DefaultWalkSpeed /
+                    Mathf.Max(0.001f, WalkSpeed)
+                : HorizontalSpeed;
+        public float WalkGaitPlaybackScale =>
+            UsesWalkGait
+                ? WalkSpeed /
+                    Mathf.Max(0.001f, DefaultWalkSpeed)
+                : 1f;
         public float SprintSpeed =>
             sprintSpeed + runtimeSpeedBonus;
         public float CrouchSpeed =>
@@ -95,6 +109,32 @@ namespace WorldBuilder.Gameplay.Characters
         public bool MovementCameraBasisLocked =>
             movementCameraBasisLocked;
 
+        private bool UsesWalkGait
+        {
+            get
+            {
+                if (isCrouched || WalkSpeed <= 0.001f)
+                {
+                    return false;
+                }
+
+                bool targetingWalk =
+                    targetHorizontalSpeed > 0.001f &&
+                    Mathf.Abs(
+                        targetHorizontalSpeed - WalkSpeed) <= 0.05f;
+                bool coastingFromWalk =
+                    targetHorizontalSpeed <= 0.001f &&
+                    HorizontalSpeed > 0.03f &&
+                    HorizontalSpeed <= WalkSpeed + 0.05f;
+                return targetingWalk || coastingFromWalk;
+            }
+        }
+
+        public void ConfigureWalkSpeed(float speed)
+        {
+            walkSpeed = Mathf.Max(0f, speed);
+        }
+
         public void SetRuntimeSpeedBonus(float bonus)
         {
             runtimeSpeedBonus = Mathf.Max(
@@ -102,6 +142,16 @@ namespace WorldBuilder.Gameplay.Characters
                     walkSpeed,
                     crouchSpeed) + 0.1f,
                 bonus);
+        }
+
+        public void StopMotion()
+        {
+            horizontalVelocity = Vector3.zero;
+            verticalVelocity = -2f;
+            desiredWorldDirection = Vector3.zero;
+            targetHorizontalSpeed = 0f;
+            airborneSpeedLimit = standingJumpAirSpeedLimit;
+            isBrakingForReversal = false;
         }
 
         public void ResetForDiagnostics(Vector3 worldPosition, Quaternion worldRotation)

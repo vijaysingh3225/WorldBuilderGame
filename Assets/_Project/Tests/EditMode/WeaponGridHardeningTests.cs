@@ -5,6 +5,7 @@ using UnityEngine;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Loop;
+using WorldBuilder.Gameplay.Loop.Scenes;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Tests.EditMode
@@ -12,6 +13,62 @@ namespace WorldBuilder.Tests.EditMode
     // Regression coverage for grid/profile/combat integration boundaries.
     public sealed class WeaponGridHardeningTests
     {
+        [Test]
+        public void InventoryWeaponGrid_ClosesAsChildWithoutDiscardingInventory()
+        {
+            GameObject systems = new GameObject("inventory-grid-stack-test");
+            float initialTimeScale = Time.timeScale;
+            CursorLockMode initialCursorLock = Cursor.lockState;
+            bool initialCursorVisible = Cursor.visible;
+            WeaponGridSandboxToolkit toolkit = null;
+            HomeInventoryController inventory = null;
+            try
+            {
+                toolkit = systems.AddComponent<WeaponGridSandboxToolkit>();
+                toolkit.SetToggleWithTab(false);
+                inventory = systems.AddComponent<HomeInventoryController>();
+                inventory.Configure(null, null, toolkit);
+
+                inventory.OpenInventory();
+                InvokePrivate(inventory, "OpenWeaponGrid", 0);
+
+                Assert.That(inventory.IsOpen, Is.True);
+                Assert.That(toolkit.IsOpen, Is.True);
+
+                toolkit.Close();
+
+                Assert.That(
+                    inventory.IsOpen,
+                    Is.True,
+                    "Closing the child grid must reveal the base inventory.");
+                Assert.That(toolkit.IsOpen, Is.False);
+
+                InvokePrivate(inventory, "OpenWeaponGrid", 1);
+                InvokePrivate(inventory, "Close");
+
+                Assert.That(inventory.IsOpen, Is.False);
+                Assert.That(
+                    toolkit.IsOpen,
+                    Is.False,
+                    "Closing the inventory stack must also close its child grid.");
+            }
+            finally
+            {
+                if (toolkit != null && toolkit.IsOpen)
+                {
+                    toolkit.Close();
+                }
+                if (inventory != null && inventory.IsOpen)
+                {
+                    InvokePrivate(inventory, "Close");
+                }
+                Time.timeScale = initialTimeScale;
+                Cursor.lockState = initialCursorLock;
+                Cursor.visible = initialCursorVisible;
+                UnityEngine.Object.DestroyImmediate(systems);
+            }
+        }
+
         [Test]
         public void ToolkitCapture_PrecedesBowUpdate_AndCancelsDrawWithoutFiring()
         {
@@ -196,13 +253,16 @@ namespace WorldBuilder.Tests.EditMode
             field.SetValue(target, value);
         }
 
-        private static void InvokePrivate(object target, string methodName)
+        private static void InvokePrivate(
+            object target,
+            string methodName,
+            params object[] arguments)
         {
             MethodInfo method = target.GetType().GetMethod(
                 methodName,
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(method, Is.Not.Null, $"Missing method {methodName}.");
-            method.Invoke(target, null);
+            method.Invoke(target, arguments);
         }
     }
 }

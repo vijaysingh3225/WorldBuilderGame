@@ -14,6 +14,21 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class CombatLabCheckpointTests
     {
         [Test]
+        public void CombatLabPlayerUsesUntexturedStoneGrayMaterial()
+        {
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(
+                "Assets/_Project/Art/Prototype/Materials/CombatLabPlayer.mat");
+
+            Assert.That(material, Is.Not.Null);
+            Assert.That(material.GetTexture("_BaseMap"), Is.Null);
+            Assert.That(material.GetTexture("_BumpMap"), Is.Null);
+            Assert.That(material.GetTexture("_OcclusionMap"), Is.Null);
+            Assert.That(
+                material.GetColor("_BaseColor"),
+                Is.EqualTo(new Color(0.22f, 0.22f, 0.22f, 1f)));
+        }
+
+        [Test]
         public void CombatLabUsesThreeHitCc0SwordCombo()
         {
             AnimatorController controller =
@@ -64,6 +79,21 @@ namespace WorldBuilder.Tests.EditMode
                 Is.False,
                 "The guard is a frozen authored upper-body pose without runtime IK.");
             Assert.That(blockLayer.avatarMask, Is.Not.Null);
+            Assert.That(
+                blockLayer.avatarMask.GetHumanoidBodyPartActive(
+                    AvatarMaskBodyPart.LeftLeg),
+                Is.False);
+            Assert.That(
+                blockLayer.avatarMask.GetHumanoidBodyPartActive(
+                    AvatarMaskBodyPart.RightLeg),
+                Is.False);
+            Assert.That(
+                typeof(AimStanceLocomotionPresenter).GetMethod(
+                    "SolveLeg",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic),
+                Is.Null,
+                "Blocking must not replace base locomotion with procedural leg IK.");
             Assert.That(
                 blockLayer.stateMachine.states.Single().state.name,
                 Is.EqualTo(ShortSwordBlockPresenter.BlockStateName));

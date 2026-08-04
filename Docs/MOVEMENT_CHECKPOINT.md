@@ -431,3 +431,50 @@ failures. Deterministic run
 `20260801-071814-265-deterministic-full-suite` again exercised 1,530 samples but
 aborted at the existing sword-block strafe prerequisite before reaching its bow
 phases. No baseline was promoted.
+
+## 2026-08-03 equipped-sword sprint intensity candidate
+
+The accepted equipped-sword idle and walking poses remain unchanged. A new
+sword-only run overlay begins above the lower gait range and eases to full
+weight near sprint speed. At full sprint it adds 5 degrees to the existing
+forward body lean, adds 5 degrees of inward shoulder protraction, moves the
+right weapon arm 9 degrees away from the hip, and explicitly aligns the blade
+with a predominantly forward attack lane that also angles slightly right and
+upward. This directional solve avoids relying on a rig-dependent positive or
+negative wrist axis.
+Guarding, attacking, crouching, jumping, bow aim, and unequipped locomotion
+still bypass the overlay.
+
+The sprint pose now has its own 0.28-second gait blend instead of following the
+motor's fast acceleration one frame at a time. The underlying walk/jog/run
+blend-tree inputs use at least 0.16 seconds of damping. Sword attacks fade in
+over 0.12 seconds, recovery and chained states crossfade for at least 0.075
+seconds, and every hit—including the first two recovery paths—fades back to
+locomotion over at least 0.24 seconds. The attack layer and procedural
+sword-ready layer exchange complementary weights during those handoffs, so a
+running strike returns continuously to the forward-right brandish rather than
+dropping one pose before the next owner activates.
+
+Attack recovery is also gait-aware. If the player is still above the running
+threshold, the latter half of hit-one/hit-two recovery—or the post-impact
+settle of the third hit—releases the attack layer directly into the live run
+brandish. It does not finish at the standing carry and then begin a second
+transition. Stationary and walking attacks retain the normal authored return
+to their corresponding carry pose, and any remaining generic return blend now
+starts from its current layer weight instead of resetting that weight to one.
+
+Sword collision now deduplicates by the humanoid's owning damage profile or
+health component rather than by each anatomical zone component. A blade sweep
+through the torso and arm is therefore one strike against one target, with one
+floating number. The prototype sword deals 60 base damage, including automatic
+runtime migration of existing scene components serialized with the legacy 20
+value, and enemy profiles preserve that requested amount instead of replacing
+every sword hit with maximum health.
+
+The most recent comparable pre-change screenshot is marker 008 from run
+`20260730-192720-512-deterministic-full-suite`. That run reached the sword-block
+strafe prerequisite but did not complete, and no schema-v2 baseline has been
+accepted. A fresh post-change deterministic capture remains required before
+this candidate can be promoted; the project was already open in another Unity
+Editor process during implementation, so a second batch editor could not own
+the project for that capture.

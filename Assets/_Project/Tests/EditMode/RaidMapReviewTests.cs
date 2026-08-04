@@ -64,6 +64,17 @@ namespace WorldBuilder.Tests.EditMode
 
             generator.GenerateWithSeed(1701);
             Assert.That(generator.Seed, Is.EqualTo(1701));
+            float habitatTotal = 0f;
+            foreach (ProceduralRaidGenerator.ForestHabitat habitat in
+                     System.Enum.GetValues(
+                         typeof(ProceduralRaidGenerator.ForestHabitat)))
+            {
+                float percentage =
+                    generator.DominantHabitatPercentage(habitat);
+                Assert.That(percentage, Is.GreaterThan(1f), habitat.ToString());
+                habitatTotal += percentage;
+            }
+            Assert.That(habitatTotal, Is.EqualTo(100f).Within(0.15f));
 
             generator.GenerateWithSeed(1702);
             Assert.That(generator.Seed, Is.EqualTo(1702));
