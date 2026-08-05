@@ -6,6 +6,8 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using WorldBuilder.Editor;
+using WorldBuilder.Gameplay.CameraSystem;
+using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Presentation;
 
@@ -13,6 +15,57 @@ namespace WorldBuilder.Tests.EditMode
 {
     public sealed class CombatLabCheckpointTests
     {
+        [Test]
+        public void CrouchBodyAnimationAndCameraShareSlowerTiming()
+        {
+            Assert.That(
+                ThirdPersonMotor.DefaultCrouchTransitionSpeed,
+                Is.EqualTo(2.75f));
+            float transitionSeconds =
+                (2f - 1.2f) /
+                ThirdPersonMotor.DefaultCrouchTransitionSpeed;
+            Assert.That(
+                transitionSeconds,
+                Is.EqualTo((2f - 1.2f) / 5.5f * 2f)
+                    .Within(0.0001f));
+            Assert.That(
+                HumanoidAnimationSetup.CrouchTransitionDuration,
+                Is.EqualTo(0.32f));
+
+            AnimatorController controller =
+                AssetDatabase.LoadAssetAtPath<AnimatorController>(
+                    HumanoidAnimationSetup.ControllerPath);
+            AnimatorStateMachine locomotion =
+                controller.layers[0].stateMachine;
+            AnimatorState standing = locomotion.states
+                .Select(child => child.state)
+                .Single(state => state.name == "Standing Locomotion V8");
+            AnimatorState crouching = locomotion.states
+                .Select(child => child.state)
+                .Single(state => state.name == "Resting Tactical Crouch V5");
+            Assert.That(
+                standing.transitions.Single(transition =>
+                    transition.conditions.Any(condition =>
+                        condition.parameter ==
+                            HumanoidAnimatorPresenter.CrouchedParameter))
+                    .duration,
+                Is.EqualTo(0.32f));
+            Assert.That(
+                crouching.transitions.Single(transition =>
+                    transition.conditions.Any(condition =>
+                        condition.parameter ==
+                            HumanoidAnimatorPresenter.CrouchedParameter))
+                    .duration,
+                Is.EqualTo(0.32f));
+
+            Assert.That(
+                CameraAimTarget.CalculateCrouchFollowHeight(
+                    1.45f,
+                    0.85f,
+                    0.5f),
+                Is.EqualTo(1.025f).Within(0.0001f));
+        }
+
         [Test]
         public void CombatLabPlayerUsesUntexturedStoneGrayMaterial()
         {

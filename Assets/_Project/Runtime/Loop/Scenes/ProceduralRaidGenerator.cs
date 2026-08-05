@@ -115,7 +115,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField, Range(24, 384)] private int terrainResolution = 256;
         [SerializeField, Range(2f, 10f)] private float regionalElevationAmplitude = 6.2f;
         [SerializeField, Range(1f, 7f)] private float directionalElevationRise = 4.2f;
-        [SerializeField, Range(80, 1800)] private int treeCount = 1500;
+        [SerializeField, Range(80, 1800)] private int treeCount = 1200;
         [SerializeField, Range(0.5f, 3f)] private float treeScaleMultiplier = 1.75f;
         [SerializeField, Range(8000, 140000)] private int grassCount = 128000;
         [SerializeField, Range(40, 6000)] private int undergrowthCount = 4200;
@@ -3903,7 +3903,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     firstTentPoint,
                     firstTentDirection,
                     side);
-                CreateNamedCampProp(
+                GameObject chest = CreateNamedCampProp(
                     campChestPrefab,
                     camp,
                     chestPoint,
@@ -3912,6 +3912,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     site.Rotation + 90f,
                     "Camp Chest",
                     random);
+                if (chest != null)
+                {
+                    RaidLootContainer loot =
+                        chest.GetComponent<RaidLootContainer>() ??
+                        chest.AddComponent<RaidLootContainer>();
+                    loot.ConfigureChest(
+                        $"Camp Chest {campIndex + 1}",
+                        random.Next());
+                }
                 generatedCampCount++;
             }
         }
@@ -4000,7 +4009,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Mathf.Rad2Deg;
         }
 
-        private void CreateNamedCampProp(
+        private GameObject CreateNamedCampProp(
             GameObject prefab,
             Transform parent,
             Vector2 point,
@@ -4024,6 +4033,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 prop.name = name;
             }
+            return prop;
         }
 
         private void CreateCampfireEffect(

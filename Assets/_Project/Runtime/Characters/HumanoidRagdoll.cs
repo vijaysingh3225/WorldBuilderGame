@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Loop.Scenes;
 
 namespace WorldBuilder.Gameplay.Characters
 {
@@ -215,7 +216,8 @@ namespace WorldBuilder.Gameplay.Characters
                 MonoBehaviour behaviour = behaviours[index];
                 if (behaviour == null ||
                     ReferenceEquals(behaviour, this) ||
-                    behaviour is Health)
+                    behaviour is Health ||
+                    behaviour is RaidLootContainer)
                 {
                     continue;
                 }

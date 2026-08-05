@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 
 namespace WorldBuilder.Gameplay.Loop
@@ -11,11 +12,15 @@ namespace WorldBuilder.Gameplay.Loop
         [SerializeField] private string entryId;
         [SerializeField] private string definitionId;
         [SerializeField, Min(1)] private int quantity = 1;
+        [SerializeField] private int slotIndex = -1;
+        [SerializeField, Range(0, 3)] private int rotationQuarterTurns;
         [SerializeField, TextArea] private string customStateJson;
 
         public string EntryId => entryId;
         public string DefinitionId => definitionId;
         public int Quantity => quantity;
+        public int SlotIndex => slotIndex;
+        public int RotationQuarterTurns => rotationQuarterTurns;
         public string CustomStateJson => customStateJson;
 
         public static StorageEntry Create(
@@ -33,6 +38,8 @@ namespace WorldBuilder.Gameplay.Loop
                 entryId = LoopDataUtility.CreateId(),
                 definitionId = definitionId.Trim(),
                 quantity = Math.Max(1, quantity),
+                slotIndex = -1,
+                rotationQuarterTurns = 0,
                 customStateJson = customStateJson ?? string.Empty,
             };
         }
@@ -44,8 +51,48 @@ namespace WorldBuilder.Gameplay.Loop
                 entryId = entryId,
                 definitionId = definitionId,
                 quantity = quantity,
+                slotIndex = slotIndex,
+                rotationQuarterTurns = rotationQuarterTurns,
                 customStateJson = customStateJson,
             };
+        }
+
+        internal void SetQuantity(int value)
+        {
+            quantity = Math.Max(0, value);
+        }
+
+        internal void SetSlotIndex(int value)
+        {
+            slotIndex = value;
+        }
+
+        internal void SetRotationQuarterTurns(int value)
+        {
+            rotationQuarterTurns = ((value % 4) + 4) % 4;
+        }
+
+        public void RotateClockwise()
+        {
+            SetRotationQuarterTurns(rotationQuarterTurns + 1);
+        }
+
+        internal int RemoveQuantity(int amount)
+        {
+            int removed = Math.Min(quantity, Math.Max(0, amount));
+            quantity -= removed;
+            return removed;
+        }
+
+        internal StorageEntry CreateSplitCopy(int splitQuantity)
+        {
+            StorageEntry copy = Create(
+                definitionId,
+                Math.Max(1, splitQuantity),
+                customStateJson);
+            copy.SetSlotIndex(slotIndex);
+            copy.SetRotationQuarterTurns(rotationQuarterTurns);
+            return copy;
         }
 
         internal void Normalize()
@@ -55,6 +102,9 @@ namespace WorldBuilder.Gameplay.Loop
                 ? "unknown-item"
                 : definitionId.Trim();
             quantity = Math.Max(1, quantity);
+            slotIndex = Math.Max(-1, slotIndex);
+            rotationQuarterTurns =
+                ((rotationQuarterTurns % 4) + 4) % 4;
             customStateJson ??= string.Empty;
         }
     }
@@ -185,8 +235,12 @@ namespace WorldBuilder.Gameplay.Loop
     [Serializable]
     public sealed class PlayerProfile
     {
-        public const int CurrentSchemaVersion = 3;
+        public const int CurrentSchemaVersion = 5;
+        public const int InventoryColumns = 4;
+        public const int InventoryRows = 6;
         public const int InventoryCapacity = 24;
+        public const int ChestColumns = 5;
+        public const int ChestRows = 10;
         public const int ChestCapacity = 50;
         public const string DefaultChestId = "home-chest-1";
 
@@ -334,13 +388,136 @@ namespace WorldBuilder.Gameplay.Loop
 
         public bool TryMoveToInventory(string entryId)
         {
-            if (FindStorageEntry(entryId) == null)
+            return TryMoveToInventory(entryId, -1);
+        }
+
+        public bool TryMoveToInventory(
+            string entryId,
+            int preferredSlot)
+        {
+            StorageEntry entry = FindStorageEntry(entryId);
+            if (entry == null)
             {
                 return false;
             }
 
             if (IsInInventory(entryId))
             {
+                return preferredSlot < 0 ||
+                    TryMoveInventoryEntryToSlot(
+                        entryId,
+                        preferredSlot);
+            }
+
+            if (inventoryEntryIds.Count >= InventoryCapacity)
+            {
+                return false;
+            }
+
+            int slot = ResolveAvailableInventorySlot(
+                entry,
+                preferredSlot);
+            if (slot < 0)
+            {
+                return false;
+            }
+            RemoveChestAssignment(entryId);
+            entry.SetSlotIndex(slot);
+            inventoryEntryIds.Add(entryId);
+            return true;
+        }
+
+        public StorageEntry GetInventoryEntryAtSlot(int slotIndex)
+        {
+            if (slotIndex < 0 || slotIndex >= InventoryCapacity)
+            {
+                return null;
+            }
+            return ItemGridPlacement.GetEntryAtSlot(
+                GetEntries(inventoryEntryIds),
+                slotIndex,
+                InventoryColumns,
+                InventoryRows);
+        }
+
+        public bool TryMoveInventoryEntryToSlot(
+            string entryId,
+            int targetSlot)
+        {
+            StorageEntry entry = FindStorageEntry(entryId);
+            if (entry == null ||
+                !IsInInventory(entryId) ||
+                targetSlot < 0 ||
+                targetSlot >= InventoryCapacity)
+            {
+                return false;
+            }
+            if (!ItemGridPlacement.CanPlace(
+                    GetEntries(inventoryEntryIds),
+                    entry,
+                    targetSlot,
+                    InventoryColumns,
+                    InventoryRows,
+                    entry.EntryId))
+            {
+                return false;
+            }
+            entry.SetSlotIndex(targetSlot);
+            return true;
+        }
+
+        public bool TrySetInventoryStack(
+            string definitionId,
+            int quantity)
+        {
+            if (string.IsNullOrWhiteSpace(definitionId))
+            {
+                return false;
+            }
+
+            string normalizedDefinitionId = definitionId.Trim();
+            StorageEntry stack = null;
+            var duplicateIds = new List<string>();
+            for (int index = 0; index < inventoryEntryIds.Count; index++)
+            {
+                StorageEntry entry = FindStorageEntry(
+                    inventoryEntryIds[index]);
+                if (entry == null ||
+                    !string.Equals(
+                        entry.DefinitionId,
+                        normalizedDefinitionId,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (stack == null)
+                {
+                    stack = entry;
+                }
+                else
+                {
+                    duplicateIds.Add(entry.EntryId);
+                }
+            }
+
+            for (int index = 0; index < duplicateIds.Count; index++)
+            {
+                RemoveStorageEntry(duplicateIds[index]);
+            }
+
+            int safeQuantity = Math.Min(
+                Math.Max(0, quantity),
+                ItemDefinitionCatalog.MaximumStack(
+                    normalizedDefinitionId));
+            if (safeQuantity == 0)
+            {
+                return stack == null || RemoveStorageEntry(stack.EntryId);
+            }
+
+            if (stack != null)
+            {
+                stack.SetQuantity(safeQuantity);
                 return true;
             }
 
@@ -349,9 +526,52 @@ namespace WorldBuilder.Gameplay.Loop
                 return false;
             }
 
-            RemoveChestAssignment(entryId);
-            inventoryEntryIds.Add(entryId);
+            StorageEntry created = StorageEntry.Create(
+                normalizedDefinitionId,
+                safeQuantity);
+            int createdSlot = ResolveAvailableInventorySlot(
+                created,
+                -1);
+            if (createdSlot < 0)
+            {
+                return false;
+            }
+            storage.Add(created);
+            created.SetSlotIndex(createdSlot);
+            inventoryEntryIds.Add(created.EntryId);
             return true;
+        }
+
+        public bool TryMergeInventoryStack(StorageEntry incoming)
+        {
+            if (incoming == null ||
+                !ItemDefinitionCatalog.IsStackable(
+                    incoming.DefinitionId))
+            {
+                return false;
+            }
+
+            for (int index = 0;
+                 index < inventoryEntryIds.Count;
+                 index++)
+            {
+                StorageEntry entry = FindStorageEntry(
+                    inventoryEntryIds[index]);
+                if (entry != null &&
+                    string.Equals(
+                        entry.DefinitionId,
+                        incoming.DefinitionId,
+                        StringComparison.Ordinal) &&
+                    entry.Quantity + incoming.Quantity <=
+                        ItemDefinitionCatalog.MaximumStack(
+                            incoming.DefinitionId))
+                {
+                    entry.SetQuantity(
+                        entry.Quantity + incoming.Quantity);
+                    return true;
+                }
+            }
+            return false;
         }
 
         public bool MoveToStorage(string entryId)
@@ -398,17 +618,87 @@ namespace WorldBuilder.Gameplay.Loop
                 return false;
             }
 
+            StorageEntry entry = FindStorageEntry(entryId);
+            int destinationSlot = ResolveAvailableChestSlot(
+                normalizedChestId,
+                entry,
+                -1);
+            if (destinationSlot < 0)
+            {
+                return false;
+            }
             inventoryEntryIds.RemoveAll(id =>
                 string.Equals(
                     id,
                     entryId,
                     StringComparison.Ordinal));
             RemoveChestAssignment(entryId);
+            entry.SetSlotIndex(destinationSlot);
             chestStorageAssignments.Add(
                 ChestStorageAssignment.Create(
                     entryId,
                     normalizedChestId));
             return true;
+        }
+
+        private int ResolveAvailableInventorySlot(
+            StorageEntry entry,
+            int preferredSlot)
+        {
+            if (preferredSlot >= 0 &&
+                ItemGridPlacement.CanPlace(
+                    GetEntries(inventoryEntryIds),
+                    entry,
+                    preferredSlot,
+                    InventoryColumns,
+                    InventoryRows))
+            {
+                return preferredSlot;
+            }
+            return ItemGridPlacement.FindFirstAvailableSlot(
+                GetEntries(inventoryEntryIds),
+                entry,
+                InventoryColumns,
+                InventoryRows);
+        }
+
+        private int ResolveAvailableChestSlot(
+            string chestId,
+            StorageEntry entry,
+            int preferredSlot)
+        {
+            List<StorageEntry> entries = GetEntries(
+                GetChestEntryIds(chestId));
+            if (preferredSlot >= 0 &&
+                ItemGridPlacement.CanPlace(
+                    entries,
+                    entry,
+                    preferredSlot,
+                    ChestColumns,
+                    ChestRows))
+            {
+                return preferredSlot;
+            }
+            return ItemGridPlacement.FindFirstAvailableSlot(
+                entries,
+                entry,
+                ChestColumns,
+                ChestRows);
+        }
+
+        private List<StorageEntry> GetEntries(
+            IReadOnlyList<string> entryIds)
+        {
+            var entries = new List<StorageEntry>(entryIds.Count);
+            for (int index = 0; index < entryIds.Count; index++)
+            {
+                StorageEntry entry = FindStorageEntry(entryIds[index]);
+                if (entry != null)
+                {
+                    entries.Add(entry);
+                }
+            }
+            return entries;
         }
 
         public IReadOnlyList<string> GetChestEntryIds(
@@ -530,6 +820,10 @@ namespace WorldBuilder.Gameplay.Loop
             }
 
             inventoryEntryIds = normalizedInventoryIds;
+            NormalizeSlots(
+                inventoryEntryIds,
+                InventoryColumns,
+                InventoryRows);
             chestStorageAssignments ??=
                 new List<ChestStorageAssignment>();
             var normalizedAssignments =
@@ -596,10 +890,64 @@ namespace WorldBuilder.Gameplay.Loop
                 assignedEntryIds.Add(entryId);
             }
             chestStorageAssignments = normalizedAssignments;
+            foreach (string chestId in chestStorageAssignments
+                         .ConvertAll(assignment => assignment.ChestId)
+                         .Distinct(StringComparer.Ordinal))
+            {
+                NormalizeSlots(
+                    GetChestEntryIds(chestId),
+                    ChestColumns,
+                    ChestRows);
+            }
             weaponOne ??= WeaponInstanceRecord.Create("short-sword", "Short Sword");
             weaponTwo ??= WeaponInstanceRecord.Create("hunting-bow", "Hunting Bow");
             weaponOne.Normalize("short-sword", "Short Sword");
             weaponTwo.Normalize("hunting-bow", "Hunting Bow");
+        }
+
+        private void NormalizeSlots(
+            IReadOnlyList<string> entryIds,
+            int columns,
+            int rows)
+        {
+            var placed = new List<StorageEntry>();
+            var needsSlot = new List<StorageEntry>();
+            for (int index = 0; index < entryIds.Count; index++)
+            {
+                StorageEntry entry = FindStorageEntry(entryIds[index]);
+                if (entry == null)
+                {
+                    continue;
+                }
+                if (ItemGridPlacement.CanPlace(
+                        placed,
+                        entry,
+                        entry.SlotIndex,
+                        columns,
+                        rows))
+                {
+                    placed.Add(entry);
+                    continue;
+                }
+                needsSlot.Add(entry);
+            }
+
+            for (int index = 0; index < needsSlot.Count; index++)
+            {
+                StorageEntry entry = needsSlot[index];
+                int slot = ItemGridPlacement.FindFirstAvailableSlot(
+                    placed,
+                    entry,
+                    columns,
+                    rows);
+                if (slot < 0)
+                {
+                    entry.SetSlotIndex(-1);
+                    continue;
+                }
+                entry.SetSlotIndex(slot);
+                placed.Add(entry);
+            }
         }
 
         internal void MarkSaved()

@@ -12,12 +12,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     [DisallowMultipleComponent]
     public sealed class HomeInventoryController : MonoBehaviour
     {
-        public const float InventoryHorizontalAlignmentOffset = 72f;
+        public const float InventoryHorizontalAlignmentOffset = 0f;
         private const int PackColumns = 4;
         private const int PackRows = 6;
         private const int ChestColumns = 5;
         private const int ChestRows = 10;
         private const float StorageCellGap = 5f;
+
+        private enum InventoryGridKind
+        {
+            Passive,
+            Player,
+            Loot
+        }
 
         [SerializeField] private HomeBaseController homeBase;
         [SerializeField] private PlayerInputSource playerInput;
@@ -26,6 +33,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private bool isOpen;
         private bool chestOpen;
+        private RaidLootContainer activeRaidLoot;
+        private StorageEntry heldEntry;
+        private InventoryGridKind heldOrigin;
+        private RaidLootContainer heldLootSource;
+        private int heldOriginSlot = -1;
+        private Vector2Int heldGrabOffset;
+        private float heldCellSize;
+        private bool leftPressPickedUpItem;
         private string activeChestId = PlayerProfile.DefaultChestId;
         private string activeChestName = "CHEST 1";
         private float previousTimeScale = 1f;
@@ -42,13 +57,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private GUIStyle weaponCardStyle;
         private GUIStyle centeredTitleStyle;
         private GUIStyle slotLabelStyle;
+        private GUIStyle quantityStyle;
 
         public bool IsOpen => isOpen;
         public bool ChestOpen => chestOpen;
+        public RaidLootContainer ActiveRaidLoot => activeRaidLoot;
 
         public void OpenInventory()
         {
             chestOpen = false;
+            activeRaidLoot = null;
             Open();
         }
 
@@ -69,6 +87,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         public void OpenChest(string chestId, string chestName)
         {
+            activeRaidLoot = null;
             activeChestId = string.IsNullOrWhiteSpace(chestId)
                 ? PlayerProfile.DefaultChestId
                 : chestId.Trim();
@@ -77,6 +96,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 : chestName.Trim().ToUpperInvariant();
             lootScrollPosition = Vector2.zero;
             chestOpen = true;
+            Open();
+        }
+
+        public void OpenLoot(RaidLootContainer source)
+        {
+            if (source == null || !source.IsAvailable)
+            {
+                return;
+            }
+
+            chestOpen = false;
+            activeRaidLoot = source;
+            ClearHeldItem();
+            statusMessage =
+                "Left click moves a stack. Right click splits or places one. R rotates a held item. Shift-click auto-stacks.";
             Open();
         }
 
@@ -96,6 +130,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
                 return;
             }
+            if (isOpen &&
+                heldEntry != null &&
+                keyboard.rKey.wasPressedThisFrame)
+            {
+                RotateHeldItem();
+                return;
+            }
             if (isOpen && keyboard.escapeKey.wasPressedThisFrame)
             {
                 Close();
@@ -111,6 +152,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 else
                 {
                     chestOpen = false;
+                    activeRaidLoot = null;
                     Open();
                 }
             }
@@ -120,6 +162,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             if (isOpen)
             {
+                if (!ReturnHeldItem())
+                {
+                    ClearHeldItem();
+                }
                 Close();
             }
         }
@@ -138,6 +184,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GUI.enabled = !childGridOpen;
             DrawInventoryScreen(
                 CalculatePanelRect(Screen.width, Screen.height));
+            if (!childGridOpen)
+            {
+                DrawHeldItem();
+            }
             GUI.enabled = previousEnabled;
         }
 
@@ -158,7 +208,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     y,
                     panel.width - sectionSpacing * 2f,
                     34f),
-                chestOpen ? "INVENTORY  /  BASE STORAGE" : "INVENTORY",
+                chestOpen
+                    ? "INVENTORY  /  BASE STORAGE"
+                    : activeRaidLoot != null
+                        ? $"INVENTORY  /  {activeRaidLoot.DisplayName.ToUpperInvariant()}"
+                        : "INVENTORY",
                 centeredTitleStyle);
             GUI.Label(
                 new Rect(
@@ -214,6 +268,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 inventoryArea.height);
             DrawCharacterLoadout(characterArea);
 
+            RaidPrototypeController raidController =
+                ResolveRaidController();
+            bool raidInventoryActive =
+                raidController != null && raidController.RaidActive;
             IReadOnlyList<StorageEntry> packEntries = BuildPackEntries(profile);
             DrawContainer(
                 inventoryArea,
@@ -237,7 +295,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to {activeChestName.ToLowerInvariant()}."
                         : $"{activeChestName} is full.";
                     Persist();
-                });
+                },
+                raidInventoryActive
+                    ? InventoryGridKind.Player
+                    : InventoryGridKind.Passive);
 
             if (chestOpen)
             {
@@ -256,7 +317,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                                 ? $"{GameplaySceneRuntime.FriendlyId(entry.DefinitionId)} moved to backpack."
                                 : "The 4 x 6 backpack is full.";
                         Persist();
-                    });
+                    },
+                    InventoryGridKind.Passive);
+            }
+            else if (activeRaidLoot != null)
+            {
+                DrawContainer(
+                    lootArea,
+                    $"{activeRaidLoot.DisplayName.ToUpperInvariant()}  /  " +
+                    $"{activeRaidLoot.Columns} x {activeRaidLoot.Rows}",
+                    activeRaidLoot.Entries,
+                    activeRaidLoot.Columns,
+                    activeRaidLoot.Rows,
+                    sharedCellSize,
+                    false,
+                    null,
+                    InventoryGridKind.Loot);
             }
             else
             {
@@ -291,16 +367,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float columnGap = sectionSpacing * 0.25f;
             float width = Mathf.Max(
                 0f,
-                (contentArea.width - sectionSpacing * 2f) / 3f);
-            float centerX =
-                contentArea.center.x -
-                width * 0.5f;
-            float x = index switch
-            {
-                0 => centerX - columnGap - width,
-                1 => centerX,
-                _ => centerX + width + columnGap
-            };
+                (contentArea.width - columnGap * 2f) / 3f);
+            float x =
+                contentArea.x +
+                index * (width + columnGap);
             return new Rect(
                 x,
                 contentArea.y,
@@ -311,7 +381,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public static float CalculateInventorySectionSpacing(
             float screenWidth)
         {
-            return Mathf.Clamp(screenWidth * 0.06f, 48f, 72f);
+            return Mathf.Clamp(screenWidth * 0.04f, 32f, 56f);
         }
 
         public static float CalculateSharedStorageCellSize(
@@ -468,7 +538,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int rows,
             float cellSize,
             bool scrollable,
-            Action<StorageEntry> onItemPressed)
+            Action<StorageEntry> onItemPressed,
+            InventoryGridKind gridKind = InventoryGridKind.Passive)
         {
             DrawInventorySection(area);
             GUI.Label(
@@ -518,6 +589,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 startY = viewport.y;
             }
             int capacity = columns * rows;
+            StorageEntry[] slots = BuildSlotMap(
+                entries,
+                columns,
+                rows);
+            var cellRects = new Rect[capacity];
             for (int index = 0; index < capacity; index++)
             {
                 int column = index % columns;
@@ -527,22 +603,484 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     startY + row * (cellSize + StorageCellGap),
                     cellSize,
                     cellSize);
-                StorageEntry entry = index < entries.Count ? entries[index] : null;
-                if (entry == null)
+                cellRects[index] = cell;
+                StorageEntry entry = slots[index];
+                bool hovered = cell.Contains(Event.current.mousePosition);
+                if (gridKind != InventoryGridKind.Passive && hovered)
                 {
-                    GUI.Box(cell, GUIContent.none, emptyCellStyle);
-                    continue;
+                    HandleGridInput(
+                        gridKind,
+                        index,
+                        entry,
+                        cellSize,
+                        columns);
                 }
-                string label = GetInitials(entry.DefinitionId) +
-                    (entry.Quantity > 1 ? $"\nx{entry.Quantity}" : "");
-                if (GUI.Button(cell, label, cellStyle))
+
+                GUI.Box(cell, GUIContent.none, emptyCellStyle);
+                if (entry != null &&
+                    gridKind == InventoryGridKind.Passive &&
+                    GUI.Button(cell, GUIContent.none, GUIStyle.none))
                 {
                     onItemPressed?.Invoke(entry);
                 }
+
+                if (hovered)
+                {
+                    Color previous = GUI.color;
+                    GUI.color = new Color(1f, 1f, 1f, 0.14f);
+                    GUI.DrawTexture(cell, Texture2D.whiteTexture);
+                    GUI.color = previous;
+                }
+            }
+            var drawnEntryIds = new HashSet<string>(
+                StringComparer.Ordinal);
+            for (int index = 0; index < entries.Count; index++)
+            {
+                StorageEntry entry = entries[index];
+                if (entry == null ||
+                    !drawnEntryIds.Add(entry.EntryId) ||
+                    !TryGetItemRect(
+                        entry,
+                        columns,
+                        rows,
+                        cellRects,
+                        out Rect itemRect))
+                {
+                    continue;
+                }
+                DrawItem(itemRect, entry, cellSize);
             }
             if (scrollable)
             {
                 GUI.EndScrollView();
+            }
+        }
+
+        private void HandleGridInput(
+            InventoryGridKind gridKind,
+            int slotIndex,
+            StorageEntry entry,
+            float cellSize,
+            int columns)
+        {
+            Event current = Event.current;
+            if (current.type == EventType.MouseUp &&
+                current.button == 0 &&
+                leftPressPickedUpItem &&
+                heldEntry != null)
+            {
+                int targetAnchor = CalculateHeldAnchorSlot(
+                    slotIndex,
+                    columns);
+                if (gridKind != heldOrigin ||
+                    targetAnchor != heldOriginSlot)
+                {
+                    PlaceHeld(gridKind, slotIndex, heldEntry.Quantity);
+                }
+                leftPressPickedUpItem = false;
+                current.Use();
+                return;
+            }
+            if (current.type != EventType.MouseDown)
+            {
+                return;
+            }
+
+            if (current.button == 0 && current.shift)
+            {
+                if (heldEntry == null && entry != null)
+                {
+                    ShiftTransfer(gridKind, entry);
+                }
+                current.Use();
+                return;
+            }
+
+            if (current.button == 1)
+            {
+                if (heldEntry == null && entry != null)
+                {
+                    PickUp(
+                        gridKind,
+                        entry,
+                        Mathf.CeilToInt(entry.Quantity * 0.5f),
+                        cellSize,
+                        slotIndex,
+                        columns);
+                }
+                else if (heldEntry != null)
+                {
+                    PlaceHeld(gridKind, slotIndex, 1);
+                }
+                current.Use();
+                return;
+            }
+
+            if (current.button != 0)
+            {
+                return;
+            }
+            if (heldEntry == null && entry != null)
+            {
+                PickUp(
+                    gridKind,
+                    entry,
+                    entry.Quantity,
+                    cellSize,
+                    slotIndex,
+                    columns);
+                leftPressPickedUpItem = heldEntry != null;
+            }
+            else if (heldEntry != null)
+            {
+                leftPressPickedUpItem = false;
+                PlaceHeld(gridKind, slotIndex, heldEntry.Quantity);
+            }
+            current.Use();
+        }
+
+        private void DrawHeldItem()
+        {
+            if (heldEntry == null)
+            {
+                return;
+            }
+
+            IReadOnlyList<Vector2Int> footprint =
+                ItemDefinitionCatalog.GetFootprint(
+                    heldEntry.DefinitionId,
+                    heldEntry.RotationQuarterTurns);
+            GetFootprintDimensions(
+                footprint,
+                out int width,
+                out int height);
+            float stride = heldCellSize + StorageCellGap;
+            Vector2 mouse = Event.current.mousePosition;
+            Rect attached = new Rect(
+                mouse.x - heldCellSize * 0.5f -
+                    heldGrabOffset.x * stride,
+                mouse.y - heldCellSize * 0.5f -
+                    heldGrabOffset.y * stride,
+                width * heldCellSize +
+                    Mathf.Max(0, width - 1) * StorageCellGap,
+                height * heldCellSize +
+                    Mathf.Max(0, height - 1) * StorageCellGap);
+            Color previousColor = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.92f);
+            DrawItem(attached, heldEntry, heldCellSize);
+            GUI.color = previousColor;
+            if (Event.current.type == EventType.MouseUp &&
+                Event.current.button == 0)
+            {
+                leftPressPickedUpItem = false;
+            }
+        }
+
+        private void PickUp(
+            InventoryGridKind gridKind,
+            StorageEntry entry,
+            int quantity,
+            float cellSize,
+            int clickedSlot,
+            int columns)
+        {
+            RaidPrototypeController raid = ResolveRaidController();
+            if (raid == null)
+            {
+                statusMessage = "Raid inventory is not ready.";
+                return;
+            }
+
+            bool pickedUp = gridKind == InventoryGridKind.Player
+                ? raid.TryTakeInventoryEntry(
+                    entry,
+                    quantity,
+                    out heldEntry)
+                : raid.TryTakeLootEntry(
+                    activeRaidLoot,
+                    entry,
+                    quantity,
+                    out heldEntry);
+            if (!pickedUp)
+            {
+                heldEntry = null;
+                statusMessage = "That item is no longer available.";
+                return;
+            }
+
+            heldOrigin = gridKind;
+            heldLootSource = gridKind == InventoryGridKind.Loot
+                ? activeRaidLoot
+                : null;
+            heldOriginSlot = entry.SlotIndex;
+            heldGrabOffset = new Vector2Int(
+                clickedSlot % columns - entry.SlotIndex % columns,
+                clickedSlot / columns - entry.SlotIndex / columns);
+            heldCellSize = cellSize;
+        }
+
+        private void PlaceHeld(
+            InventoryGridKind target,
+            int targetSlot,
+            int requestedQuantity)
+        {
+            RaidPrototypeController raid = ResolveRaidController();
+            if (raid == null || heldEntry == null)
+            {
+                return;
+            }
+
+            int targetColumns = target == InventoryGridKind.Player
+                ? PackColumns
+                : activeRaidLoot != null
+                    ? activeRaidLoot.Columns
+                    : PackColumns;
+            int anchorSlot = CalculateHeldAnchorSlot(
+                targetSlot,
+                targetColumns);
+            int amount = Mathf.Min(requestedQuantity, heldEntry.Quantity);
+            StorageEntry portion = heldEntry.CreateSplitCopy(amount);
+            int moved = target == InventoryGridKind.Player
+                ? raid.TryPlaceInInventory(portion, anchorSlot, false)
+                : raid.TryPlaceInLoot(
+                    activeRaidLoot,
+                    portion,
+                    anchorSlot,
+                    false);
+            if (moved <= 0)
+            {
+                statusMessage = "That slot cannot accept this item.";
+                return;
+            }
+
+            heldEntry.RemoveQuantity(moved);
+            statusMessage = moved == 1 && requestedQuantity == 1
+                ? "Placed one item."
+                : $"Placed {moved} item{(moved == 1 ? string.Empty : "s")}.";
+            if (heldEntry.Quantity <= 0)
+            {
+                ClearHeldItem();
+            }
+        }
+
+        private void ShiftTransfer(
+            InventoryGridKind sourceKind,
+            StorageEntry entry)
+        {
+            RaidPrototypeController raid = ResolveRaidController();
+            if (raid == null)
+            {
+                statusMessage = "Raid inventory is not ready.";
+                return;
+            }
+
+            StorageEntry moving;
+            bool taken = sourceKind == InventoryGridKind.Player
+                ? raid.TryTakeInventoryEntry(
+                    entry,
+                    entry.Quantity,
+                    out moving)
+                : raid.TryTakeLootEntry(
+                    activeRaidLoot,
+                    entry,
+                    entry.Quantity,
+                    out moving);
+            if (!taken)
+            {
+                statusMessage = "That item is no longer available.";
+                return;
+            }
+
+            int moved = sourceKind == InventoryGridKind.Player
+                ? raid.TryPlaceInLoot(activeRaidLoot, moving, -1, true)
+                : raid.TryPlaceInInventory(moving, -1, true);
+            if (moved < moving.Quantity)
+            {
+                StorageEntry remainder = moving.CreateSplitCopy(
+                    moving.Quantity - moved);
+                int returned = sourceKind == InventoryGridKind.Player
+                    ? raid.TryPlaceInInventory(
+                        remainder,
+                        entry.SlotIndex,
+                        false)
+                    : raid.TryPlaceInLoot(
+                        activeRaidLoot,
+                        remainder,
+                        entry.SlotIndex,
+                        false);
+                if (returned < remainder.Quantity)
+                {
+                    if (sourceKind == InventoryGridKind.Player)
+                    {
+                        raid.TryPlaceInInventory(remainder, -1, true);
+                    }
+                    else
+                    {
+                        raid.TryPlaceInLoot(
+                            activeRaidLoot,
+                            remainder,
+                            -1,
+                            true);
+                    }
+                }
+            }
+
+            string itemName = ItemDefinitionCatalog.DisplayName(
+                moving.DefinitionId);
+            statusMessage = moved > 0
+                ? $"Moved {moved} {itemName} with smart stacking."
+                : "The destination has no room for that item.";
+        }
+
+        private RaidPrototypeController ResolveRaidController()
+        {
+            return FindFirstObjectByType<RaidPrototypeController>();
+        }
+
+        private bool ReturnHeldItem()
+        {
+            if (heldEntry == null)
+            {
+                return true;
+            }
+            RaidPrototypeController raid = ResolveRaidController();
+            if (raid == null)
+            {
+                return false;
+            }
+
+            int returned = heldOrigin == InventoryGridKind.Player
+                ? raid.TryPlaceInInventory(
+                    heldEntry,
+                    heldOriginSlot,
+                    false)
+                : raid.TryPlaceInLoot(
+                    heldLootSource,
+                    heldEntry,
+                    heldOriginSlot,
+                    false);
+            if (returned < heldEntry.Quantity)
+            {
+                StorageEntry remainder = heldEntry.CreateSplitCopy(
+                    heldEntry.Quantity - returned);
+                returned += heldOrigin == InventoryGridKind.Player
+                    ? raid.TryPlaceInInventory(remainder, -1, true)
+                    : raid.TryPlaceInLoot(
+                        heldLootSource,
+                        remainder,
+                        -1,
+                        true);
+            }
+            if (returned < heldEntry.Quantity)
+            {
+                return false;
+            }
+            ClearHeldItem();
+            return true;
+        }
+
+        private void ClearHeldItem()
+        {
+            heldEntry = null;
+            heldOrigin = InventoryGridKind.Passive;
+            heldLootSource = null;
+            heldOriginSlot = -1;
+            heldGrabOffset = Vector2Int.zero;
+            heldCellSize = 0f;
+            leftPressPickedUpItem = false;
+        }
+
+        private void RotateHeldItem()
+        {
+            if (heldEntry == null)
+            {
+                return;
+            }
+            IReadOnlyList<Vector2Int> currentFootprint =
+                ItemDefinitionCatalog.GetFootprint(
+                    heldEntry.DefinitionId,
+                    heldEntry.RotationQuarterTurns);
+            heldGrabOffset =
+                ItemDefinitionCatalog.RotateFootprintOffsetClockwise(
+                    currentFootprint,
+                    heldGrabOffset);
+            heldEntry.RotateClockwise();
+            statusMessage =
+                $"Rotated {ItemDefinitionCatalog.DisplayName(heldEntry.DefinitionId)} 90 degrees.";
+        }
+
+        private int CalculateHeldAnchorSlot(
+            int hoveredSlot,
+            int columns)
+        {
+            int targetColumn = hoveredSlot % columns -
+                heldGrabOffset.x;
+            int targetRow = hoveredSlot / columns -
+                heldGrabOffset.y;
+            return targetRow * columns + targetColumn;
+        }
+
+        private void DrawItem(
+            Rect footprintRect,
+            StorageEntry entry,
+            float cellSize)
+        {
+            Texture2D icon = ItemDefinitionCatalog.LoadIcon(
+                entry.DefinitionId);
+            if (icon != null)
+            {
+                IReadOnlyList<Vector2Int> baseFootprint =
+                    ItemDefinitionCatalog.GetFootprint(
+                        entry.DefinitionId,
+                        0);
+                GetFootprintDimensions(
+                    baseFootprint,
+                    out int baseWidth,
+                    out int baseHeight);
+                Rect iconRect = new Rect(
+                    footprintRect.center.x -
+                        (baseWidth * cellSize +
+                         Mathf.Max(0, baseWidth - 1) * StorageCellGap) * 0.5f,
+                    footprintRect.center.y -
+                        (baseHeight * cellSize +
+                         Mathf.Max(0, baseHeight - 1) * StorageCellGap) * 0.5f,
+                    baseWidth * cellSize +
+                        Mathf.Max(0, baseWidth - 1) * StorageCellGap,
+                    baseHeight * cellSize +
+                        Mathf.Max(0, baseHeight - 1) * StorageCellGap);
+                Matrix4x4 previousMatrix = GUI.matrix;
+                GUIUtility.RotateAroundPivot(
+                    entry.RotationQuarterTurns * 90f,
+                    footprintRect.center);
+                GUI.DrawTexture(
+                    new Rect(
+                        iconRect.x + 3f,
+                        iconRect.y + 3f,
+                        iconRect.width - 6f,
+                        iconRect.height - 6f),
+                    icon,
+                    ScaleMode.ScaleToFit,
+                    true);
+                GUI.matrix = previousMatrix;
+            }
+            else
+            {
+                GUI.Label(
+                    footprintRect,
+                    GetInitials(entry.DefinitionId),
+                    cellStyle);
+            }
+
+            if (entry.Quantity > 1)
+            {
+                GUI.Label(
+                    new Rect(
+                        footprintRect.x + 3f,
+                        footprintRect.y + 3f,
+                        footprintRect.width - 7f,
+                        footprintRect.height - 6f),
+                    entry.Quantity.ToString(),
+                    quantityStyle);
             }
         }
 
@@ -569,7 +1107,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GUI.color = previousColor;
         }
 
-        private static List<StorageEntry> BuildPackEntries(PlayerProfile profile)
+        private List<StorageEntry> BuildPackEntries(PlayerProfile profile)
         {
             var entries = new List<StorageEntry>(profile.InventoryEntryIds.Count);
             for (int index = 0; index < profile.InventoryEntryIds.Count; index++)
@@ -581,7 +1119,94 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     entries.Add(entry);
                 }
             }
+
+            GameplayLoopBootstrap bootstrap =
+                GameplaySceneRuntime.ResolveBootstrap();
+            RaidSession raid = bootstrap != null &&
+                bootstrap.Session != null
+                    ? bootstrap.Session.ActiveRaid
+                    : null;
+            if (raid != null && raid.IsActive)
+            {
+                for (int index = 0;
+                     index < raid.CollectedStorageEntries.Count;
+                     index++)
+                {
+                    StorageEntry entry = raid.CollectedStorageEntries[index];
+                    if (entry != null)
+                    {
+                        entries.Add(entry);
+                    }
+                }
+
+            }
             return entries;
+        }
+
+        private static StorageEntry[] BuildSlotMap(
+            IReadOnlyList<StorageEntry> entries,
+            int columns,
+            int rows)
+        {
+            int capacity = columns * rows;
+            var slots = new StorageEntry[capacity];
+            for (int slot = 0; slot < capacity; slot++)
+            {
+                slots[slot] = ItemGridPlacement.GetEntryAtSlot(
+                    entries,
+                    slot,
+                    columns,
+                    rows);
+            }
+            return slots;
+        }
+
+        private static bool TryGetItemRect(
+            StorageEntry entry,
+            int columns,
+            int rows,
+            IReadOnlyList<Rect> cellRects,
+            out Rect itemRect)
+        {
+            itemRect = default;
+            IReadOnlyList<Vector2Int> footprint =
+                ItemDefinitionCatalog.GetFootprint(
+                    entry.DefinitionId,
+                    entry.RotationQuarterTurns);
+            if (!ItemGridPlacement.TryGetOccupiedSlots(
+                    footprint,
+                    entry.SlotIndex,
+                    columns,
+                    rows,
+                    out int[] occupiedSlots))
+            {
+                return false;
+            }
+            Rect bounds = cellRects[occupiedSlots[0]];
+            for (int index = 1; index < occupiedSlots.Length; index++)
+            {
+                Rect cell = cellRects[occupiedSlots[index]];
+                bounds.xMin = Mathf.Min(bounds.xMin, cell.xMin);
+                bounds.yMin = Mathf.Min(bounds.yMin, cell.yMin);
+                bounds.xMax = Mathf.Max(bounds.xMax, cell.xMax);
+                bounds.yMax = Mathf.Max(bounds.yMax, cell.yMax);
+            }
+            itemRect = bounds;
+            return true;
+        }
+
+        private static void GetFootprintDimensions(
+            IReadOnlyList<Vector2Int> footprint,
+            out int width,
+            out int height)
+        {
+            width = 1;
+            height = 1;
+            for (int index = 0; index < footprint.Count; index++)
+            {
+                width = Mathf.Max(width, footprint[index].x + 1);
+                height = Mathf.Max(height, footprint[index].y + 1);
+            }
         }
 
         private static List<StorageEntry> BuildChestEntries(
@@ -645,6 +1270,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return;
             }
+            if (!ReturnHeldItem())
+            {
+                statusMessage =
+                    "Place the held item before closing the inventory.";
+                return;
+            }
             if (gridToolkit != null && gridToolkit.IsOpen)
             {
                 gridToolkit.Close();
@@ -658,6 +1289,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 playerInput.SetUserInterfaceCapture(previousInputCapture);
             }
             chestOpen = false;
+            activeRaidLoot = null;
+            ClearHeldItem();
             activeChestId = PlayerProfile.DefaultChestId;
             activeChestName = "CHEST 1";
             isOpen = false;
@@ -687,7 +1320,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void EnsureStyles()
         {
             GameTypography.ApplyToCurrentSkin();
-            cellStyle ??= new GUIStyle(GUI.skin.button)
+            cellStyle ??= new GUIStyle(GUI.skin.label)
             {
                 font = GameTypography.UiFont,
                 alignment = TextAnchor.MiddleCenter,
@@ -726,6 +1359,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 alignment = TextAnchor.LowerCenter,
                 fontSize = 10,
+                normal = { textColor = Color.white }
+            };
+            quantityStyle ??= new GUIStyle(LoopSceneGui.Body)
+            {
+                alignment = TextAnchor.LowerRight,
+                fontSize = 13,
+                fontStyle = FontStyle.Normal,
                 normal = { textColor = Color.white }
             };
         }

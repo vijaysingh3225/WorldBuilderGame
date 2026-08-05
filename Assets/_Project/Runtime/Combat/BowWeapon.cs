@@ -4,6 +4,7 @@ using WorldBuilder.Gameplay.CameraSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Loop.Scenes;
 
 namespace WorldBuilder.Gameplay.Combat
 {
@@ -54,6 +55,7 @@ namespace WorldBuilder.Gameplay.Combat
         private float pendingReleaseCharge;
         private bool pendingReleaseAimLocked;
         private Ray pendingReleaseAimRay;
+        private RaidPrototypeController raidController;
 
         public event Action<float> ArrowFired;
 
@@ -61,7 +63,13 @@ namespace WorldBuilder.Gameplay.Combat
         public bool IsDrawing => weaponEquipped && drawHeldLastFrame;
         public bool ArrowReady => arrowReady;
         public bool CanFire =>
-            arrowReady && heldDuration >= minimumHoldDuration;
+            arrowReady &&
+            HasAmmunition &&
+            heldDuration >= minimumHoldDuration;
+        public bool HasAmmunition =>
+            !playerOwned ||
+            raidController == null ||
+            raidController.ArrowCount > 0;
         public float HeldDuration => heldDuration;
         public float ReadyWeight => readyWeight;
         public float DrawNormalized =>
@@ -159,6 +167,7 @@ namespace WorldBuilder.Gameplay.Combat
             headshotFeedbackClip = headshotClip;
             arrowFlybyClip = flybyClip;
             ConfigureAudio();
+            ResolveRaidController();
             SetWeaponEquipped(false);
         }
 
@@ -167,8 +176,9 @@ namespace WorldBuilder.Gameplay.Combat
             weaponEquipped = equipped;
             CancelDraw(false);
             reloadRemaining = 0f;
-            arrowReady = equipped;
-            SetNockedArrowVisible(equipped);
+            ResolveRaidController();
+            arrowReady = equipped && HasAmmunition;
+            SetNockedArrowVisible(arrowReady);
         }
 
         public void SetRuntimeDamageBonus(float bonus)
@@ -216,6 +226,7 @@ namespace WorldBuilder.Gameplay.Combat
             }
             releaseCommitter.Configure(this);
             ConfigureAudio();
+            ResolveRaidController();
         }
 
         private void OnDisable()
@@ -253,6 +264,24 @@ namespace WorldBuilder.Gameplay.Combat
                 return;
             }
 
+            ResolveRaidController();
+            if (!HasAmmunition)
+            {
+                if (drawHeldLastFrame)
+                {
+                    CancelDraw(false);
+                }
+                arrowReady = false;
+                reloadRemaining = 0f;
+                SetNockedArrowVisible(false);
+                return;
+            }
+            if (!arrowReady && reloadRemaining <= 0f)
+            {
+                arrowReady = true;
+                SetNockedArrowVisible(true);
+            }
+
             UpdateReload();
             if (drawHeld)
             {
@@ -288,8 +317,8 @@ namespace WorldBuilder.Gameplay.Combat
             reloadRemaining = Mathf.Max(0f, reloadRemaining - Time.deltaTime);
             if (reloadRemaining <= 0f)
             {
-                arrowReady = true;
-                SetNockedArrowVisible(true);
+                arrowReady = HasAmmunition;
+                SetNockedArrowVisible(arrowReady);
             }
         }
 
@@ -352,6 +381,17 @@ namespace WorldBuilder.Gameplay.Combat
         {
             if (nockedArrow == null)
             {
+                return;
+            }
+
+            ResolveRaidController();
+            if (playerOwned &&
+                raidController != null &&
+                !raidController.TryConsumePlayerArrow())
+            {
+                arrowReady = false;
+                reloadRemaining = 0f;
+                SetNockedArrowVisible(false);
                 return;
             }
 
@@ -806,6 +846,15 @@ namespace WorldBuilder.Gameplay.Combat
             hitFeedbackAudioSource.volume = 1f;
             hitFeedbackAudioSource.mute = false;
             hitFeedbackAudioSource.ignoreListenerPause = true;
+        }
+
+        private void ResolveRaidController()
+        {
+            if (!playerOwned || raidController != null)
+            {
+                return;
+            }
+            raidController = FindFirstObjectByType<RaidPrototypeController>();
         }
 
         private static bool IsPlayerTransform(

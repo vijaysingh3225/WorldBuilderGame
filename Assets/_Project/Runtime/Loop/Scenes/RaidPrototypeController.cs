@@ -49,6 +49,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public int LootCollected => lootCollected;
         public int ObelisksActivated => obelisksActivated;
         public int ObeliskCount => obelisks.Count;
+        public int ArrowCount =>
+            session != null &&
+            session.ActiveRaid != null
+                ? session.ActiveRaid.GetItemQuantity(
+                    ItemDefinitionIds.Arrow,
+                    session.ActiveProfile)
+                : 0;
 
         public event Action AllObelisksActivated;
 
@@ -147,12 +154,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void OnGUI()
         {
             DrawHealthBar(new Rect(24f, 40f, 300f, 18f));
+            GUI.Label(
+                new Rect(24f, 63f, 180f, 20f),
+                $"ARROWS  {ArrowCount}",
+                LoopSceneGui.Muted);
             bowWeapon ??= FindFirstObjectByType<BowWeapon>();
             if (bowWeapon != null &&
                 (bowWeapon.IsDrawing ||
                  bowWeapon.DrawNormalized > 0f))
             {
-                DrawBowCharge(new Rect(24f, 70f, 300f, 12f));
+                DrawBowCharge(new Rect(24f, 88f, 300f, 12f));
             }
 
             if (completionPending && showCompletionOverlay)
@@ -184,6 +195,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Health health = enemy.GetComponent<Health>();
             enemies.Add(enemy);
             enemyHealth.Add(health);
+            RaidLootContainer loot =
+                enemy.GetComponent<RaidLootContainer>() ??
+                enemy.gameObject.AddComponent<RaidLootContainer>();
+            int raidSeed = session != null &&
+                session.ActiveRaid != null &&
+                session.ActiveRaid.LaunchRequest != null
+                    ? session.ActiveRaid.LaunchRequest.Seed
+                    : 0;
+            loot.ConfigureCorpse(
+                enemy,
+                raidSeed ^ StableHash(enemy.name));
             if (health != null)
             {
                 health.Died += HandleEnemyDied;
@@ -209,7 +231,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 StorageEntry entry = StorageEntry.Create(
                     pickup.DefinitionId,
                     pickup.Quantity);
-                session.ActiveRaid.RecordLoot(entry);
+                session.ActiveRaid.RecordLoot(
+                    entry,
+                    session.ActiveProfile);
                 lootCollected++;
                 statusMessage =
                     $"Collected {pickup.DisplayName}. " +
@@ -223,6 +247,112 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     $"Could not collect pickup: {exception.Message}";
                 return false;
             }
+        }
+
+        public bool TryTransferLoot(
+            RaidLootContainer source,
+            StorageEntry entry,
+            out string message)
+        {
+            message = string.Empty;
+            if (source == null ||
+                entry == null ||
+                !source.Contains(entry.EntryId) ||
+                !RaidActive)
+            {
+                message = "That loot is no longer available.";
+                return false;
+            }
+
+            if (!source.TryTake(
+                    entry.EntryId,
+                    entry.Quantity,
+                    out StorageEntry taken))
+            {
+                message = "That loot is no longer available.";
+                return false;
+            }
+
+            int moved = TryPlaceInInventory(taken, -1, true);
+            if (moved < taken.Quantity)
+            {
+                StorageEntry remainder = taken.CreateSplitCopy(
+                    taken.Quantity - moved);
+                source.TryAdd(remainder, entry.SlotIndex, false);
+                message = "The 4 x 6 backpack is full.";
+                return false;
+            }
+
+            lootCollected++;
+            message =
+                $"{ItemDefinitionCatalog.DisplayName(entry.DefinitionId)} " +
+                "moved to backpack.";
+            return true;
+        }
+
+        public bool TryTakeInventoryEntry(
+            StorageEntry entry,
+            int quantity,
+            out StorageEntry taken)
+        {
+            taken = null;
+            return entry != null &&
+                RaidActive &&
+                session.ActiveRaid.TryTakeCarried(
+                    entry.EntryId,
+                    quantity,
+                    session.ActiveProfile,
+                    out taken);
+        }
+
+        public int TryPlaceInInventory(
+            StorageEntry entry,
+            int targetSlot,
+            bool autoStack)
+        {
+            return entry != null && RaidActive
+                ? session.ActiveRaid.TryAddCarried(
+                    entry,
+                    targetSlot,
+                    autoStack,
+                    session.ActiveProfile)
+                : 0;
+        }
+
+        public bool TryTakeLootEntry(
+            RaidLootContainer source,
+            StorageEntry entry,
+            int quantity,
+            out StorageEntry taken)
+        {
+            taken = null;
+            return source != null &&
+                entry != null &&
+                RaidActive &&
+                source.TryTake(entry.EntryId, quantity, out taken);
+        }
+
+        public int TryPlaceInLoot(
+            RaidLootContainer source,
+            StorageEntry entry,
+            int targetSlot,
+            bool autoStack)
+        {
+            return source != null &&
+                entry != null &&
+                RaidActive
+                    ? source.TryAdd(entry, targetSlot, autoStack)
+                    : 0;
+        }
+
+        public bool TryConsumePlayerArrow()
+        {
+            return session != null &&
+                session.ActiveRaid != null &&
+                session.ActiveRaid.TryConsumeItem(
+                    ItemDefinitionIds.Arrow,
+                    1,
+                    session.ActiveProfile);
         }
 
         public void RegisterObelisk(RaidObelisk obelisk)
@@ -570,6 +700,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                       $" / {Mathf.CeilToInt(playerHealth.Maximum)}"
                     : "HEALTH  —",
                 LoopSceneGui.Muted);
+        }
+
+        private static int StableHash(string value)
+        {
+            unchecked
+            {
+                int hash = 17;
+                string safe = value ?? string.Empty;
+                for (int index = 0; index < safe.Length; index++)
+                {
+                    hash = hash * 31 + safe[index];
+                }
+                return hash;
+            }
         }
 
         private void DrawBowCharge(Rect rect)

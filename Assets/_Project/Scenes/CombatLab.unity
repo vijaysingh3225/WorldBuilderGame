@@ -20367,7 +20367,7 @@ MonoBehaviour:
   jumpBufferTime: 0.12
   jumpReleaseGravityMultiplier: 2.35
   crouchingHeight: 1.2
-  crouchTransitionSpeed: 5.5
+  crouchTransitionSpeed: 2.75
   overheadObstructionMask:
     serializedVersion: 2
     m_Bits: 4294967291

@@ -99,6 +99,16 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 : 0f;
         }
 
+        public static float CalculateCrouchFollowHeight(
+            float standingFollowHeight,
+            float crouchDrop,
+            float crouchAmount)
+        {
+            return standingFollowHeight -
+                Mathf.Clamp01(crouchAmount) *
+                Mathf.Max(0f, crouchDrop);
+        }
+
         public static void CalculateBowCameraComposition(
             Vector3 normalShoulderOffset,
             float normalDistance,
@@ -248,7 +258,10 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 }
             }
 
-            float targetFollowHeight = followOffset.y - (motor != null ? motor.CrouchAmount * crouchCameraDrop : 0f);
+            float targetFollowHeight = CalculateCrouchFollowHeight(
+                followOffset.y,
+                crouchCameraDrop,
+                motor != null ? motor.CrouchAmount : 0f);
             targetFollowHeight = ResolveHeightUnderCeiling(targetFollowHeight);
             currentFollowHeight = heightSmoothTime <= 0f
                 ? targetFollowHeight

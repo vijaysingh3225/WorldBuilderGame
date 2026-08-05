@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace WorldBuilder.Gameplay.Loop
@@ -309,24 +310,447 @@ namespace WorldBuilder.Gameplay.Loop
 
         public void RecordLoot(StorageEntry entry)
         {
+            RecordLoot(entry, null);
+        }
+
+        public void RecordLoot(
+            StorageEntry entry,
+            PlayerProfile profile)
+        {
             EnsureActive();
             if (entry == null)
             {
                 throw new ArgumentNullException(nameof(entry));
             }
 
-            int occupiedSlots =
-                launchRequest.CarriedStorageEntryIds.Count +
-                collectedStorageEntries.Count;
-            if (occupiedSlots >= PlayerProfile.InventoryCapacity)
+            if (GetAvailableCarriedCapacity(
+                    entry,
+                    profile) < entry.Quantity)
             {
                 throw new InvalidOperationException(
                     "The player inventory is full.");
             }
 
-            StorageEntry copy = entry.Clone();
-            copy.Normalize();
-            collectedStorageEntries.Add(copy);
+            int moved = TryAddCarried(
+                entry,
+                -1,
+                true,
+                profile);
+            if (moved != entry.Quantity)
+            {
+                throw new InvalidOperationException(
+                    "The player inventory is full.");
+            }
+        }
+
+        public IReadOnlyList<StorageEntry> GetCarriedEntries(
+            PlayerProfile profile)
+        {
+            var entries = new List<StorageEntry>();
+            for (int index = 0;
+                 index < launchRequest.CarriedStorageEntryIds.Count;
+                 index++)
+            {
+                StorageEntry entry = profile != null
+                    ? profile.FindStorageEntry(
+                        launchRequest.CarriedStorageEntryIds[index])
+                    : null;
+                if (entry != null)
+                {
+                    entries.Add(entry);
+                }
+            }
+            for (int index = 0;
+                 index < collectedStorageEntries.Count;
+                 index++)
+            {
+                StorageEntry entry = collectedStorageEntries[index];
+                if (entry != null)
+                {
+                    entries.Add(entry);
+                }
+            }
+            return entries;
+        }
+
+        public StorageEntry GetCarriedEntryAtSlot(
+            int slotIndex,
+            PlayerProfile profile)
+        {
+            if (slotIndex < 0 ||
+                slotIndex >= PlayerProfile.InventoryCapacity)
+            {
+                return null;
+            }
+            IReadOnlyList<StorageEntry> entries =
+                GetCarriedEntries(profile);
+            return ItemGridPlacement.GetEntryAtSlot(
+                entries,
+                slotIndex,
+                PlayerProfile.InventoryColumns,
+                PlayerProfile.InventoryRows);
+        }
+
+        public bool TryTakeCarried(
+            string entryId,
+            int quantity,
+            PlayerProfile profile,
+            out StorageEntry taken)
+        {
+            EnsureActive();
+            taken = null;
+            if (string.IsNullOrWhiteSpace(entryId) || quantity <= 0)
+            {
+                return false;
+            }
+
+            if (profile != null)
+            {
+                StorageEntry profileEntry =
+                    profile.FindStorageEntry(entryId);
+                if (profileEntry != null &&
+                    launchRequest.CarriedStorageEntryIds.Contains(entryId))
+                {
+                    int amount = Math.Min(quantity, profileEntry.Quantity);
+                    taken = amount == profileEntry.Quantity
+                        ? profileEntry.Clone()
+                        : profileEntry.CreateSplitCopy(amount);
+                    profileEntry.RemoveQuantity(amount);
+                    if (profileEntry.Quantity <= 0)
+                    {
+                        profile.RemoveStorageEntry(entryId);
+                    }
+                    return true;
+                }
+            }
+
+            StorageEntry collected = collectedStorageEntries.Find(entry =>
+                entry != null &&
+                string.Equals(
+                    entry.EntryId,
+                    entryId,
+                    StringComparison.Ordinal));
+            if (collected == null)
+            {
+                return false;
+            }
+            int collectedAmount = Math.Min(quantity, collected.Quantity);
+            taken = collectedAmount == collected.Quantity
+                ? collected.Clone()
+                : collected.CreateSplitCopy(collectedAmount);
+            collected.RemoveQuantity(collectedAmount);
+            if (collected.Quantity <= 0)
+            {
+                collectedStorageEntries.Remove(collected);
+            }
+            return true;
+        }
+
+        public int TryAddCarried(
+            StorageEntry incoming,
+            int targetSlot,
+            bool autoStack,
+            PlayerProfile profile)
+        {
+            EnsureActive();
+            if (incoming == null || incoming.Quantity <= 0)
+            {
+                return 0;
+            }
+
+            int remaining = incoming.Quantity;
+            int moved = 0;
+            int maximumStack = ItemDefinitionCatalog.MaximumStack(
+                incoming.DefinitionId);
+            if (autoStack)
+            {
+                IReadOnlyList<StorageEntry> carried =
+                    GetCarriedEntries(profile);
+                for (int index = 0;
+                     index < carried.Count && remaining > 0;
+                     index++)
+                {
+                    StorageEntry stack = carried[index];
+                    if (!CanStack(stack, incoming) ||
+                        stack.Quantity >= maximumStack)
+                    {
+                        continue;
+                    }
+                    int amount = Math.Min(
+                        remaining,
+                        maximumStack - stack.Quantity);
+                    stack.SetQuantity(stack.Quantity + amount);
+                    remaining -= amount;
+                    moved += amount;
+                }
+
+                while (remaining > 0)
+                {
+                    int slot = FindAvailableCarriedSlot(
+                        incoming,
+                        profile);
+                    if (slot < 0)
+                    {
+                        break;
+                    }
+                    int amount = Math.Min(remaining, maximumStack);
+                    StorageEntry added = moved == 0 &&
+                        amount == incoming.Quantity
+                            ? incoming.Clone()
+                            : incoming.CreateSplitCopy(amount);
+                    added.SetSlotIndex(slot);
+                    collectedStorageEntries.Add(added);
+                    remaining -= amount;
+                    moved += amount;
+                }
+                return moved;
+            }
+
+            if (targetSlot < 0 ||
+                targetSlot >= PlayerProfile.InventoryCapacity)
+            {
+                return 0;
+            }
+            StorageEntry occupant = GetCarriedEntryAtSlot(
+                targetSlot,
+                profile);
+            if (occupant == null)
+            {
+                if (!ItemGridPlacement.CanPlace(
+                        GetCarriedEntries(profile),
+                        incoming,
+                        targetSlot,
+                        PlayerProfile.InventoryColumns,
+                        PlayerProfile.InventoryRows))
+                {
+                    return 0;
+                }
+                int amount = Math.Min(remaining, maximumStack);
+                StorageEntry added = amount == incoming.Quantity
+                    ? incoming.Clone()
+                    : incoming.CreateSplitCopy(amount);
+                added.SetSlotIndex(targetSlot);
+                collectedStorageEntries.Add(added);
+                return amount;
+            }
+            if (!CanStack(occupant, incoming))
+            {
+                return 0;
+            }
+            int merged = Math.Min(
+                remaining,
+                maximumStack - occupant.Quantity);
+            occupant.SetQuantity(occupant.Quantity + merged);
+            return merged;
+        }
+
+        private int FindAvailableCarriedSlot(
+            StorageEntry candidate,
+            PlayerProfile profile)
+        {
+            if (profile != null)
+            {
+                return ItemGridPlacement.FindFirstAvailableSlot(
+                    GetCarriedEntries(profile),
+                    candidate,
+                    PlayerProfile.InventoryColumns,
+                    PlayerProfile.InventoryRows);
+            }
+            for (int slot = launchRequest.CarriedStorageEntryIds.Count;
+                 slot < PlayerProfile.InventoryCapacity;
+                 slot++)
+            {
+                if (ItemGridPlacement.CanPlace(
+                        collectedStorageEntries,
+                        candidate,
+                        slot,
+                        PlayerProfile.InventoryColumns,
+                        PlayerProfile.InventoryRows))
+                {
+                    return slot;
+                }
+            }
+            return -1;
+        }
+
+        private int GetAvailableCarriedCapacity(
+            StorageEntry incoming,
+            PlayerProfile profile)
+        {
+            int maximumStack = ItemDefinitionCatalog.MaximumStack(
+                incoming.DefinitionId);
+            int available = 0;
+            IReadOnlyList<StorageEntry> entries =
+                GetCarriedEntries(profile);
+            for (int index = 0; index < entries.Count; index++)
+            {
+                StorageEntry entry = entries[index];
+                if (CanStack(entry, incoming))
+                {
+                    available += Math.Max(
+                        0,
+                        maximumStack - entry.Quantity);
+                }
+            }
+            var simulated = new List<StorageEntry>(entries);
+            if (profile == null)
+            {
+                for (int index = simulated.Count;
+                     index < launchRequest.CarriedStorageEntryIds.Count;
+                     index++)
+                {
+                    StorageEntry placeholder = StorageEntry.Create(
+                        $"reserved-slot-{index}");
+                    placeholder.SetSlotIndex(index);
+                    simulated.Add(placeholder);
+                }
+            }
+            while (true)
+            {
+                int slot = ItemGridPlacement.FindFirstAvailableSlot(
+                    simulated,
+                    incoming,
+                    PlayerProfile.InventoryColumns,
+                    PlayerProfile.InventoryRows);
+                if (slot < 0)
+                {
+                    break;
+                }
+                StorageEntry placeholder = incoming.Clone();
+                placeholder.SetSlotIndex(slot);
+                simulated.Add(placeholder);
+                available += maximumStack;
+            }
+            return available;
+        }
+
+        private static bool CanStack(
+            StorageEntry existing,
+            StorageEntry incoming)
+        {
+            return existing != null &&
+                incoming != null &&
+                ItemDefinitionCatalog.IsStackable(
+                    incoming.DefinitionId) &&
+                string.Equals(
+                    existing.DefinitionId,
+                    incoming.DefinitionId,
+                    StringComparison.Ordinal) &&
+                string.Equals(
+                    existing.CustomStateJson,
+                    incoming.CustomStateJson,
+                    StringComparison.Ordinal);
+        }
+
+        public int GetItemQuantity(
+            string definitionId,
+            PlayerProfile profile)
+        {
+            if (string.IsNullOrWhiteSpace(definitionId))
+            {
+                return 0;
+            }
+
+            int quantity = 0;
+            if (profile != null)
+            {
+                for (int index = 0;
+                     index < launchRequest.CarriedStorageEntryIds.Count;
+                     index++)
+                {
+                    StorageEntry entry = profile.FindStorageEntry(
+                        launchRequest.CarriedStorageEntryIds[index]);
+                    if (entry != null &&
+                        string.Equals(
+                            entry.DefinitionId,
+                            definitionId,
+                            StringComparison.Ordinal))
+                    {
+                        quantity += entry.Quantity;
+                    }
+                }
+            }
+
+            for (int index = 0;
+                 index < collectedStorageEntries.Count;
+                 index++)
+            {
+                StorageEntry entry = collectedStorageEntries[index];
+                if (entry != null &&
+                    string.Equals(
+                        entry.DefinitionId,
+                        definitionId,
+                        StringComparison.Ordinal))
+                {
+                    quantity += entry.Quantity;
+                }
+            }
+            return quantity;
+        }
+
+        public bool TryConsumeItem(
+            string definitionId,
+            int quantity,
+            PlayerProfile profile)
+        {
+            EnsureActive();
+            int remaining = Math.Max(0, quantity);
+            if (remaining == 0)
+            {
+                return true;
+            }
+            if (GetItemQuantity(definitionId, profile) < remaining)
+            {
+                return false;
+            }
+
+            if (profile != null)
+            {
+                for (int index = 0;
+                     index < launchRequest.CarriedStorageEntryIds.Count &&
+                     remaining > 0;
+                     index++)
+                {
+                    StorageEntry entry = profile.FindStorageEntry(
+                        launchRequest.CarriedStorageEntryIds[index]);
+                    if (entry == null ||
+                        !string.Equals(
+                            entry.DefinitionId,
+                            definitionId,
+                            StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    remaining -= entry.RemoveQuantity(remaining);
+                    if (entry.Quantity <= 0)
+                    {
+                        profile.RemoveStorageEntry(entry.EntryId);
+                    }
+                }
+            }
+
+            for (int index = collectedStorageEntries.Count - 1;
+                 index >= 0 && remaining > 0;
+                 index--)
+            {
+                StorageEntry entry = collectedStorageEntries[index];
+                if (entry == null ||
+                    !string.Equals(
+                        entry.DefinitionId,
+                        definitionId,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                remaining -= entry.RemoveQuantity(remaining);
+                if (entry.Quantity <= 0)
+                {
+                    collectedStorageEntries.RemoveAt(index);
+                }
+            }
+            return remaining == 0;
         }
 
         public void RecordEnemyDefeated(int count = 1)

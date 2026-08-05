@@ -16,6 +16,7 @@ namespace WorldBuilder.Gameplay.Characters
         public const float DefaultJogSpeed = 3.1f;
         public const float DefaultSprintSpeed = 4.6f;
         public const float DefaultCrouchSpeed = 1.0f;
+        public const float DefaultCrouchTransitionSpeed = 2.75f;
 
         [SerializeField, Min(0f)] private float walkSpeed = DefaultWalkSpeed;
         [SerializeField, Min(0f)] private float sprintSpeed = DefaultSprintSpeed;
@@ -34,7 +35,8 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0f)] private float jumpBufferTime = 0.12f;
         [SerializeField, Min(1f)] private float jumpReleaseGravityMultiplier = 2.35f;
         [SerializeField, Min(0.9f)] private float crouchingHeight = 1.2f;
-        [SerializeField, Min(0.1f)] private float crouchTransitionSpeed = 5.5f;
+        [SerializeField, Min(0.1f)] private float crouchTransitionSpeed =
+            DefaultCrouchTransitionSpeed;
         [SerializeField] private LayerMask overheadObstructionMask = ~(1 << 2);
         [SerializeField] private LayerMask groundSupportMask = ~(1 << 2);
         [SerializeField, Min(0.05f)] private float groundProbeRadius = 0.18f;

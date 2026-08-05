@@ -1067,7 +1067,7 @@ namespace WorldBuilder.Tests
                         .RenderQueue.Transparent));
             Assert.That(
                 generator.GeneratedTreeCount,
-                Is.GreaterThanOrEqualTo(1400));
+                Is.GreaterThanOrEqualTo(1120));
             Transform forest =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Dense Stylized Forest");

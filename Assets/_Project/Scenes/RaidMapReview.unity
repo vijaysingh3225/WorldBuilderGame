@@ -35416,7 +35416,7 @@ MonoBehaviour:
   terrainResolution: 256
   regionalElevationAmplitude: 6.2
   directionalElevationRise: 4.2
-  treeCount: 1500
+  treeCount: 1200
   treeScaleMultiplier: 1.75
   grassCount: 128000
   undergrowthCount: 4200
@@ -62564,7 +62564,7 @@ MonoBehaviour:
   jumpBufferTime: 0.12
   jumpReleaseGravityMultiplier: 2.35
   crouchingHeight: 1.2
-  crouchTransitionSpeed: 5.5
+  crouchTransitionSpeed: 2.75
   overheadObstructionMask:
     serializedVersion: 2
     m_Bits: 4294967291

@@ -10,6 +10,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     {
         private const int PreviewLayer = 30;
         public const float DefaultCharacterYaw = 12f;
+        public const float SecondaryThumbnailYaw = 90f;
+        public const float SecondaryThumbnailRoll = -90f;
         private static readonly Vector3 StagePosition =
             new Vector3(4096f, -4096f, 4096f);
 
@@ -107,9 +109,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             RenderProxy(
                 secondaryProxy,
                 secondaryThumbnail,
-                18f,
-                1.20f,
-                -78f);
+                SecondaryThumbnailYaw,
+                1.12f,
+                SecondaryThumbnailRoll);
             RenderProxy(
                 selectedWeapon == 0 ? primaryProxy : secondaryProxy,
                 weaponTexture,

@@ -47,5 +47,16 @@ namespace WorldBuilder.Tests.EditMode
                 Object.DestroyImmediate(previewObject);
             }
         }
+
+        [Test]
+        public void BowThumbnailUsesBroadTopDownViewRotatedIntoCard()
+        {
+            Assert.That(
+                InventoryPreviewRenderer.SecondaryThumbnailYaw,
+                Is.EqualTo(90f));
+            Assert.That(
+                InventoryPreviewRenderer.SecondaryThumbnailRoll,
+                Is.EqualTo(-90f));
+        }
     }
 }

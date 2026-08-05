@@ -155,7 +155,7 @@ Rebuild with **WorldBuilder -> Build Combat Lab**, play `Assets/_Project/Scenes/
 
 Record any remaining walk/run glide, directional offset, reversal delay, crouch floor gap, pose intersection, or jump transition pop. Correlate visual findings with exact samples and screenshots, then check contact sample counts and calibration before treating an automated ground-gap or slip warning as conclusive.
 
-The current crouch is otherwise accepted, but its grounded rest still has a small knee gap and part of the folded rear foot entering the floor. Preserve its transition and overall silhouette when that contact issue is addressed later.
+The current crouch is otherwise accepted, but its grounded rest still has a small knee gap and part of the folded rear foot entering the floor. Entering and leaving crouch now take twice as long as the earlier implementation: the authoritative capsule-height ramp is about 0.291 seconds and the matching Animator blend is 0.32 seconds. Camera height continues to derive from the motor's continuous crouch amount, so it follows the same slower body transition without adding a separate lag. Preserve this timing and the overall silhouette when the contact issue is addressed later.
 
 ## Deliberately deferred
 

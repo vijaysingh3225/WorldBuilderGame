@@ -92,8 +92,48 @@ namespace WorldBuilder.Gameplay.Loop
             int? seedOverride = null,
             IEnumerable<string> carriedStorageEntryIds = null)
         {
+            if (!ActiveProfile.TrySetInventoryStack(
+                    ItemDefinitionIds.Arrow,
+                    20))
+            {
+                throw new InvalidOperationException(
+                    "A raid requires one open backpack slot for the arrow stack.");
+            }
+            var carriedIds = new List<string>();
+            if (carriedStorageEntryIds != null)
+            {
+                foreach (string entryId in carriedStorageEntryIds)
+                {
+                    if (!string.IsNullOrWhiteSpace(entryId) &&
+                        !carriedIds.Contains(entryId))
+                    {
+                        carriedIds.Add(entryId);
+                    }
+                }
+            }
+            else
+            {
+                carriedIds.AddRange(ActiveProfile.InventoryEntryIds);
+            }
+
+            for (int index = 0;
+                 index < ActiveProfile.InventoryEntryIds.Count;
+                 index++)
+            {
+                string entryId = ActiveProfile.InventoryEntryIds[index];
+                StorageEntry entry = ActiveProfile.FindStorageEntry(entryId);
+                if (entry != null &&
+                    string.Equals(
+                        entry.DefinitionId,
+                        ItemDefinitionIds.Arrow,
+                        StringComparison.Ordinal) &&
+                    !carriedIds.Contains(entryId))
+                {
+                    carriedIds.Add(entryId);
+                }
+            }
             return BeginRaid(
-                CreateRaidLaunchRequest(seedOverride, carriedStorageEntryIds));
+                CreateRaidLaunchRequest(seedOverride, carriedIds));
         }
 
         public RaidResult CompleteActiveRaid(

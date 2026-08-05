@@ -68,18 +68,23 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(backpack.width, Is.EqualTo(loot.width));
             Assert.That(
                 backpack.center.x,
-                Is.EqualTo(
-                    screenWidth * 0.5f +
-                    HomeInventoryController.InventoryHorizontalAlignmentOffset));
+                Is.EqualTo(screenWidth * 0.5f).Within(0.001f));
             Assert.That(
                 backpack.x - equipment.xMax,
-                Is.EqualTo(spacing * 0.25f));
+                Is.EqualTo(spacing * 0.25f).Within(0.001f));
             Assert.That(
                 loot.x - backpack.xMax,
-                Is.EqualTo(spacing * 0.25f));
+                Is.EqualTo(spacing * 0.25f).Within(0.001f));
             Assert.That(
                 backpack.center.x - equipment.center.x,
-                Is.EqualTo(loot.center.x - backpack.center.x));
+                Is.EqualTo(
+                    loot.center.x - backpack.center.x).Within(0.001f));
+            Assert.That(
+                equipment.xMin,
+                Is.EqualTo(content.xMin).Within(0.001f));
+            Assert.That(
+                loot.xMax,
+                Is.EqualTo(content.xMax).Within(0.001f));
 
             float sharedCellSize =
                 HomeInventoryController.CalculateSharedStorageCellSize(
@@ -308,6 +313,10 @@ namespace WorldBuilder.Tests.EditMode
                 playerMotor.SprintSpeed,
                 Is.EqualTo(ThirdPersonMotor.DefaultSprintSpeed)
                     .Within(0.001f));
+            Assert.That(
+                playerMotor.CrouchTransitionSpeed,
+                Is.EqualTo(ThirdPersonMotor.DefaultCrouchTransitionSpeed)
+                    .Within(0.001f));
             Material playerMaterial =
                 AssetDatabase.LoadAssetAtPath<Material>(
                     "Assets/_Project/Art/Prototype/" +
@@ -474,6 +483,29 @@ namespace WorldBuilder.Tests.EditMode
                     enemy.gameObject.activeSelf)
                 .ToArray();
             Assert.That(activeCampGuards.Length, Is.InRange(1, 9));
+            ProceduralRaidGenerator raidGenerator =
+                Object.FindFirstObjectByType<ProceduralRaidGenerator>();
+            RaidLootContainer[] campChests =
+                Object.FindObjectsByType<RaidLootContainer>(
+                        FindObjectsSortMode.None)
+                    .Where(source =>
+                        source.SourceKind ==
+                            RaidLootContainer.LootSourceKind.Chest)
+                    .ToArray();
+            Assert.That(raidGenerator, Is.Not.Null);
+            Assert.That(
+                campChests,
+                Has.Length.EqualTo(raidGenerator.GeneratedCampCount));
+            Assert.That(
+                campChests.All(source =>
+                    source.IsAvailable &&
+                    source.Columns == 4 &&
+                    source.Rows == 4 &&
+                    source.Entries.Any(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.Arrow &&
+                        entry.Quantity >= 1 &&
+                        entry.Quantity <= 20)),
+                Is.True);
             foreach (EnemyBrain campGuard in activeCampGuards)
             {
                 Assert.That(
@@ -557,6 +589,29 @@ namespace WorldBuilder.Tests.EditMode
                 Is.GreaterThanOrEqualTo(4),
                 "Most guards should be visibly progressing along their patrol routes after the initial pauses. " +
                 movementDiagnostics);
+
+            RaidLootContainer corpseLoot =
+                enemies[0].GetComponent<RaidLootContainer>();
+            Assert.That(corpseLoot, Is.Not.Null);
+            Assert.That(corpseLoot.IsAvailable, Is.False);
+            enemies[0].GetComponent<Health>().ReceiveDamage(
+                new DamageRequest(
+                    playerHealth.gameObject,
+                    1000f,
+                    enemies[0].transform.position,
+                    Vector3.forward,
+                    "loot-smoke-test"));
+            yield return null;
+            Assert.That(corpseLoot.enabled, Is.True);
+            Assert.That(corpseLoot.IsAvailable, Is.True);
+            Assert.That(corpseLoot.Columns, Is.EqualTo(4));
+            Assert.That(corpseLoot.Rows, Is.EqualTo(6));
+            Assert.That(
+                corpseLoot.Entries.Any(entry =>
+                    entry.DefinitionId == ItemDefinitionIds.Arrow &&
+                    entry.Quantity >= 1 &&
+                    entry.Quantity <= 10),
+                Is.True);
             yield return new ExitPlayMode();
         }
 
@@ -813,8 +868,8 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 serialized.FindProperty("treeCount")
                     .intValue,
-                Is.EqualTo(1500),
-                "The Raid should exceed the original per-area tree density to break long forest sightlines.");
+                Is.EqualTo(1200),
+                "The Raid should retain the creator-requested 80% tree-density pass.");
             Assert.That(
                 serialized.FindProperty("treeScaleMultiplier")
                     .floatValue,

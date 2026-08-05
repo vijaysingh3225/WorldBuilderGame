@@ -296,7 +296,7 @@ namespace WorldBuilder.Tests.EditMode
         {
             GameSession session = CreateRaidSandboxSession();
             for (int index = 0;
-                 index < PlayerProfile.InventoryCapacity - 1;
+                 index < PlayerProfile.InventoryCapacity - 2;
                  index++)
             {
                 StorageEntry carried =
@@ -337,7 +337,7 @@ namespace WorldBuilder.Tests.EditMode
 
             Assert.That(result.PlayerDied, Is.True);
             Assert.That(result.ReturnedStorageEntries, Is.Empty);
-            Assert.That(receipt.ItemsRemoved, Is.EqualTo(1));
+            Assert.That(receipt.ItemsRemoved, Is.EqualTo(2));
             Assert.That(
                 session.ActiveProfile.Storage.Any(
                     entry => entry.EntryId == carriedArtifact.EntryId),
@@ -376,7 +376,10 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(session.ActiveRaid, Is.SameAs(raid));
             Assert.That(session.HasActiveRaid, Is.True);
             Assert.That(raid.IsActive, Is.True);
-            Assert.That(session.ActiveProfile.Storage, Is.Empty);
+            Assert.That(
+                session.ActiveProfile.Storage.Any(entry =>
+                    entry.DefinitionId == "artifact-transactional"),
+                Is.False);
             Assert.That(
                 session.ActiveProfile.WeaponOne.Experience,
                 Is.EqualTo(initialExperience));

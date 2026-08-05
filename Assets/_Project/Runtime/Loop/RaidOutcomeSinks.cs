@@ -119,7 +119,9 @@ namespace WorldBuilder.Gameplay.Loop
             {
                 profile.AddToStorage(entry);
                 if (result.Extracted &&
-                    !profile.TryMoveToInventory(entry.EntryId))
+                    !profile.TryMoveToInventory(
+                        entry.EntryId,
+                        entry.SlotIndex))
                 {
                     throw new InvalidOperationException(
                         "Extracted loot could not fit in the player inventory.");

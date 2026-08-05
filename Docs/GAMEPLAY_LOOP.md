@@ -25,6 +25,9 @@ as periodic trail patrol groups, including at least one side-by-side pair.
 Raid-only trilight ambient fill and a 0.68 directional shadow strength keep the
 forest floor readable beneath the enlarged canopy without removing sun/shade
 separation or changing Combat Lab and Home Base lighting.
+The current tree target is 1,200 instances, or 80% of the previous 1,500-tree
+configuration; species selection, spacing rules, and protected clearings are
+otherwise unchanged.
 
 Use `WorldBuilder > Build Gameplay Loop` to regenerate all four scenes. For
 modular work, rebuild only the selected scene under `WorldBuilder > Build`:
@@ -42,6 +45,11 @@ objects such as players, cameras, enemies, and UI do not survive scene loads.
 - Both stores operate on the same `PlayerProfile` contract.
 - A raid produces a `RaidResult`; an outcome sink decides whether it changes
   memory only or is written to disk.
+- Every raid provisions one 20-arrow carried stack. Fired arrows consume the
+  total across all carried arrow stacks. Items own explicit grid cells;
+  ordinary placement may keep separate stacks, matching stacks cap at 64,
+  Shift-click smart-stacks between a loot source and the backpack, and
+  extraction preserves the resulting stacks and positions.
 - Starting Fresh over an existing save requires a second confirmation.
 - Profile writes keep a recovery backup, and a failed raid-outcome save rolls
   the transaction back so extraction can be retried.
@@ -75,9 +83,15 @@ can be tested immediately, but it is not yet constrained by extracted storage.
 - Bootstrap: `F` fresh, `C` continue, `H` Home sandbox, `R` Raid sandbox,
   `L` Combat Lab.
 - Home Base: `Tab` Weapon Grid, `Enter` or `R` begin raid, `M` menu.
-- Raid: normal combat controls, `Tab` Weapon Grid, `E` extract while inside the
-  extraction marker, `H` abandon to Home Base. Drawing the bow displays the
-  same centered crosshair used by Combat Lab.
+- Raid: normal combat controls, `Tab` inventory, `F` loot a nearby corpse or
+  camp chest, `E` extract while inside the extraction marker, `H` abandon to
+  Home Base. Drawing the bow displays the same centered crosshair used by
+  Combat Lab. With zero carried arrows the nocked-arrow model is hidden and
+  the bow cannot fire. In a loot inventory, left click moves a full stack,
+  right click takes half or places one, and Shift-click smart-transfers in
+  either direction. Pressing `R` while holding an item rotates its persisted
+  footprint ninety degrees clockwise around the grabbed tile. Placement
+  validates every occupied tile, including future non-rectangular shapes.
 - Combat Lab: existing combat controls plus `Tab` for the shared Weapon Grid.
 
 ## Next extension points
@@ -87,7 +101,7 @@ can be tested immediately, but it is not yet constrained by extracted storage.
 - Replace the generated faceted cover-tree meshes with final authored foliage
   without changing the Raid scene's hard-cover layout contract.
 - Replace IMGUI with production UI while keeping `WeaponGridRuntime`.
-- Add carried-storage selection to `RaidLaunchRequest`.
+- Add item use rules for the current health-pack loot definition.
 - Constrain the artifact palette to owned storage outside developer mode.
 - Persist or resolve active raids when the application closes mid-raid.
 - Add base crafting/storage interactions against `PlayerProfile.Storage`.

@@ -11,6 +11,7 @@ namespace WorldBuilder.Editor
 {
     public static class HumanoidAnimationSetup
     {
+        public const float CrouchTransitionDuration = 0.32f;
         public const string ModelPath =
             "Assets/_Project/Art/Prototype/Humanoid/AnimationLibrary_Unity_Standard.fbx";
         public const string LowPolyMannequinPath =
@@ -648,9 +649,9 @@ namespace WorldBuilder.Editor
             stateMachine.defaultState = standing;
 
             AddConditionTransition(standing, crouching, HumanoidAnimatorPresenter.CrouchedParameter,
-                AnimatorConditionMode.If, 0f, 0.16f);
+                AnimatorConditionMode.If, 0f, CrouchTransitionDuration);
             AddConditionTransition(crouching, standing, HumanoidAnimatorPresenter.CrouchedParameter,
-                AnimatorConditionMode.IfNot, 0f, 0.16f);
+                AnimatorConditionMode.IfNot, 0f, CrouchTransitionDuration);
 
             AnimatorStateTransition standingRise = AddConditionTransition(
                 standing, rising, HumanoidAnimatorPresenter.GroundedParameter,
