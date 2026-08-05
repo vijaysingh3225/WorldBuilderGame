@@ -14,6 +14,64 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class WeaponGridHardeningTests
     {
         [Test]
+        public void InventoryCloseRecapturesCursorAfterEscapeFrame()
+        {
+            GameObject systems = new GameObject(
+                "inventory-cursor-recapture-test");
+            float initialTimeScale = Time.timeScale;
+            CursorLockMode initialCursorLock = Cursor.lockState;
+            bool initialCursorVisible = Cursor.visible;
+            HomeInventoryController inventory = null;
+            try
+            {
+                PlayerInputSource input =
+                    systems.AddComponent<PlayerInputSource>();
+                inventory =
+                    systems.AddComponent<HomeInventoryController>();
+                inventory.Configure(null, input, null);
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+
+                inventory.OpenInventory();
+                Assert.That(input.UserInterfaceCaptureActive, Is.True);
+                Assert.That(Cursor.lockState, Is.EqualTo(CursorLockMode.None));
+                SetPrivateField(
+                    inventory,
+                    "previousCursorLock",
+                    CursorLockMode.Locked);
+
+                InvokePrivate(inventory, "Close");
+                Assert.That(input.UserInterfaceCaptureActive, Is.False);
+                Assert.That(
+                    input.GameplayCursorCaptureRequested,
+                    Is.True);
+
+                // Unity Editor can release the cursor after scripts process
+                // the Escape frame. The queued request must reclaim it on
+                // the following input update without requiring a mouse click.
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                InvokePrivate(input, "Update");
+
+                Assert.That(
+                    input.GameplayCursorCaptureRequested,
+                    Is.False,
+                    "The next input frame must consume the queued cursor recapture without a click.");
+            }
+            finally
+            {
+                if (inventory != null && inventory.IsOpen)
+                {
+                    InvokePrivate(inventory, "Close");
+                }
+                Time.timeScale = initialTimeScale;
+                Cursor.lockState = initialCursorLock;
+                Cursor.visible = initialCursorVisible;
+                UnityEngine.Object.DestroyImmediate(systems);
+            }
+        }
+
+        [Test]
         public void InventoryWeaponGrid_ClosesAsChildWithoutDiscardingInventory()
         {
             GameObject systems = new GameObject("inventory-grid-stack-test");

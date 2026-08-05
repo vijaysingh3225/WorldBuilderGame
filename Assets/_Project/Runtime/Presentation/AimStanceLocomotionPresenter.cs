@@ -239,10 +239,14 @@ namespace WorldBuilder.Gameplay.Presentation
             if (bowWeight > 0.001f)
             {
                 float targetYaw = GetBowYaw(localVelocity);
-                currentBowYaw = Mathf.MoveTowardsAngle(
-                    currentBowYaw,
-                    targetYaw,
-                    240f * Time.deltaTime);
+                float shoulderMagnitude = Mathf.Abs(
+                    aimPresenter.CurrentShoulderSideBlend);
+                currentBowYaw = shoulderMagnitude < 0.999f
+                    ? targetYaw
+                    : Mathf.MoveTowardsAngle(
+                        currentBowYaw,
+                        targetYaw,
+                        240f * Time.deltaTime);
                 Quaternion preservedSpineRotation =
                     spine.rotation;
                 hips.rotation =
@@ -263,10 +267,22 @@ namespace WorldBuilder.Gameplay.Presentation
             float forwardBias = total > 0.02f
                 ? Mathf.Abs(localVelocity.z) / total
                 : 0f;
-            return Mathf.Lerp(
-                bowSideYaw,
-                bowCrossStepYaw,
-                forwardBias);
+            return CalculateShoulderSynchronizedBowYaw(
+                Mathf.Lerp(
+                    bowSideYaw,
+                    bowCrossStepYaw,
+                    forwardBias),
+                aimPresenter.CurrentShoulderSideBlend);
+        }
+
+        public static float CalculateShoulderSynchronizedBowYaw(
+            float canonicalYaw,
+            float shoulderSideBlend)
+        {
+            return canonicalYaw * Mathf.Abs(Mathf.Clamp(
+                shoulderSideBlend,
+                -1f,
+                1f));
         }
 
         private float MoveWeight(

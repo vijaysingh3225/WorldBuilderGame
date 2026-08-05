@@ -1102,8 +1102,10 @@ namespace WorldBuilder.Tests
                 Is.InRange(generator.GeneratedCampCount, 9));
             Assert.That(
                 generator.GeneratedCampTentCount,
-                Is.EqualTo(generator.GeneratedCampGuardCount),
-                "Every camp guard should own one tent.");
+                Is.InRange(
+                    generator.GeneratedCampCount * 2,
+                    generator.GeneratedCampCount * 4),
+                "Level One camps use two or three tents and Level Two camps use three or four.");
             Assert.That(
                 generator.GeneratedCampBowGuardCount +
                     generator.GeneratedCampSwordGuardCount,
@@ -1115,35 +1117,153 @@ namespace WorldBuilder.Tests
                 Transform camp = camps.GetChild(campIndex);
                 int chestCount = 0;
                 int tentCount = 0;
-                Transform chest = null;
+                int benchCount = 0;
+                int barrelCount = 0;
+                int innerRackCount = 0;
+                int outerDefenseCount = 0;
+                int rackSwordCount = 0;
+                int potCount = 0;
+                Transform firewood = null;
+                Transform cookingSpit = null;
+                var chests = new List<Transform>();
                 var tents = new List<Transform>();
+                var benches = new List<Transform>();
                 for (int childIndex = 0;
                      childIndex < camp.childCount;
                      childIndex++)
                 {
                     Transform child = camp.GetChild(childIndex);
-                    if (child.name == "Camp Chest")
+                    if (child.name.StartsWith("Camp Chest"))
                     {
                         chestCount++;
-                        chest = child;
+                        chests.Add(child);
                     }
                     if (child.name.StartsWith("Guard Tent "))
                     {
                         tentCount++;
                         tents.Add(child);
                     }
+                    if (child.name.StartsWith("Campfire Bench "))
+                    {
+                        benchCount++;
+                        benches.Add(child);
+                    }
+                    if (child.name.StartsWith("Supply Barrel "))
+                    {
+                        barrelCount++;
+                    }
+                    if (child.name.StartsWith("Inner Weapon Rack "))
+                    {
+                        innerRackCount++;
+                    }
+                    if (child.name.StartsWith("Outer Log Defense "))
+                    {
+                        outerDefenseCount++;
+                    }
+                    if (child.name.StartsWith("Rack Sword "))
+                    {
+                        rackSwordCount++;
+                    }
+                    if (child.name.StartsWith("Cooking Pot"))
+                    {
+                        potCount++;
+                    }
+                    if (child.name == "Firewood Pile")
+                    {
+                        firewood = child;
+                    }
+                    if (child.name == "Cooking Spit")
+                    {
+                        cookingSpit = child;
+                    }
                 }
-                Assert.That(chestCount, Is.EqualTo(1));
-                Assert.That(tentCount, Is.InRange(1, 3));
-                Assert.That(chest, Is.Not.Null);
-                foreach (Transform tent in tents)
+                int campLevel = generator.CampLevel(campIndex);
+                bool levelTwo = campLevel == 2;
+                Assert.That(
+                    camp.name,
+                    Does.EndWith($"Level {campLevel}"));
+                Assert.That(chestCount, Is.EqualTo(levelTwo ? 2 : 1));
+                Assert.That(
+                    tentCount,
+                    Is.EqualTo(generator.CampTentCount(campIndex)));
+                Assert.That(
+                    tentCount,
+                    levelTwo ? Is.InRange(3, 4) : Is.InRange(2, 3));
+                Assert.That(benchCount, Is.EqualTo(levelTwo ? 2 : 0));
+                Assert.That(barrelCount, Is.EqualTo(levelTwo ? 2 : 0));
+                Assert.That(innerRackCount, Is.EqualTo(levelTwo ? 2 : 0));
+                Assert.That(outerDefenseCount, Is.EqualTo(levelTwo ? 3 : 0));
+                Assert.That(rackSwordCount, Is.EqualTo(levelTwo ? 2 : 0));
+                Assert.That(potCount, Is.EqualTo(levelTwo ? 2 : 1));
+                Assert.That(firewood, Is.Not.Null);
+                Assert.That(cookingSpit, Is.Not.Null);
+                Vector2 campCenter = generator.CampCenters[campIndex];
+                Assert.That(
+                    Vector2.Distance(
+                        ToXZ(cookingSpit.position),
+                        campCenter),
+                    Is.LessThanOrEqualTo(1.8f),
+                    "The cooking spit must remain beside or centered over the fire.");
+                if (!levelTwo)
                 {
                     Assert.That(
-                        Vector2.Distance(
-                            ToXZ(chest.position),
-                            ToXZ(tent.position)),
-                        Is.GreaterThanOrEqualTo(3.44f),
-                        "The camp chest should sit beside or behind a tent, never inside one.");
+                        Vector2.Distance(ToXZ(firewood.position), campCenter),
+                        Is.GreaterThanOrEqualTo(
+                            generator.CampClearingRadius(campIndex) - 2.25f),
+                        "Level One firewood belongs near the clearing's outer edge, not beside the fire.");
+                }
+                foreach (Transform bench in benches)
+                {
+                    Renderer[] benchRenderers =
+                        bench.GetComponentsInChildren<Renderer>(true);
+                    Bounds benchBounds = benchRenderers[0].bounds;
+                    for (int rendererIndex = 1;
+                         rendererIndex < benchRenderers.Length;
+                         rendererIndex++)
+                    {
+                        benchBounds.Encapsulate(
+                            benchRenderers[rendererIndex].bounds);
+                    }
+                    Assert.That(
+                        Mathf.Max(
+                            benchBounds.size.x,
+                            benchBounds.size.y,
+                            benchBounds.size.z),
+                        Is.EqualTo(1.7625f).Within(0.025f),
+                        "Level Two benches should be 75 percent of their former 2.35-meter size.");
+                    Vector3 towardFire = Vector3.ProjectOnPlane(
+                        new Vector3(
+                            campCenter.x,
+                            bench.position.y,
+                            campCenter.y) - bench.position,
+                        Vector3.up).normalized;
+                    Vector3 benchLengthAxis =
+                        Vector3.ProjectOnPlane(
+                            bench.right,
+                            Vector3.up).normalized;
+                    Assert.That(
+                        Mathf.Abs(Vector3.Dot(
+                            benchLengthAxis,
+                            towardFire)),
+                        Is.LessThan(0.12f),
+                        "The long seat axis must run across the fire so the bench's broad sitting side, not its short end, faces the flames.");
+                }
+                Assert.That(
+                    generator.CampClearingRadius(campIndex),
+                    levelTwo
+                        ? Is.GreaterThanOrEqualTo(17f)
+                        : Is.LessThan(13f));
+                foreach (Transform tent in tents)
+                {
+                    foreach (Transform chest in chests)
+                    {
+                        Assert.That(
+                            Vector2.Distance(
+                                ToXZ(chest.position),
+                                ToXZ(tent.position)),
+                            Is.GreaterThanOrEqualTo(3.44f),
+                            "Camp chests should line up near the tent sector without entering a tent.");
+                    }
                     Vector3 openingDirection =
                         Vector3.ProjectOnPlane(-tent.up, Vector3.up)
                             .normalized;

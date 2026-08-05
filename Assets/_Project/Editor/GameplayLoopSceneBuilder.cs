@@ -46,6 +46,11 @@ namespace WorldBuilder.Editor
         private const string CampItemMaterialPath =
             "Assets/_Project/Art/Prototype/Materials/" +
             "CampItems.mat";
+        private const string ShortSwordBladeMeshPath =
+            "Assets/_Project/Art/Prototype/Weapons/" +
+            "PrototypeShortSwordBlade.asset";
+        private const string ShortSwordMaterialFolder =
+            "Assets/_Project/Art/Prototype/Materials";
         private static readonly string[] StylizedForestTreeNames =
         {
             "SM_sf_birch_01",
@@ -1114,6 +1119,35 @@ namespace WorldBuilder.Editor
                 AssetDatabase.LoadAssetAtPath<GameObject>(
                     CampItemsModelFolder +
                     "/08_closed_chest.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/02_bench.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/01_barrel.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/03_big_spike_1.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/04_big_spike_2.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/13_spike_long.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampItemsModelFolder +
+                    "/14_spike_short.blend"),
+                AssetDatabase.LoadAssetAtPath<Mesh>(
+                    ShortSwordBladeMeshPath),
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordMaterialFolder +
+                    "/ShortSwordBlade.mat"),
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordMaterialFolder +
+                    "/ShortSwordGuard.mat"),
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordMaterialFolder +
+                    "/ShortSwordGrip.mat"),
                 AssetDatabase.LoadAssetAtPath<Material>(
                     CampStructureMaterialPath),
                 AssetDatabase.LoadAssetAtPath<Material>(

@@ -1287,6 +1287,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (playerInput != null)
             {
                 playerInput.SetUserInterfaceCapture(previousInputCapture);
+                if (!previousInputCapture &&
+                    previousCursorLock == CursorLockMode.Locked)
+                {
+                    playerInput.RequestGameplayCursorCapture();
+                }
             }
             chestOpen = false;
             activeRaidLoot = null;

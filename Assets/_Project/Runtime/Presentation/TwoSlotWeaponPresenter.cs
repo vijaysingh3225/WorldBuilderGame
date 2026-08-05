@@ -160,6 +160,9 @@ namespace WorldBuilder.Gameplay.Presentation
         private bool hasAuthoredLeftBowFingerGrip;
         private bool hasAuthoredRightBowFingerGrip;
         private Vector3 stableRightStringContactLocal;
+        private Vector3 canonicalVisualScale;
+        private bool hasCanonicalVisualScale;
+        private float visualShoulderSign = 1f;
 
         public event Action<int> ActiveSlotChanged;
 
@@ -226,7 +229,13 @@ namespace WorldBuilder.Gameplay.Presentation
             rightLowerArm != null
                 ? rightLowerArm.position
                 : transform.position;
-
+        public float PresentedRightStringContactGap =>
+            bowRoot != null && hasAuthoredRightBowFingerGrip
+                ? Vector3.Distance(
+                    rightHand.TransformPoint(
+                        stableRightStringContactLocal),
+                    GetPresentedNockPosition())
+                : 99f;
         public void Configure(
             Animator targetAnimator,
             PlayerInputSource intentSource,
@@ -419,6 +428,10 @@ namespace WorldBuilder.Gameplay.Presentation
         private void OnDisable()
         {
             Unsubscribe();
+            if (hasCanonicalVisualScale)
+            {
+                transform.localScale = canonicalVisualScale;
+            }
             if (transitioning)
             {
                 CompleteTransition();
@@ -427,6 +440,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void Update()
         {
+            RestoreCanonicalVisualOrientation();
             float bowTargetWeight =
                 !transitioning &&
                 activeSlot == SecondarySlot &&
@@ -460,15 +474,18 @@ namespace WorldBuilder.Gameplay.Presentation
                 {
                     ApplyBowIdlePose(bowPoseWeight);
                 }
-                return;
+            }
+            else
+            {
+                float pathProgress =
+                    transitionPhase == TransitionPhase.SheatheWithSword ||
+                    transitionPhase == TransitionPhase.ReachForSword
+                        ? transitionProgress
+                        : 1f - transitionProgress;
+                ApplySheatheArmPose(pathProgress);
             }
 
-            float pathProgress =
-                transitionPhase == TransitionPhase.SheatheWithSword ||
-                transitionPhase == TransitionPhase.ReachForSword
-                    ? transitionProgress
-                    : 1f - transitionProgress;
-            ApplySheatheArmPose(pathProgress);
+            ApplyShoulderVisualOrientation();
         }
 
         private void ApplyBowIdlePose(float weight)
@@ -845,6 +862,249 @@ namespace WorldBuilder.Gameplay.Presentation
                 rightBowFingers,
                 stableRightBowFingerLocalRotations,
                 weight * easedReady);
+            ApplyShoulderTransitionPose(weight);
+        }
+
+        private void ApplyShoulderTransitionPose(float poseWeight)
+        {
+            aimTarget ??= FindFirstObjectByType<CameraAimTarget>();
+            if (aimTarget == null ||
+                characterRoot == null ||
+                bowRoot == null)
+            {
+                return;
+            }
+
+            float meetWeight = CalculateShoulderHandoffWeight(
+                aimTarget.CurrentShoulderSideBlend);
+            if (meetWeight <= 0.0001f)
+            {
+                return;
+            }
+
+            Vector3 rootRight = characterRoot.right;
+            Vector3 rootForward = characterRoot.forward;
+            Vector3 startingBowPosition = bowRoot.position;
+            Quaternion bowRotation = bowRoot.rotation;
+            float lateralBowOffset = Vector3.Dot(
+                startingBowPosition - characterRoot.position,
+                rootRight);
+            Vector3 centeredBowPosition =
+                startingBowPosition - rootRight * lateralBowOffset;
+            Vector3 bowShift =
+                (centeredBowPosition - startingBowPosition) * meetWeight;
+            CalculateSymmetricElbowGuides(
+                leftLowerArm.position,
+                rightLowerArm.position,
+                characterRoot.position,
+                rootRight,
+                characterRoot.up,
+                out Vector3 leftElbowGuide,
+                out Vector3 rightElbowGuide);
+            Vector3 canonicalLeftElbowPosition =
+                leftLowerArm.position;
+            Vector3 canonicalRightElbowPosition =
+                rightLowerArm.position;
+            Vector3 canonicalRightHandPosition =
+                rightHand.position;
+            Quaternion canonicalRightHandRotation =
+                rightHand.rotation;
+
+            Vector3 leftHandTarget = leftHand.position + bowShift;
+            Vector3 currentLeftElbowGuide = Vector3.Lerp(
+                canonicalLeftElbowPosition,
+                leftElbowGuide,
+                meetWeight);
+            Vector3 leftBendSide =
+                currentLeftElbowGuide - leftUpperArm.position;
+            SolveArmPose(
+                leftUpperArm,
+                leftLowerArm,
+                leftHand,
+                leftHandTarget,
+                leftHand.rotation,
+                currentLeftElbowGuide,
+                Mathf.Clamp01(poseWeight),
+                false,
+                false,
+                default,
+                default,
+                leftBendSide,
+                default,
+                default,
+                false,
+                true);
+
+            Vector3 handoffBowPosition =
+                startingBowPosition + bowShift;
+            bowRoot.SetPositionAndRotation(
+                handoffBowPosition,
+                bowRotation);
+
+            Vector3 handoffRightHandPosition =
+                leftHand.position + rootForward * 0.018f;
+            Vector3 rightHandTarget = Vector3.Lerp(
+                canonicalRightHandPosition,
+                handoffRightHandPosition,
+                meetWeight);
+            Vector3 rightReachDirection =
+                (rightHandTarget - rightUpperArm.position).normalized;
+            Quaternion rightHandleRotation =
+                hasRightHandAnatomicalFrame
+                    ? CalculateBowHoldingHandRotation(
+                        rightFingerAxisLocal,
+                        rightPalmNormalLocal,
+                        bowRotation,
+                        -rootRight,
+                        rightReachDirection)
+                    : rightHand.rotation;
+            Quaternion rightHandTargetRotation = Quaternion.Slerp(
+                canonicalRightHandRotation,
+                rightHandleRotation,
+                meetWeight);
+            Vector3 currentRightElbowGuide = Vector3.Lerp(
+                canonicalRightElbowPosition,
+                rightElbowGuide,
+                meetWeight);
+            Vector3 rightBendSide =
+                currentRightElbowGuide - rightUpperArm.position;
+            SolveArmPose(
+                rightUpperArm,
+                rightLowerArm,
+                rightHand,
+                rightHandTarget,
+                rightHandTargetRotation,
+                currentRightElbowGuide,
+                Mathf.Clamp01(poseWeight),
+                false,
+                false,
+                default,
+                default,
+                rightBendSide,
+                default,
+                default,
+                false,
+                true);
+
+            Vector3 relaxedStringPosition =
+                bowRoot.TransformPoint(
+                    new Vector3(0f, 0f, -BowBraceHeight));
+            UpdateBowGeometry(Vector3.Lerp(
+                GetPresentedNockPosition(),
+                relaxedStringPosition,
+                meetWeight));
+        }
+
+        private void RestoreCanonicalVisualOrientation()
+        {
+            if (!hasCanonicalVisualScale)
+            {
+                canonicalVisualScale = transform.localScale;
+                canonicalVisualScale.x = Mathf.Abs(
+                    canonicalVisualScale.x);
+                hasCanonicalVisualScale = true;
+            }
+
+            transform.localScale = canonicalVisualScale;
+        }
+
+        private void ApplyShoulderVisualOrientation()
+        {
+            aimTarget ??= FindFirstObjectByType<CameraAimTarget>();
+            if (aimTarget == null)
+            {
+                return;
+            }
+
+            float sideBlend = aimTarget.CurrentShoulderSideBlend;
+            if (sideBlend > 0.0001f)
+            {
+                visualShoulderSign = 1f;
+            }
+            else if (sideBlend < -0.0001f)
+            {
+                visualShoulderSign = -1f;
+            }
+
+            transform.localScale = CalculateVisualShoulderScale(
+                canonicalVisualScale,
+                visualShoulderSign);
+        }
+
+        public static Vector3 CalculateVisualShoulderScale(
+            Vector3 canonicalScale,
+            float shoulderSideBlend)
+        {
+            float orientation = shoulderSideBlend < 0f ? -1f : 1f;
+            canonicalScale.x = Mathf.Abs(canonicalScale.x) * orientation;
+            return canonicalScale;
+        }
+
+        public static float CalculateShoulderHandoffWeight(
+            float shoulderSideBlend)
+        {
+            const float midpointPlateau = 0.10f;
+            float distanceFromMidpoint = Mathf.Abs(Mathf.Clamp(
+                shoulderSideBlend,
+                -1f,
+                1f));
+            float centeredWeight = 1f - Mathf.InverseLerp(
+                midpointPlateau,
+                1f,
+                distanceFromMidpoint);
+            return Mathf.SmoothStep(0f, 1f, centeredWeight);
+        }
+
+        public static void CalculateSymmetricElbowGuides(
+            Vector3 leftElbowPosition,
+            Vector3 rightElbowPosition,
+            Vector3 planeOrigin,
+            Vector3 planeNormal,
+            Vector3 planeUp,
+            out Vector3 leftGuide,
+            out Vector3 rightGuide)
+        {
+            Vector3 normal = planeNormal.sqrMagnitude > 0.0001f
+                ? planeNormal.normalized
+                : Vector3.right;
+            Vector3 up = planeUp.sqrMagnitude > 0.0001f
+                ? planeUp.normalized
+                : Vector3.up;
+            Vector3 mirroredRight = rightElbowPosition -
+                normal *
+                (2f * Vector3.Dot(
+                    rightElbowPosition - planeOrigin,
+                    normal));
+            leftGuide = Vector3.Lerp(
+                leftElbowPosition,
+                mirroredRight,
+                0.5f);
+
+            float lowestIncomingHeight = Mathf.Min(
+                Vector3.Dot(leftElbowPosition - planeOrigin, up),
+                Vector3.Dot(rightElbowPosition - planeOrigin, up));
+            float guideHeight =
+                Vector3.Dot(leftGuide - planeOrigin, up);
+            if (guideHeight > lowestIncomingHeight)
+            {
+                leftGuide -= up *
+                    (guideHeight - lowestIncomingHeight);
+            }
+
+            const float minimumOutwardElbowOffset = 0.22f;
+            float leftLateral =
+                Vector3.Dot(leftGuide - planeOrigin, normal);
+            if (leftLateral > -minimumOutwardElbowOffset)
+            {
+                leftGuide -= normal *
+                    (leftLateral + minimumOutwardElbowOffset);
+            }
+
+            rightGuide = leftGuide -
+                normal *
+                (2f * Vector3.Dot(
+                    leftGuide - planeOrigin,
+                    normal));
         }
 
         private void CaptureStableBowRigPose()
@@ -1056,8 +1316,25 @@ namespace WorldBuilder.Gameplay.Presentation
                 return rightHand.rotation;
             }
 
+            return CalculateBowDrawHandRotation(
+                rightFingerAxisLocal,
+                rightPalmNormalLocal,
+                -rootRight,
+                up,
+                characterRoot != null
+                    ? characterRoot.forward
+                    : transform.forward);
+        }
+
+        private static Quaternion CalculateBowDrawHandRotation(
+            Vector3 localFingerAxis,
+            Vector3 localPalmNormal,
+            Vector3 desiredPalmDirection,
+            Vector3 up,
+            Vector3 fallbackForward)
+        {
             Vector3 desiredPalmNormal =
-                -rootRight.normalized;
+                desiredPalmDirection.normalized;
             Vector3 desiredFingerAxis =
                 Vector3.ProjectOnPlane(
                     -up,
@@ -1066,16 +1343,14 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 desiredFingerAxis =
                     Vector3.ProjectOnPlane(
-                        characterRoot != null
-                            ? characterRoot.forward
-                            : transform.forward,
+                        fallbackForward,
                         desiredPalmNormal).normalized;
             }
 
             Quaternion localAnatomicalFrame =
                 Quaternion.LookRotation(
-                    rightFingerAxisLocal,
-                    rightPalmNormalLocal);
+                    localFingerAxis,
+                    localPalmNormal);
             Quaternion desiredWorldFrame =
                 Quaternion.LookRotation(
                     desiredFingerAxis,
@@ -1290,6 +1565,27 @@ namespace WorldBuilder.Gameplay.Presentation
                 -BowBraceHeight -
                     BowMaximumDrawDistance *
                     Mathf.Clamp01(drawWeight));
+        }
+
+        private Vector3 GetPresentedNockPosition()
+        {
+            if (bowRoot == null)
+            {
+                return transform.position;
+            }
+
+            if (arrowRoot != null)
+            {
+                return bowRoot.TransformPoint(
+                    arrowRoot.localPosition -
+                    Vector3.forward * BowBraceHeight);
+            }
+
+            return bowRoot.TransformPoint(
+                CalculateArrowNockLocalPosition(
+                    bowWeapon != null
+                        ? bowWeapon.DrawNormalized
+                        : 0f));
         }
 
         private void UpdateBowGeometry(Vector3 worldNockPosition)
@@ -1587,26 +1883,43 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private Vector3 GetRightFingerContactPosition()
         {
-            if (rightIndexDistal == null || rightMiddleDistal == null)
+            return GetFingerContactPosition(
+                rightHand,
+                rightIndexIntermediate,
+                rightIndexDistal,
+                rightMiddleIntermediate,
+                rightMiddleDistal);
+        }
+
+        private static Vector3 GetFingerContactPosition(
+            Transform hand,
+            Transform indexIntermediate,
+            Transform indexDistal,
+            Transform middleIntermediate,
+            Transform middleDistal)
+        {
+            if (hand == null ||
+                indexDistal == null ||
+                middleDistal == null)
             {
-                return rightHand.position;
+                return hand != null ? hand.position : Vector3.zero;
             }
 
-            Vector3 indexContact = rightIndexDistal.position;
-            if (rightIndexIntermediate != null)
+            Vector3 indexContact = indexDistal.position;
+            if (indexIntermediate != null)
             {
                 indexContact +=
-                    (rightIndexDistal.position -
-                        rightIndexIntermediate.position) *
+                    (indexDistal.position -
+                        indexIntermediate.position) *
                     0.55f;
             }
 
-            Vector3 middleContact = rightMiddleDistal.position;
-            if (rightMiddleIntermediate != null)
+            Vector3 middleContact = middleDistal.position;
+            if (middleIntermediate != null)
             {
                 middleContact +=
-                    (rightMiddleDistal.position -
-                        rightMiddleIntermediate.position) *
+                    (middleDistal.position -
+                        middleIntermediate.position) *
                     0.55f;
             }
 

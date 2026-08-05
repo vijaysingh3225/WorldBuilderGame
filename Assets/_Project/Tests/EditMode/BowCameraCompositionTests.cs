@@ -3,11 +3,165 @@ using NUnit.Framework;
 using UnityEngine;
 using WorldBuilder.Gameplay.CameraSystem;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Tests.EditMode
 {
     public sealed class BowCameraCompositionTests
     {
+        [Test]
+        public void BowTorsoAnimationIsEvaluatedOnceInCanonicalOrientation()
+        {
+            float fullDrawYaw = UpperBodyAimPresenter.CalculateBowTorsoYaw(
+                78f,
+                1f);
+
+            Assert.That(fullDrawYaw, Is.EqualTo(78f));
+            Assert.That(
+                UpperBodyAimPresenter.CalculateBowTorsoYaw(
+                    78f,
+                    0.5f),
+                Is.EqualTo(39f));
+        }
+
+        [Test]
+        public void OrdinaryAimYawIsPreCompensatedForTheVisualReflection()
+        {
+            Assert.That(
+                UpperBodyAimPresenter.CalculateShoulderCompensatedAimYaw(
+                    35f,
+                    1f),
+                Is.EqualTo(35f));
+            Assert.That(
+                UpperBodyAimPresenter.CalculateShoulderCompensatedAimYaw(
+                    35f,
+                    0f),
+                Is.Zero);
+            Assert.That(
+                UpperBodyAimPresenter.CalculateShoulderCompensatedAimYaw(
+                    35f,
+                    -1f),
+                Is.EqualTo(-35f));
+        }
+
+        [Test]
+        public void BowStanceReachesNeutralAtTheOrientationMidpoint()
+        {
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    CalculateShoulderSynchronizedBowYaw(78f, 1f),
+                Is.EqualTo(78f));
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    CalculateShoulderSynchronizedBowYaw(78f, 0f),
+                Is.Zero);
+            Assert.That(
+                AimStanceLocomotionPresenter.
+                    CalculateShoulderSynchronizedBowYaw(78f, -1f),
+                Is.EqualTo(78f));
+        }
+
+        [Test]
+        public void WholeVisualMirrorOnlyChangesTheHorizontalOrientation()
+        {
+            Vector3 canonicalScale = new Vector3(1.1f, 1.1f, 1.1f);
+
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateVisualShoulderScale(
+                    canonicalScale,
+                    1f),
+                Is.EqualTo(canonicalScale));
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateVisualShoulderScale(
+                    canonicalScale,
+                    -1f),
+                Is.EqualTo(new Vector3(-1.1f, 1.1f, 1.1f)));
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateVisualShoulderScale(
+                    canonicalScale,
+                    0f),
+                Is.EqualTo(canonicalScale));
+        }
+
+        [Test]
+        public void ShoulderHandoffMeetsOnlyAtTheNeutralMidpoint()
+        {
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(1f),
+                Is.Zero);
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(0f),
+                Is.EqualTo(1f));
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(-1f),
+                Is.Zero);
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(0.5f),
+                Is.EqualTo(
+                    TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(
+                        -0.5f)));
+        }
+
+        [Test]
+        public void ShoulderHandoffElbowsStayNaturalAndSymmetric()
+        {
+            Vector3 leftElbow = new Vector3(-0.3f, 1.15f, 0.1f);
+            Vector3 rightElbow = new Vector3(0.1f, 1.25f, -0.2f);
+            TwoSlotWeaponPresenter.CalculateSymmetricElbowGuides(
+                leftElbow,
+                rightElbow,
+                Vector3.zero,
+                Vector3.right,
+                Vector3.up,
+                out Vector3 leftGuide,
+                out Vector3 rightGuide);
+
+            Assert.That(
+                leftGuide.x,
+                Is.EqualTo(-rightGuide.x).Within(0.0001f));
+            Assert.That(
+                leftGuide.y,
+                Is.EqualTo(rightGuide.y).Within(0.0001f));
+            Assert.That(
+                leftGuide.z,
+                Is.EqualTo(rightGuide.z).Within(0.0001f));
+            Assert.That(
+                Vector3.Distance(
+                    leftGuide,
+                    new Vector3(-0.22f, 1.15f, -0.05f)),
+                Is.LessThan(0.0001f));
+        }
+
+        [Test]
+        public void ShoulderHandoffHoldsItsNaturalPoseAcrossOrientationChange()
+        {
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(0.1f),
+                Is.EqualTo(1f));
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(0f),
+                Is.EqualTo(1f));
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateShoulderHandoffWeight(-0.1f),
+                Is.EqualTo(1f));
+        }
+
+        [Test]
+        public void ShoulderSideMirrorsCameraWithoutChangingHeightOrDepth()
+        {
+            Vector3 right = new Vector3(0.72f, -0.16f, 0.08f);
+
+            Assert.That(
+                CameraAimTarget.MirrorShoulderOffset(right, 1f),
+                Is.EqualTo(right));
+            Assert.That(
+                CameraAimTarget.MirrorShoulderOffset(right, -1f),
+                Is.EqualTo(new Vector3(-0.72f, -0.16f, 0.08f)));
+            Assert.That(
+                CameraAimTarget.MirrorShoulderOffset(right, 0f),
+                Is.EqualTo(new Vector3(0f, -0.16f, 0.08f)));
+        }
+
         [Test]
         public void DrawStartImmediatelyRequestsTheCloseCamera()
         {

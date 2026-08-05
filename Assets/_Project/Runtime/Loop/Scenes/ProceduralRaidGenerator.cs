@@ -77,6 +77,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private GameObject campDryingRackPrefab;
         [SerializeField] private GameObject campFirewoodPrefab;
         [SerializeField] private GameObject campChestPrefab;
+        [SerializeField] private GameObject campBenchPrefab;
+        [SerializeField] private GameObject campBarrelPrefab;
+        [SerializeField] private GameObject campOuterSpikePrefabA;
+        [SerializeField] private GameObject campOuterSpikePrefabB;
+        [SerializeField] private GameObject campInnerBarricadePrefabA;
+        [SerializeField] private GameObject campInnerBarricadePrefabB;
+        [SerializeField] private Mesh campSwordBladeMesh;
+        [SerializeField] private Material campSwordBladeMaterial;
+        [SerializeField] private Material campSwordGuardMaterial;
+        [SerializeField] private Material campSwordGripMaterial;
         [SerializeField] private Material campStructureMaterial;
         [SerializeField] private Material campItemMaterial;
         [Header("Materials")]
@@ -170,6 +180,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float CampTrailMinimumDistance = 9f;
         private const float CampTrailMaximumDistance = 34f;
         private const float CampRiverClearance = 13f;
+        private const float LevelTwoCampChance = 0.5f;
+        private const float LevelTwoCampClearingRadius = 17.2f;
+        private const float LevelTwoBenchTargetSize = 1.7625f;
+        private const float CookingSpitOverFireChance = 0.35f;
+        private const float CookingSpitNearFireDistance = 1.65f;
+        private const float LevelOneFirewoodEdgeInset = 1.8f;
         public const float ObeliskTreeClearance = 6f;
         private const float ObeliskBoulderClearance = 2.6f;
         private const float ObeliskRiverClearance = 5f;
@@ -199,7 +215,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public Vector2 Center;
             public float Rotation;
             public float ClearingRadius;
+            public float GroundHeight;
+            public Vector2 GroundSlope;
             public int GuardCount;
+            public int TentCount;
+            public bool IsLevelTwo;
             public bool[] BowGuards;
         }
 
@@ -855,6 +875,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             generatedCampBowGuardCount;
         public int GeneratedCampSwordGuardCount =>
             generatedCampSwordGuardCount;
+        public int GeneratedLevelTwoCampCount
+        {
+            get
+            {
+                int count = 0;
+                for (int index = 0; index < campSites.Count; index++)
+                {
+                    if (campSites[index].IsLevelTwo)
+                    {
+                        count++;
+                    }
+                }
+                return count;
+            }
+        }
         public IReadOnlyList<Vector2> CampCenters
         {
             get
@@ -872,6 +907,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return campIndex >= 0 && campIndex < campSites.Count
                 ? campSites[campIndex].ClearingRadius
                 : 0f;
+        }
+        public int CampLevel(int campIndex)
+        {
+            if (campIndex < 0 || campIndex >= campSites.Count)
+            {
+                return 0;
+            }
+            return campSites[campIndex].IsLevelTwo ? 2 : 1;
+        }
+        public int CampTentCount(int campIndex)
+        {
+            return campIndex >= 0 && campIndex < campSites.Count
+                ? campSites[campIndex].TentCount
+                : 0;
         }
         public bool IsInsideEnemyRiverExclusion(
             Vector3 worldPoint,
@@ -1148,6 +1197,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GameObject dryingRack,
             GameObject firewood,
             GameObject chest,
+            GameObject bench,
+            GameObject barrel,
+            GameObject outerSpikeA,
+            GameObject outerSpikeB,
+            GameObject innerBarricadeA,
+            GameObject innerBarricadeB,
+            Mesh swordBlade,
+            Material swordBladeMaterial,
+            Material swordGuardMaterial,
+            Material swordGripMaterial,
             Material structureMaterial,
             Material itemMaterial)
         {
@@ -1158,6 +1217,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             campDryingRackPrefab = dryingRack;
             campFirewoodPrefab = firewood;
             campChestPrefab = chest;
+            campBenchPrefab = bench;
+            campBarrelPrefab = barrel;
+            campOuterSpikePrefabA = outerSpikeA;
+            campOuterSpikePrefabB = outerSpikeB;
+            campInnerBarricadePrefabA = innerBarricadeA;
+            campInnerBarricadePrefabB = innerBarricadeB;
+            campSwordBladeMesh = swordBlade;
+            campSwordBladeMaterial = swordBladeMaterial;
+            campSwordGuardMaterial = swordGuardMaterial;
+            campSwordGripMaterial = swordGripMaterial;
             campStructureMaterial = structureMaterial;
             campItemMaterial = itemMaterial;
         }
@@ -1395,6 +1464,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 $"guardGroups={generatedGuardGroupCount}; " +
                 $"guardPairs={generatedGuardPairCount}; " +
                 $"camps={generatedCampCount}; " +
+                $"levelTwoCamps={GeneratedLevelTwoCampCount}; " +
                 $"campGuards={generatedCampGuardCount}; " +
                 $"campBows={generatedCampBowGuardCount}; " +
                 $"campSwords={generatedCampSwordGuardCount}; " +
@@ -3640,6 +3710,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                  campIndex < targetCount;
                  campIndex++)
             {
+                bool isLevelTwo =
+                    random.NextDouble() < LevelTwoCampChance;
+                float footprintRadius = isLevelTwo ? 12.5f : 7.5f;
+                float minimumNormalY = isLevelTwo ? 0.95f : 0.91f;
+                float maximumHeightRange = isLevelTwo ? 1.3f : 1.65f;
                 for (int attempt = 0;
                      attempt < CampPlacementAttempts;
                      attempt++)
@@ -3655,6 +3730,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         Mathf.Cos(angle) * radius,
                         Mathf.Sin(angle) * radius);
                     float trailDistance = DistanceToRoad(point);
+                    Vector3 groundNormal =
+                        TerrainNormalAt(point.x, point.y);
                     if (trailDistance < CampTrailMinimumDistance ||
                         trailDistance > CampTrailMaximumDistance ||
                         DistanceToRiverExact(point) <
@@ -3666,8 +3743,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                             point,
                             ToXZ(layout.Extraction)) < 30f ||
                         IsInsideObeliskClearance(point, 18f) ||
-                        TerrainNormalAt(point.x, point.y).y < 0.91f ||
-                        CampFootprintHeightRange(point, 7.5f) > 1.65f ||
+                        groundNormal.y < minimumNormalY ||
+                        CampFootprintHeightRange(
+                            point,
+                            footprintRadius) > maximumHeightRange ||
                         HasNearbyCamp(point, MinimumCampSeparation))
                     {
                         continue;
@@ -3676,6 +3755,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     int guardCount = random.Next(
                         1,
                         MaximumCampGuardCount + 1);
+                    int tentCount = isLevelTwo
+                        ? random.Next(3, 5)
+                        : random.Next(2, 4);
                     var bowGuards = new bool[guardCount];
                     for (int guardIndex = 0;
                          guardIndex < guardCount;
@@ -3689,8 +3771,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         Center = point,
                         Rotation =
                             (float)random.NextDouble() * 360f,
-                        ClearingRadius = 9.4f + guardCount * 1.1f,
+                        ClearingRadius = isLevelTwo
+                            ? LevelTwoCampClearingRadius
+                            : 10.2f + tentCount * 0.85f,
+                        GroundHeight = TerrainHeight(point.x, point.y),
+                        GroundSlope = new Vector2(
+                            -groundNormal.x /
+                                Mathf.Max(0.01f, groundNormal.y),
+                            -groundNormal.z /
+                                Mathf.Max(0.01f, groundNormal.y)),
                         GuardCount = guardCount,
+                        TentCount = tentCount,
+                        IsLevelTwo = isLevelTwo,
                         BowGuards = bowGuards
                     });
                     break;
@@ -3796,7 +3888,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 CampSite site = campSites[campIndex];
                 Transform camp = new GameObject(
-                    $"Forest Camp {campIndex + 1}").transform;
+                    $"Forest Camp {campIndex + 1} - " +
+                    $"Level {(site.IsLevelTwo ? 2 : 1)}").transform;
                 camp.SetParent(root, false);
 
                 GameObject fire = CreateCampProp(
@@ -3815,21 +3908,27 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
                 CreateCampfireEffect(camp, site.Center);
 
-                Vector2 firstTentDirection = Vector2.right;
+                Vector2 campForward =
+                    DirectionFromAngle(site.Rotation);
+                Vector2 campSide = new Vector2(
+                    -campForward.y,
+                    campForward.x);
+                Vector2 firstTentDirection = campForward;
                 Vector2 firstTentPoint = site.Center +
                     firstTentDirection * 5.8f;
-                var tentPoints = new List<Vector2>(site.GuardCount);
+                var tentPoints = new List<Vector2>(site.TentCount);
                 for (int tentIndex = 0;
-                     tentIndex < site.GuardCount;
+                     tentIndex < site.TentCount;
                      tentIndex++)
                 {
                     float centeredIndex =
-                        tentIndex - (site.GuardCount - 1) * 0.5f;
+                        tentIndex - (site.TentCount - 1) * 0.5f;
                     float tentAngle = site.Rotation +
-                        centeredIndex * 64f +
+                        centeredIndex *
+                            (site.IsLevelTwo ? 44f : 58f) +
                         Mathf.Lerp(
-                            -3f,
-                            3f,
+                            -2.5f,
+                            2.5f,
                             (float)random.NextDouble());
                     Vector2 direction = DirectionFromAngle(tentAngle);
                     if (tentIndex == 0)
@@ -3838,8 +3937,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     }
                     Vector2 tentPoint = site.Center + direction *
                         Mathf.Lerp(
-                            6.5f,
-                            7.1f,
+                            site.IsLevelTwo ? 8.65f : 6.5f,
+                            site.IsLevelTwo ? 9.15f : 7.1f,
                             (float)random.NextDouble());
                     tentPoints.Add(tentPoint);
                     if (tentIndex == 0)
@@ -3867,11 +3966,33 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Vector2 side = new Vector2(
                     -firstTentDirection.y,
                     firstTentDirection.x);
+                Vector2 potPoint = site.IsLevelTwo
+                    ? site.Center + campForward * 0.65f +
+                        campSide * 0.9f
+                    : site.Center + side * 0.95f +
+                        firstTentDirection * 0.25f;
+                bool cookingSpitOverFire =
+                    random.NextDouble() < CookingSpitOverFireChance;
+                float cookingSpitSide =
+                    random.NextDouble() < 0.5d ? -1f : 1f;
+                Vector2 cookingSpitPoint = cookingSpitOverFire
+                    ? site.Center
+                    : site.Center +
+                        campSide *
+                            (cookingSpitSide *
+                             CookingSpitNearFireDistance) +
+                        campForward * 0.18f;
+                Vector2 firewoodPoint = site.IsLevelTwo
+                    ? site.Center + campForward * 3.35f -
+                        campSide * 0.55f
+                    : site.Center + side *
+                        (site.ClearingRadius -
+                         LevelOneFirewoodEdgeInset) -
+                        firstTentDirection * 0.35f;
                 CreateNamedCampProp(
                     campPotPrefab,
                     camp,
-                    site.Center + side * 0.95f +
-                        firstTentDirection * 0.25f,
+                    potPoint,
                     0.55f,
                     campItemMaterial,
                     site.Rotation + 30f,
@@ -3880,49 +4001,289 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 CreateNamedCampProp(
                     campDryingRackPrefab,
                     camp,
-                    site.Center - side * 3.15f +
-                        firstTentDirection * 0.35f,
+                    cookingSpitPoint,
                     2.2f,
                     campItemMaterial,
-                    site.Rotation + 82f,
-                    "Drying Rack",
+                    site.Rotation + 90f,
+                    "Cooking Spit",
                     random);
                 CreateNamedCampProp(
                     campFirewoodPrefab,
                     camp,
-                    site.Center + side * 2.65f -
-                        firstTentDirection * 0.35f,
+                    firewoodPoint,
                     2.875f,
                     campItemMaterial,
                     site.Rotation - 18f,
                     "Firewood Pile",
                     random);
-                Vector2 chestPoint = FindCampChestPoint(
-                    site,
-                    tentPoints,
-                    firstTentPoint,
-                    firstTentDirection,
-                    side);
-                GameObject chest = CreateNamedCampProp(
-                    campChestPrefab,
-                    camp,
-                    chestPoint,
-                    1.2f,
-                    campItemMaterial,
-                    site.Rotation + 90f,
-                    "Camp Chest",
-                    random);
-                if (chest != null)
+                if (site.IsLevelTwo)
                 {
-                    RaidLootContainer loot =
-                        chest.GetComponent<RaidLootContainer>() ??
-                        chest.AddComponent<RaidLootContainer>();
-                    loot.ConfigureChest(
+                    CreateLevelTwoCampDressing(
+                        camp,
+                        site,
+                        campIndex,
+                        campForward,
+                        campSide,
+                        random);
+                }
+                else
+                {
+                    Vector2 chestPoint = FindCampChestPoint(
+                        site,
+                        tentPoints,
+                        firstTentPoint,
+                        firstTentDirection,
+                        side);
+                    CreateLootableCampChest(
+                        camp,
+                        chestPoint,
+                        site.Rotation + 90f,
+                        "Camp Chest",
                         $"Camp Chest {campIndex + 1}",
-                        random.Next());
+                        random);
                 }
                 generatedCampCount++;
             }
+        }
+
+        private void CreateLevelTwoCampDressing(
+            Transform camp,
+            CampSite site,
+            int campIndex,
+            Vector2 forward,
+            Vector2 side,
+            System.Random random)
+        {
+            CreateNamedCampProp(
+                campBenchPrefab,
+                camp,
+                site.Center + side * 2.65f - forward * 0.15f,
+                LevelTwoBenchTargetSize,
+                campStructureMaterial,
+                YawFacingDirection(-side),
+                "Campfire Bench 1",
+                random);
+            CreateNamedCampProp(
+                campBenchPrefab,
+                camp,
+                site.Center - side * 2.65f + forward * 0.2f,
+                LevelTwoBenchTargetSize,
+                campStructureMaterial,
+                YawFacingDirection(side),
+                "Campfire Bench 2",
+                random);
+            CreateNamedCampProp(
+                campPotPrefab,
+                camp,
+                site.Center - side * 1.05f - forward * 0.2f,
+                0.5f,
+                campItemMaterial,
+                site.Rotation - 20f,
+                "Cooking Pot 2",
+                random);
+
+            for (int chestIndex = 0; chestIndex < 2; chestIndex++)
+            {
+                float sign = chestIndex == 0 ? -1f : 1f;
+                Vector2 chestDirection = DirectionFromAngle(
+                    site.Rotation + sign * 52f);
+                Vector2 chestPoint = site.Center +
+                    chestDirection * 12.85f;
+                CreateLootableCampChest(
+                    camp,
+                    chestPoint,
+                    YawFacingDirection(site.Center - chestPoint) + 90f,
+                    $"Camp Chest {chestIndex + 1}",
+                    $"Level Two Camp {campIndex + 1} Chest " +
+                        $"{chestIndex + 1}",
+                    random);
+            }
+
+            for (int barrelIndex = 0; barrelIndex < 2; barrelIndex++)
+            {
+                float sign = barrelIndex == 0 ? -1f : 1f;
+                Vector2 direction = DirectionFromAngle(
+                    site.Rotation + sign * 78f);
+                CreateNamedCampProp(
+                    campBarrelPrefab,
+                    camp,
+                    site.Center + direction * 10.75f,
+                    1.35f,
+                    campItemMaterial,
+                    site.Rotation + sign * 12f,
+                    $"Supply Barrel {barrelIndex + 1}",
+                    random);
+            }
+
+            float[] innerAngles = { -112f, 112f };
+            GameObject[] innerPrefabs =
+            {
+                campInnerBarricadePrefabA,
+                campInnerBarricadePrefabB
+            };
+            for (int index = 0; index < innerAngles.Length; index++)
+            {
+                Vector2 direction = DirectionFromAngle(
+                    site.Rotation + innerAngles[index]);
+                Vector2 point = site.Center + direction * 12.4f;
+                GameObject barricade = CreateNamedCampProp(
+                    innerPrefabs[index],
+                    camp,
+                    point,
+                    index == 0 ? 3.85f : 2.45f,
+                    campStructureMaterial,
+                    YawFacingDirection(direction) + 90f,
+                    $"Inner Weapon Rack {index + 1}",
+                    random);
+                CreateCampSwordDisplay(
+                    camp,
+                    barricade,
+                    YawFacingDirection(direction) +
+                        (index == 0 ? 72f : 108f),
+                    $"Rack Sword {index + 1}");
+            }
+
+            float[] outerAngles = { -140f, 180f, 140f };
+            for (int index = 0; index < outerAngles.Length; index++)
+            {
+                Vector2 direction = DirectionFromAngle(
+                    site.Rotation + outerAngles[index]);
+                GameObject prefab = (index & 1) == 0
+                    ? campOuterSpikePrefabA
+                    : campOuterSpikePrefabB;
+                CreateNamedCampProp(
+                    prefab,
+                    camp,
+                    site.Center + direction * 15.15f,
+                    index == 1 ? 3.35f : 3.05f,
+                    campStructureMaterial,
+                    YawFacingDirection(direction),
+                    $"Outer Log Defense {index + 1}",
+                    random);
+            }
+        }
+
+        private GameObject CreateLootableCampChest(
+            Transform camp,
+            Vector2 point,
+            float yaw,
+            string objectName,
+            string lootLabel,
+            System.Random random)
+        {
+            GameObject chest = CreateNamedCampProp(
+                campChestPrefab,
+                camp,
+                point,
+                1.2f,
+                campItemMaterial,
+                yaw,
+                objectName,
+                random);
+            if (chest == null)
+            {
+                return null;
+            }
+
+            RaidLootContainer loot =
+                chest.GetComponent<RaidLootContainer>() ??
+                chest.AddComponent<RaidLootContainer>();
+            loot.ConfigureChest(lootLabel, random.Next());
+            return chest;
+        }
+
+        private void CreateCampSwordDisplay(
+            Transform camp,
+            GameObject support,
+            float yaw,
+            string objectName)
+        {
+            if (support == null || campSwordBladeMesh == null)
+            {
+                return;
+            }
+
+            Renderer[] supportRenderers =
+                support.GetComponentsInChildren<Renderer>(true);
+            if (!TryGetRendererBounds(
+                    supportRenderers,
+                    out Bounds supportBounds))
+            {
+                return;
+            }
+
+            Transform sword = new GameObject(objectName).transform;
+            sword.SetParent(camp, false);
+            sword.position = new Vector3(
+                supportBounds.center.x,
+                Mathf.Lerp(
+                    supportBounds.min.y,
+                    supportBounds.max.y,
+                    0.64f) + 0.035f,
+                supportBounds.center.z);
+            sword.rotation = Quaternion.AngleAxis(yaw, Vector3.up) *
+                Quaternion.Euler(90f, 0f, 0f);
+            sword.localScale = Vector3.one * 1.18f;
+
+            CreateCampSwordPrimitive(
+                "Leather Grip",
+                PrimitiveType.Cylinder,
+                sword,
+                new Vector3(0f, 0.09f, 0f),
+                new Vector3(0.032f, 0.09f, 0.032f),
+                campSwordGripMaterial ?? campItemMaterial);
+            CreateCampSwordPrimitive(
+                "Pommel",
+                PrimitiveType.Sphere,
+                sword,
+                new Vector3(0f, -0.015f, 0f),
+                new Vector3(0.075f, 0.055f, 0.055f),
+                campSwordGuardMaterial ?? campItemMaterial);
+            CreateCampSwordPrimitive(
+                "Crossguard",
+                PrimitiveType.Cube,
+                sword,
+                new Vector3(0f, 0.195f, 0f),
+                new Vector3(0.30f, 0.035f, 0.052f),
+                campSwordGuardMaterial ?? campItemMaterial);
+
+            GameObject blade = new GameObject("Pointed Blade");
+            blade.transform.SetParent(sword, false);
+            blade.transform.localPosition = new Vector3(0f, 0.215f, 0f);
+            MeshFilter filter = blade.AddComponent<MeshFilter>();
+            filter.sharedMesh = campSwordBladeMesh;
+            MeshRenderer renderer = blade.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial =
+                campSwordBladeMaterial ?? campItemMaterial;
+        }
+
+        private static void CreateCampSwordPrimitive(
+            string name,
+            PrimitiveType primitiveType,
+            Transform parent,
+            Vector3 localPosition,
+            Vector3 localScale,
+            Material material)
+        {
+            GameObject part = GameObject.CreatePrimitive(primitiveType);
+            part.name = name;
+            part.transform.SetParent(parent, false);
+            part.transform.localPosition = localPosition;
+            part.transform.localRotation = Quaternion.identity;
+            part.transform.localScale = localScale;
+            Collider collider = part.GetComponent<Collider>();
+            if (collider != null)
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(collider);
+                }
+                else
+                {
+                    DestroyImmediate(collider);
+                }
+            }
+            part.GetComponent<Renderer>().sharedMaterial = material;
         }
 
         private static Vector2 FindCampChestPoint(
@@ -8101,6 +8462,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
             }
 
+            height = ApplyLevelTwoCampTerrainFit(
+                new Vector2(x, z),
+                height);
+
             float edge =
                 Mathf.Sqrt(x * x + z * z) /
                 mapRadius;
@@ -8112,6 +8477,45 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         1f,
                         edge) *
                     1.8f;
+            }
+            return height;
+        }
+
+        private float ApplyLevelTwoCampTerrainFit(
+            Vector2 point,
+            float originalHeight)
+        {
+            float height = originalHeight;
+            for (int index = 0; index < campSites.Count; index++)
+            {
+                CampSite site = campSites[index];
+                if (!site.IsLevelTwo)
+                {
+                    continue;
+                }
+
+                Vector2 offset = point - site.Center;
+                float outerRadius = site.ClearingRadius + 1.8f;
+                float distance = offset.magnitude;
+                if (distance >= outerRadius)
+                {
+                    continue;
+                }
+
+                float innerRadius = site.ClearingRadius * 0.52f;
+                float blend = 1f - Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    Mathf.InverseLerp(
+                        innerRadius,
+                        outerRadius,
+                        distance));
+                float fittedPlane = site.GroundHeight +
+                    Vector2.Dot(site.GroundSlope, offset);
+                height = Mathf.Lerp(
+                    height,
+                    fittedPlane,
+                    blend * 0.72f);
             }
             return height;
         }

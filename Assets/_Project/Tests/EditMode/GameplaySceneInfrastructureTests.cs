@@ -7,6 +7,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using WorldBuilder.Editor;
+using WorldBuilder.Gameplay.CameraSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
@@ -19,6 +20,172 @@ namespace WorldBuilder.Tests.EditMode
 {
     public sealed class GameplaySceneInfrastructureTests
     {
+        [UnityTest]
+        public IEnumerator ShoulderSwitchMirrorsCameraAndWholeVisualSmoothly()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            PlayerInputSource input = Object
+                .FindObjectsByType<PlayerInputSource>(
+                    FindObjectsSortMode.None)
+                .Single(candidate => candidate.CompareTag("Player"));
+            TwoSlotWeaponPresenter presenter =
+                input.GetComponentInChildren<TwoSlotWeaponPresenter>();
+            CameraAimTarget cameraAimTarget =
+                Object.FindFirstObjectByType<CameraAimTarget>();
+            UpperBodyAimPresenter upperBodyAim =
+                presenter.GetComponent<UpperBodyAimPresenter>();
+            AimStanceLocomotionPresenter stance =
+                presenter.GetComponent<AimStanceLocomotionPresenter>();
+            Assert.That(presenter, Is.Not.Null);
+            Assert.That(cameraAimTarget, Is.Not.Null);
+            Assert.That(upperBodyAim, Is.Not.Null);
+            Assert.That(stance, Is.Not.Null);
+
+            presenter.ConfigureBowOnlyLoadout();
+            input.SetDiagnosticOverride(new PlayerIntent(
+                Vector2.zero,
+                Vector2.zero,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true));
+            yield return new WaitForSeconds(1.5f);
+
+            Transform bow = presenter.SecondaryWeaponRoot;
+            Animator animator = presenter.GetComponent<Animator>();
+            Transform leftHand = animator.GetBoneTransform(
+                HumanBodyBones.LeftHand);
+            Transform rightHand = animator.GetBoneTransform(
+                HumanBodyBones.RightHand);
+            Transform leftElbow = animator.GetBoneTransform(
+                HumanBodyBones.LeftLowerArm);
+            Transform rightElbow = animator.GetBoneTransform(
+                HumanBodyBones.RightLowerArm);
+            float rightSideStanceYaw = stance.CurrentStanceYaw;
+            float rightSideVisualScale = animator.transform.localScale.x;
+            Vector3 previousBowPosition = bow.position;
+            float maximumFrameTravel = 0f;
+            float minimumVisualScale =
+                Mathf.Abs(rightSideVisualScale);
+            float closestHandGap = float.PositiveInfinity;
+            float closestBowCenterline = float.PositiveInfinity;
+            float closestShoulderMidpoint = float.PositiveInfinity;
+            float midpointElbowMirrorGap = float.PositiveInfinity;
+            float midpointStanceYaw = float.PositiveInfinity;
+            float maximumElbowVerticalFrameTravel = 0f;
+            float previousLeftElbowHeight = leftElbow.position.y;
+            float previousRightElbowHeight = rightElbow.position.y;
+            input.SetShoulderSideDiagnostic(-1);
+            float switchDeadline = Time.time + 1f;
+            while (Time.time < switchDeadline)
+            {
+                yield return null;
+                maximumFrameTravel = Mathf.Max(
+                    maximumFrameTravel,
+                    Vector3.Distance(
+                        previousBowPosition,
+                        bow.position));
+                minimumVisualScale = Mathf.Min(
+                    minimumVisualScale,
+                    Mathf.Abs(animator.transform.localScale.x));
+                closestHandGap = Mathf.Min(
+                    closestHandGap,
+                    Vector3.Distance(
+                        leftHand.position,
+                        rightHand.position));
+                closestBowCenterline = Mathf.Min(
+                    closestBowCenterline,
+                    Mathf.Abs(
+                        input.transform.InverseTransformPoint(
+                            bow.position).x));
+                maximumElbowVerticalFrameTravel = Mathf.Max(
+                    maximumElbowVerticalFrameTravel,
+                    Mathf.Abs(
+                        leftElbow.position.y -
+                        previousLeftElbowHeight),
+                    Mathf.Abs(
+                        rightElbow.position.y -
+                        previousRightElbowHeight));
+                previousLeftElbowHeight = leftElbow.position.y;
+                previousRightElbowHeight = rightElbow.position.y;
+                float shoulderMidpoint = Mathf.Abs(
+                    cameraAimTarget.CurrentShoulderSideBlend);
+                if (shoulderMidpoint < closestShoulderMidpoint)
+                {
+                    closestShoulderMidpoint = shoulderMidpoint;
+                    Vector3 leftElbowLocal =
+                        input.transform.InverseTransformPoint(
+                            leftElbow.position);
+                    Vector3 rightElbowLocal =
+                        input.transform.InverseTransformPoint(
+                            rightElbow.position);
+                    midpointElbowMirrorGap = Vector3.Distance(
+                        new Vector3(
+                            -leftElbowLocal.x,
+                            leftElbowLocal.y,
+                            leftElbowLocal.z),
+                        rightElbowLocal);
+                    midpointStanceYaw = stance.CurrentStanceYaw;
+                }
+                previousBowPosition = bow.position;
+            }
+
+            float leftSideStanceYaw = stance.CurrentStanceYaw;
+            float leftSideVisualScale = animator.transform.localScale.x;
+            Assert.That(
+                cameraAimTarget.CurrentShoulderSideBlend,
+                Is.LessThan(-0.9f));
+            Assert.That(
+                cameraAimTarget.CurrentShoulderOffset.x,
+                Is.LessThan(-0.6f));
+            Assert.That(
+                rightSideVisualScale * leftSideVisualScale,
+                Is.LessThan(0f),
+                "The complete authored visual must change mirror orientation.");
+            Assert.That(
+                leftSideStanceYaw,
+                Is.EqualTo(rightSideStanceYaw).Within(0.5f),
+                "The underlying animation must remain identical on both shoulders.");
+            Assert.That(
+                maximumFrameTravel,
+                Is.LessThan(0.22f),
+                "The visual reflection should blend rather than teleport in one frame.");
+            Assert.That(
+                minimumVisualScale,
+                Is.GreaterThan(
+                    Mathf.Abs(rightSideVisualScale) * 0.95f),
+                "The character must remain fully three-dimensional during the switch.");
+            Assert.That(
+                closestHandGap,
+                Is.LessThan(0.06f),
+                "Both hands must meet at the bow handle before orientation changes.");
+            Assert.That(
+                closestBowCenterline,
+                Is.LessThan(0.05f),
+                "The bow must reach the character centerline before orientation changes.");
+            Assert.That(
+                midpointElbowMirrorGap,
+                Is.LessThan(0.06f),
+                "The elbow shapes must match across the orientation-change frame.");
+            Assert.That(
+                maximumElbowVerticalFrameTravel,
+                Is.LessThan(0.06f),
+                "Neither elbow may jump vertically during the handoff.");
+            Assert.That(
+                Mathf.Abs(midpointStanceYaw),
+                Is.LessThan(3f),
+                "The bow stance must reach neutral before the feet exchange sides.");
+
+            input.ClearDiagnosticOverride();
+            yield return new ExitPlayMode();
+        }
+
         [TestCase(1920f, 1080f)]
         [TestCase(1454f, 676f)]
         [TestCase(1280f, 720f)]
@@ -495,7 +662,10 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(raidGenerator, Is.Not.Null);
             Assert.That(
                 campChests,
-                Has.Length.EqualTo(raidGenerator.GeneratedCampCount));
+                Has.Length.EqualTo(
+                    raidGenerator.GeneratedCampCount +
+                    raidGenerator.GeneratedLevelTwoCampCount),
+                "Each Level One camp has one chest and each Level Two camp has two.");
             Assert.That(
                 campChests.All(source =>
                     source.IsAvailable &&
@@ -808,7 +978,17 @@ namespace WorldBuilder.Tests.EditMode
                 "campPotPrefab",
                 "campDryingRackPrefab",
                 "campFirewoodPrefab",
-                "campChestPrefab"
+                "campChestPrefab",
+                "campBenchPrefab",
+                "campBarrelPrefab",
+                "campOuterSpikePrefabA",
+                "campOuterSpikePrefabB",
+                "campInnerBarricadePrefabA",
+                "campInnerBarricadePrefabB",
+                "campSwordBladeMesh",
+                "campSwordBladeMaterial",
+                "campSwordGuardMaterial",
+                "campSwordGripMaterial"
             };
             foreach (string field in campPrefabFields)
             {

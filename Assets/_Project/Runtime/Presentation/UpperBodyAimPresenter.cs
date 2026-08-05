@@ -60,7 +60,10 @@ namespace WorldBuilder.Gameplay.Presentation
         public float CurrentYaw => currentYaw;
         public float MaximumYaw => maximumYaw;
         public float BowDrawTorsoYaw => bowDrawTorsoYaw;
-
+        public float CurrentShoulderSideBlend =>
+            aimTarget != null
+                ? aimTarget.CurrentShoulderSideBlend
+                : 1f;
         public Vector3 PredictFullDrawHeadPosition()
         {
             if (head == null || characterRoot == null)
@@ -84,7 +87,9 @@ namespace WorldBuilder.Gameplay.Presentation
                     : Quaternion.identity;
             Quaternion headRotation = head.rotation;
             float remainingBowYaw =
-                fullDrawTorsoYaw - bowDrawTorsoYaw;
+                fullDrawTorsoYaw *
+                    Mathf.Abs(CurrentShoulderSideBlend) -
+                bowDrawTorsoYaw;
             Vector3 up = characterRoot.up;
             ApplyWorldYaw(
                 spine,
@@ -290,9 +295,9 @@ namespace WorldBuilder.Gameplay.Presentation
 
             UpdateLocomotionYaw(rootForward);
             UpdateBowDrawTorsoYaw();
-            float sharedYaw =
-                currentYaw +
-                locomotionYaw +
+            float sharedYaw = CalculateShoulderCompensatedAimYaw(
+                currentYaw + locomotionYaw,
+                CurrentShoulderSideBlend) +
                 bowDrawTorsoYaw;
             ApplyWorldYaw(spine, sharedYaw * spineShare, up);
             ApplyWorldYaw(chest, sharedYaw * chestShare, up);
@@ -313,17 +318,35 @@ namespace WorldBuilder.Gameplay.Presentation
                 BowAimLocked && bowWeapon != null
                     ? bowWeapon.DrawNormalized
                     : 0f;
-            float easedDraw =
-                drawProgress *
-                drawProgress *
-                (3f - 2f * drawProgress);
-            float targetYaw =
-                fullDrawTorsoYaw * easedDraw;
+            float targetYaw = CalculateBowTorsoYaw(
+                fullDrawTorsoYaw,
+                drawProgress) *
+                Mathf.Abs(CurrentShoulderSideBlend);
             bowDrawTorsoYaw = Mathf.SmoothDampAngle(
                 bowDrawTorsoYaw,
                 targetYaw,
                 ref bowDrawTorsoYawVelocity,
                 bowTorsoYawSmoothTime);
+        }
+
+        public static float CalculateBowTorsoYaw(
+            float fullDrawYaw,
+            float drawProgress)
+        {
+            float clampedDraw = Mathf.Clamp01(drawProgress);
+            float easedDraw = clampedDraw * clampedDraw *
+                (3f - 2f * clampedDraw);
+            return fullDrawYaw * easedDraw;
+        }
+
+        public static float CalculateShoulderCompensatedAimYaw(
+            float aimYaw,
+            float shoulderSideBlend)
+        {
+            return aimYaw * Mathf.Clamp(
+                shoulderSideBlend,
+                -1f,
+                1f);
         }
 
         private void UpdateLocomotionYaw(Vector3 rootForward)

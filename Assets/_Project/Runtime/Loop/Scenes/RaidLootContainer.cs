@@ -55,7 +55,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             columns = 4;
             rows = 4;
             available = true;
-            GenerateContents(seed, includeArrows: true, 1, 20);
+            GenerateContents(
+                seed,
+                includeArrows: true,
+                1,
+                20,
+                includeChestMaterials: true);
         }
 
         public void ConfigureCorpse(EnemyBrain enemy, int seed)
@@ -71,7 +76,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             bool archer = enemy == null ||
                 enemy.ConfiguredWeaponLoadout !=
                     EnemyBrain.WeaponLoadout.SwordOnly;
-            GenerateContents(seed, archer, 1, 10);
+            GenerateContents(
+                seed,
+                archer,
+                1,
+                10,
+                includeChestMaterials: false);
             ownerHealth = enemy != null
                 ? enemy.GetComponent<Health>()
                 : GetComponent<Health>();
@@ -313,7 +323,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int seed,
             bool includeArrows,
             int minimumArrows,
-            int maximumArrows)
+            int maximumArrows,
+            bool includeChestMaterials)
         {
             entries.Clear();
             var random = new System.Random(seed);
@@ -334,6 +345,37 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 healthPack.SetSlotIndex(includeArrows ? 1 : 0);
                 entries.Add(healthPack);
             }
+            if (!includeChestMaterials)
+            {
+                return;
+            }
+            if (random.NextDouble() < 0.5d)
+            {
+                int ingotCount = random.Next(1, 4);
+                for (int index = 0; index < ingotCount; index++)
+                {
+                    AddGeneratedEntry(
+                        StorageEntry.Create(ItemDefinitionIds.IronIngot));
+                }
+            }
+            if (random.NextDouble() < 0.5d)
+            {
+                AddGeneratedEntry(
+                    StorageEntry.Create(
+                        ItemDefinitionIds.Coal,
+                        random.Next(1, 11)));
+            }
+        }
+
+        private void AddGeneratedEntry(StorageEntry entry)
+        {
+            int slot = FindAvailableSlot(entry);
+            if (slot < 0)
+            {
+                return;
+            }
+            entry.SetSlotIndex(slot);
+            entries.Add(entry);
         }
 
         private int FindAvailableSlot(StorageEntry candidate)

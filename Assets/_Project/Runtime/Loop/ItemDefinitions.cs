@@ -8,12 +8,16 @@ namespace WorldBuilder.Gameplay.Loop
     {
         public const string Arrow = "arrow";
         public const string HealthPack = "health-pack";
+        public const string IronIngot = "iron-ingot";
+        public const string Coal = "coal";
     }
 
     public static class ItemDefinitionCatalog
     {
         private static Texture2D arrowIcon;
         private static Texture2D healthPackIcon;
+        private static Texture2D ironIngotIcon;
+        private static Texture2D coalIcon;
 
         public static string DisplayName(string definitionId)
         {
@@ -21,6 +25,8 @@ namespace WorldBuilder.Gameplay.Loop
             {
                 ItemDefinitionIds.Arrow => "Arrow",
                 ItemDefinitionIds.HealthPack => "Health Pack",
+                ItemDefinitionIds.IronIngot => "Iron Ingot",
+                ItemDefinitionIds.Coal => "Coal",
                 _ => string.IsNullOrWhiteSpace(definitionId)
                     ? "Unknown Item"
                     : definitionId.Trim()
@@ -36,12 +42,22 @@ namespace WorldBuilder.Gameplay.Loop
                 string.Equals(
                     definitionId,
                     ItemDefinitionIds.HealthPack,
+                    StringComparison.Ordinal) ||
+                string.Equals(
+                    definitionId,
+                    ItemDefinitionIds.Coal,
                     StringComparison.Ordinal);
         }
 
         public static int MaximumStack(string definitionId)
         {
-            return IsStackable(definitionId) ? 64 : 1;
+            return definitionId switch
+            {
+                ItemDefinitionIds.Arrow => 64,
+                ItemDefinitionIds.HealthPack => 64,
+                ItemDefinitionIds.Coal => 10,
+                _ => 1
+            };
         }
 
         public static IReadOnlyList<Vector2Int> GetFootprint(
@@ -134,6 +150,12 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.HealthPack =>
                     healthPackIcon ??= Resources.Load<Texture2D>(
                         "Inventory Icons/Health Pack Icon"),
+                ItemDefinitionIds.IronIngot =>
+                    ironIngotIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Iron Ingot Icon"),
+                ItemDefinitionIds.Coal =>
+                    coalIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Coal Icon"),
                 _ => null
             };
         }

@@ -150,11 +150,35 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3 lastSafeNavigationPosition;
         private bool hasSafeNavigationPosition;
         private readonly RaycastHit[] navigationProbeHits =
-            new RaycastHit[16];
+            new RaycastHit[32];
+        private readonly Collider[] navigationOverlapColliders =
+            new Collider[32];
+        private Vector3 navigationDetourDirection;
+        private Vector3 navigationProgressOrigin;
+        private float navigationDetourTimer;
+        private float navigationRecoveryTimer;
+        private float navigationProgressTimer;
+        private float navigationLastRequestTime = float.NegativeInfinity;
+        private float navigationAvoidanceSide = 1f;
+        private bool hasNavigationProgressOrigin;
 
         private const float MinimumCommittedBowCharge = 0.995f;
         private const float FullDrawSafetyDuration = 0.12f;
         private const float HeadshotChance = 0.075f;
+        private const float NavigationLookAhead = 2.8f;
+        private const float NavigationDetourDuration = 0.72f;
+        private const float NavigationStuckSampleDuration = 0.55f;
+        private const float NavigationMinimumProgress = 0.20f;
+        private const float RangedNearbyBridgeEntryDistance = 4.5f;
+        private const float RangedBridgeMinimumForwardDot = 0.25f;
+        private static readonly float[] NavigationFanAngles =
+        {
+            30f,
+            52f,
+            74f,
+            96f,
+            122f
+        };
 
         public event Action<EnemyState> StateChanged;
 
@@ -296,6 +320,8 @@ namespace WorldBuilder.Gameplay.Characters
         private void Awake()
         {
             ResolveReferences();
+            navigationProgressOrigin = transform.position;
+            hasNavigationProgressOrigin = true;
             EnsureDamageProfile();
             health.Damaged += HandleDamaged;
             health.Died += HandleDeath;
@@ -1248,6 +1274,15 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3 ResolveObstacleAwareDirection(
             Vector3 desiredDirection)
         {
+            return ResolveObstacleAwareDirectionWithRiverPolicy(
+                desiredDirection,
+                allowRiverWaypoint: true);
+        }
+
+        private Vector3 ResolveObstacleAwareDirectionWithRiverPolicy(
+            Vector3 desiredDirection,
+            bool allowRiverWaypoint)
+        {
             desiredDirection = Vector3.ProjectOnPlane(
                 desiredDirection,
                 Vector3.up);
@@ -1256,50 +1291,224 @@ namespace WorldBuilder.Gameplay.Characters
                 return Vector3.zero;
             }
             desiredDirection.Normalize();
+            UpdateNavigationProgress();
+            float deltaTime = Mathf.Max(0f, Time.deltaTime);
+            navigationDetourTimer = Mathf.Max(
+                0f,
+                navigationDetourTimer - deltaTime);
+            navigationRecoveryTimer = Mathf.Max(
+                0f,
+                navigationRecoveryTimer - deltaTime);
 
-            const float probeDistance = 1.35f;
-            float forwardClearance = NavigationClearance(
-                desiredDirection,
-                probeDistance);
-            if (forwardClearance >= probeDistance - 0.01f)
+            if (navigationRecoveryTimer > 0f)
             {
-                return ConstrainImmediateRiverStep(
-                    desiredDirection);
+                Vector3 recoveryDirection =
+                    FindBestNavigationDetour(
+                        desiredDirection,
+                        true,
+                        allowRiverWaypoint);
+                if (recoveryDirection.sqrMagnitude > 0.0001f)
+                {
+                    RememberNavigationDetour(
+                        recoveryDirection,
+                        0.82f);
+                    return recoveryDirection;
+                }
             }
 
-            Vector3 left = Quaternion.AngleAxis(
-                -58f,
-                Vector3.up) * desiredDirection;
-            Vector3 right = Quaternion.AngleAxis(
-                58f,
-                Vector3.up) * desiredDirection;
-            float leftClearance = NavigationClearance(
-                left,
-                probeDistance * 1.25f);
-            float rightClearance = NavigationClearance(
-                right,
-                probeDistance * 1.25f);
-            bool chooseRight = rightClearance > leftClearance + 0.05f ||
-                (Mathf.Abs(rightClearance - leftClearance) <= 0.05f &&
-                 orbitDirection > 0f);
-            orbitDirection = chooseRight ? 1f : -1f;
-            Vector3 avoidance = chooseRight ? right : left;
-            Vector3 result = (
-                avoidance * 0.92f +
-                desiredDirection * 0.18f).normalized;
-            return ConstrainImmediateRiverStep(result);
+            if (navigationDetourTimer > 0f &&
+                navigationDetourDirection.sqrMagnitude > 0.0001f)
+            {
+                Vector3 continuedDetour = (
+                    navigationDetourDirection * 0.84f +
+                    desiredDirection * 0.16f).normalized;
+                if (NavigationClearance(
+                        continuedDetour,
+                        1.55f) > 0.72f)
+                {
+                    return ConstrainImmediateRiverStep(
+                        continuedDetour,
+                        allowRiverWaypoint);
+                }
+                navigationDetourTimer = 0f;
+            }
+
+            float forwardClearance = NavigationClearance(
+                desiredDirection,
+                NavigationLookAhead);
+            if (forwardClearance >= NavigationLookAhead - 0.04f)
+            {
+                return ConstrainImmediateRiverStep(
+                    desiredDirection,
+                    allowRiverWaypoint);
+            }
+
+            Vector3 detour = FindBestNavigationDetour(
+                desiredDirection,
+                false,
+                allowRiverWaypoint);
+            if (detour.sqrMagnitude <= 0.0001f)
+            {
+                return Vector3.zero;
+            }
+
+            RememberNavigationDetour(
+                detour,
+                NavigationDetourDuration);
+            return detour;
+        }
+
+        private void UpdateNavigationProgress()
+        {
+            float now = Time.time;
+            if (!hasNavigationProgressOrigin ||
+                now - navigationLastRequestTime > 0.22f)
+            {
+                navigationProgressOrigin = transform.position;
+                navigationProgressTimer = 0f;
+                hasNavigationProgressOrigin = true;
+            }
+            navigationLastRequestTime = now;
+
+            float deltaTime = Mathf.Max(0f, Time.deltaTime);
+            if (deltaTime <= 0f)
+            {
+                return;
+            }
+
+            Vector3 progress = Vector3.ProjectOnPlane(
+                transform.position - navigationProgressOrigin,
+                Vector3.up);
+            if (progress.magnitude >= NavigationMinimumProgress)
+            {
+                navigationProgressOrigin = transform.position;
+                navigationProgressTimer = 0f;
+                return;
+            }
+
+            navigationProgressTimer += deltaTime;
+            if (navigationProgressTimer <
+                NavigationStuckSampleDuration)
+            {
+                return;
+            }
+
+            navigationProgressOrigin = transform.position;
+            navigationProgressTimer = 0f;
+            navigationDetourTimer = 0f;
+            navigationAvoidanceSide *= -1f;
+            navigationRecoveryTimer = 0.9f;
+            GameplayEventLog.Publish(
+                "enemy-navigation-recovery",
+                gameObject,
+                "no-progress-wide-detour");
+        }
+
+        private Vector3 FindBestNavigationDetour(
+            Vector3 desiredDirection,
+            bool recovery,
+            bool allowRiverWaypoint)
+        {
+            float maximumDistance = recovery ? 3.8f : 3.35f;
+            float preferredSide = navigationAvoidanceSide >= 0f
+                ? 1f
+                : -1f;
+            Vector3 bestDirection = Vector3.zero;
+            float bestScore = float.NegativeInfinity;
+            for (int sideIndex = 0; sideIndex < 2; sideIndex++)
+            {
+                float side = sideIndex == 0
+                    ? preferredSide
+                    : -preferredSide;
+                for (int angleIndex = 0;
+                     angleIndex < NavigationFanAngles.Length;
+                     angleIndex++)
+                {
+                    float angle = NavigationFanAngles[angleIndex];
+                    Vector3 candidate = Quaternion.AngleAxis(
+                        angle * side,
+                        Vector3.up) * desiredDirection;
+                    candidate = ConstrainImmediateRiverStep(
+                        candidate,
+                        allowRiverWaypoint);
+                    if (candidate.sqrMagnitude <= 0.0001f)
+                    {
+                        continue;
+                    }
+                    candidate.Normalize();
+                    float clearance = NavigationClearance(
+                        candidate,
+                        maximumDistance);
+                    if (clearance < 0.48f)
+                    {
+                        continue;
+                    }
+
+                    float forwardProgress = Vector3.Dot(
+                        candidate,
+                        desiredDirection);
+                    float score = clearance * 1.35f +
+                        forwardProgress * (recovery ? 0.22f : 0.72f) -
+                        angle * 0.0015f +
+                        (side == preferredSide ? 0.12f : 0f);
+                    if (score <= bestScore)
+                    {
+                        continue;
+                    }
+                    bestScore = score;
+                    bestDirection = candidate;
+                    navigationAvoidanceSide = side;
+                }
+            }
+            return bestDirection;
+        }
+
+        private void RememberNavigationDetour(
+            Vector3 direction,
+            float duration)
+        {
+            navigationDetourDirection = Vector3.ProjectOnPlane(
+                direction,
+                Vector3.up).normalized;
+            navigationDetourTimer = Mathf.Max(
+                navigationDetourTimer,
+                duration);
         }
 
         private float NavigationClearance(
             Vector3 direction,
             float maximumDistance)
         {
-            Vector3 origin = transform.position +
-                Vector3.up * 0.72f +
-                direction * 0.22f;
-            int hitCount = Physics.SphereCastNonAlloc(
-                origin,
-                0.20f,
+            direction = Vector3.ProjectOnPlane(
+                direction,
+                Vector3.up).normalized;
+            ResolveNavigationCapsule(
+                out Vector3 bottom,
+                out Vector3 top,
+                out float radius);
+            float immediateStep = Mathf.Min(
+                maximumDistance,
+                radius + 0.16f);
+            int overlapCount = Physics.OverlapCapsuleNonAlloc(
+                bottom + direction * immediateStep,
+                top + direction * immediateStep,
+                radius * 0.94f,
+                navigationOverlapColliders,
+                sightMask,
+                QueryTriggerInteraction.Ignore);
+            for (int index = 0; index < overlapCount; index++)
+            {
+                if (!ShouldIgnoreNavigationCollider(
+                        navigationOverlapColliders[index]))
+                {
+                    return 0f;
+                }
+            }
+
+            int hitCount = Physics.CapsuleCastNonAlloc(
+                bottom,
+                top,
+                radius,
                 direction,
                 navigationProbeHits,
                 maximumDistance,
@@ -1321,17 +1530,58 @@ namespace WorldBuilder.Gameplay.Characters
             return clearance;
         }
 
+        private void ResolveNavigationCapsule(
+            out Vector3 bottom,
+            out Vector3 top,
+            out float radius)
+        {
+            if (controller == null)
+            {
+                controller = GetComponent<CharacterController>();
+            }
+            if (controller == null)
+            {
+                radius = 0.27f;
+                bottom = transform.position + Vector3.up * radius;
+                top = transform.position + Vector3.up * 1.53f;
+                return;
+            }
+
+            Vector3 scale = transform.lossyScale;
+            float horizontalScale = Mathf.Max(
+                Mathf.Abs(scale.x),
+                Mathf.Abs(scale.z));
+            radius = Mathf.Max(
+                0.18f,
+                controller.radius * horizontalScale * 0.92f);
+            float height = Mathf.Max(
+                radius * 2f,
+                controller.height * Mathf.Abs(scale.y));
+            Vector3 center = transform.TransformPoint(controller.center);
+            float halfSegment = Mathf.Max(
+                0f,
+                height * 0.5f - radius);
+            bottom = center - Vector3.up * halfSegment;
+            top = center + Vector3.up * halfSegment;
+        }
+
         private bool ShouldIgnoreNavigationCollider(
             Collider collider)
         {
             if (collider == null ||
                 collider.transform.IsChildOf(transform) ||
-                collider.GetComponentInParent<EnemyBrain>() != null ||
                 (target != null &&
                     (collider.transform == target ||
                      collider.transform.IsChildOf(target))))
             {
                 return true;
+            }
+
+            EnemyBrain otherEnemy =
+                collider.GetComponentInParent<EnemyBrain>();
+            if (otherEnemy != null)
+            {
+                return otherEnemy.state != EnemyState.Dead;
             }
 
             for (Transform current = collider.transform;
@@ -1350,7 +1600,8 @@ namespace WorldBuilder.Gameplay.Characters
         }
 
         private Vector3 ConstrainImmediateRiverStep(
-            Vector3 direction)
+            Vector3 direction,
+            bool allowRiverWaypoint = true)
         {
             ResolveRaidEnvironment();
             if (raidEnvironment == null ||
@@ -1369,6 +1620,11 @@ namespace WorldBuilder.Gameplay.Characters
                     padding))
             {
                 return direction;
+            }
+
+            if (!allowRiverWaypoint)
+            {
+                return Vector3.zero;
             }
 
             if (raidEnvironment.TryResolveEnemyRiverWaypoint(
@@ -1583,14 +1839,100 @@ namespace WorldBuilder.Gameplay.Characters
             {
                 movement -= direction * 0.34f;
             }
+            float movementStrength = Mathf.Clamp01(
+                movement.magnitude);
 
-            movement = ResolveRiverAwareDirection(
-                movement,
-                target != null
-                    ? target.position
-                    : transform.position + movement * 2f);
+            movement = ResolveRangedRiverMovement(movement);
+            movement = ResolveObstacleAwareDirectionWithRiverPolicy(
+                    movement,
+                    allowRiverWaypoint: false) *
+                movementStrength;
 
             return WorldDirectionToInput(movement);
+        }
+
+        private Vector3 ResolveRangedRiverMovement(
+            Vector3 proposedMovement)
+        {
+            ResolveRaidEnvironment();
+            Vector3 movement = Vector3.ProjectOnPlane(
+                proposedMovement,
+                Vector3.up);
+            if (movement.sqrMagnitude <= 0.0001f ||
+                raidEnvironment == null)
+            {
+                return movement;
+            }
+
+            movement.Normalize();
+            if (target != null &&
+                raidEnvironment.TryResolveEnemyRiverWaypoint(
+                    transform.position,
+                    target.position,
+                    out Vector3 bridgeWaypoint) &&
+                ShouldTakeNearbyRangedBridge(
+                    transform.position,
+                    target.position,
+                    bridgeWaypoint))
+            {
+                Vector3 towardBridge = Vector3.ProjectOnPlane(
+                    bridgeWaypoint - transform.position,
+                    Vector3.up);
+                if (towardBridge.sqrMagnitude > 0.001f)
+                {
+                    return ConstrainImmediateRiverStep(
+                        towardBridge.normalized,
+                        allowRiverWaypoint: false);
+                }
+            }
+
+            float padding = controller != null
+                ? controller.radius + 0.12f
+                : 0.37f;
+            Vector3 step = transform.position + movement * 1.15f;
+            if (raidEnvironment.IsEnemyNavigationPositionSafe(
+                    step,
+                    padding))
+            {
+                return movement;
+            }
+
+            Vector3 reversed = -movement;
+            Vector3 reversedStep = transform.position +
+                reversed * 1.15f;
+            if (raidEnvironment.IsEnemyNavigationPositionSafe(
+                    reversedStep,
+                    padding))
+            {
+                rangedStrafeDirection *= -1f;
+                return reversed;
+            }
+            return Vector3.zero;
+        }
+
+        public static bool ShouldTakeNearbyRangedBridge(
+            Vector3 enemyPosition,
+            Vector3 targetPosition,
+            Vector3 bridgeWaypoint)
+        {
+            Vector3 towardTarget = Vector3.ProjectOnPlane(
+                targetPosition - enemyPosition,
+                Vector3.up);
+            Vector3 towardBridge = Vector3.ProjectOnPlane(
+                bridgeWaypoint - enemyPosition,
+                Vector3.up);
+            if (towardTarget.sqrMagnitude <= 0.001f ||
+                towardBridge.sqrMagnitude <= 0.001f ||
+                towardBridge.magnitude >
+                    RangedNearbyBridgeEntryDistance)
+            {
+                return false;
+            }
+
+            return Vector3.Dot(
+                    towardTarget.normalized,
+                    towardBridge.normalized) >=
+                RangedBridgeMinimumForwardDot;
         }
 
         private Vector2 ResolveOccludedBowMovement()
@@ -1842,6 +2184,7 @@ namespace WorldBuilder.Gameplay.Characters
             movement = ResolveRiverAwareDirection(
                 movement,
                 transform.position + movement * 2f);
+            movement = ResolveObstacleAwareDirection(movement);
 
             SetIntent(
                 WorldDirectionToInput(movement),
@@ -1904,16 +2247,19 @@ namespace WorldBuilder.Gameplay.Characters
                 }
             }
 
+            Vector3 movement = Vector3.zero;
+            if (distance > 0.58f)
+            {
+                movement = ResolveRiverAwareDirection(
+                    direction,
+                    target != null
+                        ? target.position
+                        : transform.position +
+                            direction * distance);
+                movement = ResolveObstacleAwareDirection(movement);
+            }
             SetIntent(
-                distance > 0.58f
-                    ? WorldDirectionToInput(
-                        ResolveRiverAwareDirection(
-                            direction,
-                            target != null
-                                ? target.position
-                                : transform.position +
-                                    direction * distance))
-                    : Vector2.zero,
+                WorldDirectionToInput(movement),
                 attackPressed,
                 false,
                 true);
@@ -1950,6 +2296,7 @@ namespace WorldBuilder.Gameplay.Characters
             movement = ResolveRiverAwareDirection(
                 movement,
                 transform.position + movement * 2f);
+            movement = ResolveObstacleAwareDirection(movement);
             SetIntent(
                 WorldDirectionToInput(movement),
                 false,

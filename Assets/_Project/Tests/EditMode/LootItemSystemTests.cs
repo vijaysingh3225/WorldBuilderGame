@@ -11,6 +11,28 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class LootItemSystemTests
     {
         [Test]
+        public void ChestMaterialDefinitionsLoadTheirIconsAndStackLimits()
+        {
+            Assert.That(
+                ItemDefinitionCatalog.LoadIcon(ItemDefinitionIds.IronIngot),
+                Is.Not.Null);
+            Assert.That(
+                ItemDefinitionCatalog.LoadIcon(ItemDefinitionIds.Coal),
+                Is.Not.Null);
+            Assert.That(
+                ItemDefinitionCatalog.IsStackable(
+                    ItemDefinitionIds.IronIngot),
+                Is.False);
+            Assert.That(
+                ItemDefinitionCatalog.MaximumStack(
+                    ItemDefinitionIds.IronIngot),
+                Is.EqualTo(1));
+            Assert.That(
+                ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.Coal),
+                Is.EqualTo(10));
+        }
+
+        [Test]
         public void EveryRaidStartsWithOneTwentyArrowStack()
         {
             GameSession session = CreateSession();
@@ -322,6 +344,10 @@ namespace WorldBuilder.Tests.EditMode
                 bool sawEmptyCorpseUtilitySlot = false;
                 bool sawChestHealthPack = false;
                 bool sawEmptyChestUtilitySlot = false;
+                bool sawChestIron = false;
+                bool sawChestWithoutIron = false;
+                bool sawChestCoal = false;
+                bool sawChestWithoutCoal = false;
                 for (int seed = 0; seed < 64; seed++)
                 {
                     source.ConfigureCorpse(null, seed);
@@ -334,6 +360,14 @@ namespace WorldBuilder.Tests.EditMode
                         entry.DefinitionId == ItemDefinitionIds.HealthPack);
                     sawCorpseHealthPack |= corpseHasHealth;
                     sawEmptyCorpseUtilitySlot |= !corpseHasHealth;
+                    Assert.That(source.Entries.Any(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.IronIngot),
+                        Is.False,
+                        "Defeated AI must never carry chest-only iron.");
+                    Assert.That(source.Entries.Any(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.Coal),
+                        Is.False,
+                        "Defeated AI must never carry chest-only coal.");
 
                     source.ConfigureChest("Camp Chest", seed);
                     Assert.That(source.Columns, Is.EqualTo(4));
@@ -345,12 +379,42 @@ namespace WorldBuilder.Tests.EditMode
                         entry.DefinitionId == ItemDefinitionIds.HealthPack);
                     sawChestHealthPack |= chestHasHealth;
                     sawEmptyChestUtilitySlot |= !chestHasHealth;
+                    StorageEntry[] ingots = source.Entries.Where(entry =>
+                            entry.DefinitionId == ItemDefinitionIds.IronIngot)
+                        .ToArray();
+                    StorageEntry coal = source.Entries.SingleOrDefault(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.Coal);
+                    sawChestIron |= ingots.Length > 0;
+                    sawChestWithoutIron |= ingots.Length == 0;
+                    sawChestCoal |= coal != null;
+                    sawChestWithoutCoal |= coal == null;
+                    Assert.That(ingots.Length, Is.InRange(0, 3));
+                    Assert.That(
+                        ingots.All(entry => entry.Quantity == 1),
+                        Is.True,
+                        "Every non-stackable ingot needs its own cell.");
+                    if (coal != null)
+                    {
+                        Assert.That(coal.Quantity, Is.InRange(1, 10));
+                    }
                 }
 
                 Assert.That(sawCorpseHealthPack, Is.True);
                 Assert.That(sawEmptyCorpseUtilitySlot, Is.True);
                 Assert.That(sawChestHealthPack, Is.True);
                 Assert.That(sawEmptyChestUtilitySlot, Is.True);
+                Assert.That(sawChestIron, Is.True);
+                Assert.That(sawChestWithoutIron, Is.True);
+                Assert.That(sawChestCoal, Is.True);
+                Assert.That(sawChestWithoutCoal, Is.True);
+                Assert.That(
+                    ItemDefinitionCatalog.MaximumStack(
+                        ItemDefinitionIds.IronIngot),
+                    Is.EqualTo(1));
+                Assert.That(
+                    ItemDefinitionCatalog.MaximumStack(
+                        ItemDefinitionIds.Coal),
+                    Is.EqualTo(10));
             }
             finally
             {

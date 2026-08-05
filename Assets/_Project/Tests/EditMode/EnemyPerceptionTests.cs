@@ -352,6 +352,68 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void NavigationUsesFullBodyClearanceForLowCampProps()
+        {
+            enemy = CreateEnemy(
+                new Vector3(500f, 0f, 500f));
+            obstruction = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            obstruction.name = "Low Camp Bench";
+            obstruction.transform.position =
+                new Vector3(500f, 0.18f, 500.9f);
+            obstruction.transform.localScale =
+                new Vector3(1.4f, 0.36f, 0.5f);
+            Physics.SyncTransforms();
+
+            Vector3 movement = (Vector3)
+                ResolvePrivateMethod(
+                        "ResolveObstacleAwareDirection")
+                    .Invoke(
+                        enemy.GetComponent<EnemyBrain>(),
+                        new object[] { Vector3.forward });
+
+            Assert.That(
+                Mathf.Abs(movement.x),
+                Is.GreaterThan(0.40f),
+                "A low bench or firewood pile must be detected below torso height instead of catching the controller.");
+        }
+
+        [Test]
+        public void NavigationKeepsOneDetourSideAroundWideRocks()
+        {
+            enemy = CreateEnemy(
+                new Vector3(500f, 0f, 500f));
+            obstruction = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            obstruction.name = "Wide Boulder";
+            obstruction.transform.position =
+                new Vector3(500f, 0.9f, 501.6f);
+            obstruction.transform.localScale =
+                new Vector3(3.6f, 1.8f, 1.25f);
+            Physics.SyncTransforms();
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            MethodInfo steering = ResolvePrivateMethod(
+                "ResolveObstacleAwareDirection");
+
+            Vector3 first = (Vector3)steering.Invoke(
+                brain,
+                new object[] { Vector3.forward });
+            SetPrivateField(brain, "orbitDirection", -1f);
+            Vector3 second = (Vector3)steering.Invoke(
+                brain,
+                new object[] { Vector3.forward });
+
+            Assert.That(
+                Mathf.Abs(first.x),
+                Is.GreaterThan(0.70f),
+                "A wide rock requires a broad flank rather than the old short diagonal probe.");
+            Assert.That(
+                Mathf.Sign(second.x),
+                Is.EqualTo(Mathf.Sign(first.x)),
+                "The chosen obstacle detour must persist instead of oscillating between both sides of a rock.");
+        }
+
+        [Test]
         public void BridgeGeometryDoesNotPushNavigationOffTheDeck()
         {
             enemy = CreateEnemy(
@@ -495,6 +557,35 @@ namespace WorldBuilder.Tests
                 Mathf.Abs(intent.x),
                 Is.GreaterThan(Mathf.Abs(intent.y) * 3f),
                 "Ranged movement should primarily strafe across the target rather than rush straight toward it.");
+        }
+
+        [Test]
+        public void RangedBridgeRoutingRequiresANearbyForwardEntry()
+        {
+            Vector3 enemyPosition = Vector3.zero;
+            Vector3 targetPosition = Vector3.forward * 20f;
+
+            Assert.That(
+                EnemyBrain.ShouldTakeNearbyRangedBridge(
+                    enemyPosition,
+                    targetPosition,
+                    new Vector3(1.5f, 0f, 3.5f)),
+                Is.True,
+                "A close bridge entry that still advances toward the player may be used.");
+            Assert.That(
+                EnemyBrain.ShouldTakeNearbyRangedBridge(
+                    enemyPosition,
+                    targetPosition,
+                    new Vector3(0f, 0f, 5f)),
+                Is.False,
+                "An archer should engage from its bank instead of taking a distant bridge.");
+            Assert.That(
+                EnemyBrain.ShouldTakeNearbyRangedBridge(
+                    enemyPosition,
+                    targetPosition,
+                    new Vector3(0f, 0f, -2f)),
+                Is.False,
+                "An archer must not walk away from a visible target to reach a bridge.");
         }
 
         [Test]

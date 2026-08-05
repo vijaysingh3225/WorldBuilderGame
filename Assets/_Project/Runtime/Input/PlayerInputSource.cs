@@ -13,12 +13,17 @@ namespace WorldBuilder.Gameplay.Input
         private PlayerIntent diagnosticIntent;
         private bool crouchToggled;
         private bool userInterfaceCaptureActive;
+        private bool gameplayCursorCaptureRequested;
+        private int shoulderSide = 1;
 
         public PlayerIntent CurrentIntent { get; private set; }
         public bool DiagnosticOverrideActive => diagnosticOverrideActive;
         public bool UserInterfaceCaptureActive =>
             userInterfaceCaptureActive;
+        public bool GameplayCursorCaptureRequested =>
+            gameplayCursorCaptureRequested;
         public bool CameraOrbitHeld { get; private set; }
+        public int ShoulderSide => shoulderSide;
         public event Action<int> WeaponSlotRequested;
 
         public void SetUserInterfaceCapture(bool captured)
@@ -29,6 +34,12 @@ namespace WorldBuilder.Gameplay.Input
                 CurrentIntent = default;
                 CameraOrbitHeld = false;
             }
+        }
+
+        public void RequestGameplayCursorCapture()
+        {
+            gameplayCursorCaptureRequested = true;
+            LockCursor();
         }
 
         public void SetDiagnosticOverride(in PlayerIntent intent)
@@ -45,6 +56,11 @@ namespace WorldBuilder.Gameplay.Input
             CurrentIntent = default;
         }
 
+        public void SetShoulderSideDiagnostic(int side)
+        {
+            shoulderSide = side < 0 ? -1 : 1;
+        }
+
         private void OnEnable()
         {
             LockCursor();
@@ -56,7 +72,9 @@ namespace WorldBuilder.Gameplay.Input
             diagnosticIntent = default;
             crouchToggled = false;
             userInterfaceCaptureActive = false;
+            gameplayCursorCaptureRequested = false;
             CameraOrbitHeld = false;
+            shoulderSide = 1;
             CurrentIntent = default;
         }
 
@@ -64,6 +82,15 @@ namespace WorldBuilder.Gameplay.Input
         {
             if (userInterfaceCaptureActive)
             {
+                CurrentIntent = default;
+                CameraOrbitHeld = false;
+                return;
+            }
+
+            if (gameplayCursorCaptureRequested)
+            {
+                gameplayCursorCaptureRequested = false;
+                LockCursor();
                 CurrentIntent = default;
                 CameraOrbitHeld = false;
                 return;
@@ -126,6 +153,13 @@ namespace WorldBuilder.Gameplay.Input
             if (crouchPressed)
             {
                 crouchToggled = !crouchToggled;
+            }
+
+            if (cursorLocked &&
+                keyboard != null &&
+                keyboard.xKey.wasPressedThisFrame)
+            {
+                shoulderSide = -shoulderSide;
             }
 
             ReadWeaponSlotRequest(keyboard, mouse);

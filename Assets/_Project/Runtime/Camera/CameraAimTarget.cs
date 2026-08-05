@@ -21,6 +21,7 @@ namespace WorldBuilder.Gameplay.CameraSystem
         [SerializeField] private float initialPitch = 12f;
         [SerializeField] private Vector2 pitchLimits = new Vector2(-30f, 65f);
         [SerializeField, Min(0f)] private float rotationSmoothTime = 0.035f;
+        [SerializeField, Min(0f)] private float shoulderSwitchSmoothTime = 0.22f;
         [Header("Bow Aim")]
         [SerializeField] private BowWeapon bowWeapon;
         [SerializeField, Min(0f)] private float bowAimRightOffset = 0f;
@@ -49,6 +50,8 @@ namespace WorldBuilder.Gameplay.CameraSystem
         private float defaultCameraDistance;
         private float bowCameraWeight;
         private float bowCameraWeightVelocity;
+        private float shoulderSideBlend = 1f;
+        private float shoulderSideVelocity;
         private bool bowCameraDefaultsCaptured;
         private bool inspectionOrbitActive;
         private float inspectionYaw;
@@ -76,6 +79,7 @@ namespace WorldBuilder.Gameplay.CameraSystem
             inspectionAimOrigin;
         public float CurrentBowAimOffset => currentBowAimOffset;
         public float BowCameraWeight => bowCameraWeight;
+        public float CurrentShoulderSideBlend => shoulderSideBlend;
         public Vector3 CurrentShoulderOffset =>
             thirdPersonFollow != null
                 ? thirdPersonFollow.ShoulderOffset
@@ -129,6 +133,17 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 clampedWeight);
         }
 
+        public static Vector3 MirrorShoulderOffset(
+            Vector3 rightShoulderOffset,
+            float shoulderSideBlend)
+        {
+            rightShoulderOffset.x *= Mathf.Clamp(
+                shoulderSideBlend,
+                -1f,
+                1f);
+            return rightShoulderOffset;
+        }
+
         public void SetInspectionDiagnosticOverride(
             bool held,
             Vector2 look)
@@ -163,6 +178,8 @@ namespace WorldBuilder.Gameplay.CameraSystem
             desiredPitch = initialPitch;
             currentPitch = desiredPitch;
             currentFollowHeight = followOffset.y;
+            shoulderSideBlend = input != null ? input.ShoulderSide : 1f;
+            shoulderSideVelocity = 0f;
             SnapToTarget();
         }
 
@@ -183,6 +200,7 @@ namespace WorldBuilder.Gameplay.CameraSystem
             desiredPitch = initialPitch;
             currentPitch = desiredPitch;
             currentFollowHeight = followOffset.y;
+            shoulderSideBlend = input != null ? input.ShoulderSide : 1f;
             if (motor == null)
             {
                 motor = followTarget.GetComponent<ThirdPersonMotor>();
@@ -266,8 +284,16 @@ namespace WorldBuilder.Gameplay.CameraSystem
             currentFollowHeight = heightSmoothTime <= 0f
                 ? targetFollowHeight
                 : Mathf.SmoothDamp(currentFollowHeight, targetFollowHeight, ref followHeightVelocity, heightSmoothTime);
+            float targetShoulderSide = input.ShoulderSide;
+            shoulderSideBlend = shoulderSwitchSmoothTime <= 0f
+                ? targetShoulderSide
+                : Mathf.SmoothDamp(
+                    shoulderSideBlend,
+                    targetShoulderSide,
+                    ref shoulderSideVelocity,
+                    shoulderSwitchSmoothTime);
             float targetBowAimOffset = IsBowAiming
-                ? bowAimRightOffset
+                ? bowAimRightOffset * shoulderSideBlend
                 : 0f;
             currentBowAimOffset = bowAimOffsetSmoothTime <= 0f
                 ? targetBowAimOffset
@@ -323,7 +349,9 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 bowCameraWeight,
                 out Vector3 shoulderOffset,
                 out float cameraDistance);
-            thirdPersonFollow.ShoulderOffset = shoulderOffset;
+            thirdPersonFollow.ShoulderOffset = MirrorShoulderOffset(
+                shoulderOffset,
+                shoulderSideBlend);
             thirdPersonFollow.CameraDistance = cameraDistance;
         }
 
@@ -362,6 +390,8 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 defaultCameraDistance;
             bowCameraWeight = 0f;
             bowCameraWeightVelocity = 0f;
+            shoulderSideBlend = 1f;
+            shoulderSideVelocity = 0f;
         }
 
         private void BeginInspectionOrbit()
