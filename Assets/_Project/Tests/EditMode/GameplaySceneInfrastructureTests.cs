@@ -54,6 +54,7 @@ namespace WorldBuilder.Tests.EditMode
                 false,
                 false,
                 false,
+                false,
                 true));
             yield return new WaitForSeconds(1.5f);
 
@@ -258,12 +259,77 @@ namespace WorldBuilder.Tests.EditMode
                     backpack.width,
                     backpack.height);
             Assert.That(sharedCellSize, Is.GreaterThan(0f));
+            float previousWidthLimit =
+                (backpack.width - 32f - 14f - 5f * 4f) / 5f;
+            float previousHeightLimit =
+                (backpack.height - 56f - 5f * 5f) / 6f;
+            float expectedScaledSize = Mathf.Max(
+                12f,
+                Mathf.Floor(Mathf.Min(
+                    previousWidthLimit,
+                    previousHeightLimit)) * 0.78f);
             Assert.That(
-                sharedCellSize * 5f + 5f * 4f,
+                sharedCellSize,
+                Is.EqualTo(expectedScaledSize).Within(0.001f));
+            Assert.That(
+                sharedCellSize * 5f + 2f * 4f,
                 Is.LessThanOrEqualTo(loot.width - 32f));
             Assert.That(
-                sharedCellSize * 6f + 5f * 5f,
-                Is.LessThanOrEqualTo(backpack.height - 56f));
+                HomeInventoryController.InventoryCellScale,
+                Is.EqualTo(0.6f * 1.3f).Within(0.001f));
+            Assert.That(
+                HomeInventoryController.CalculatePlayerStorageContentHeight(
+                    sharedCellSize),
+                Is.GreaterThan(sharedCellSize * 6f));
+            Assert.That(
+                PlayerProfile.SecureColumns * PlayerProfile.SecureRows,
+                Is.EqualTo(4));
+        }
+
+        [Test]
+        public void PersonalInventoryKeepsThreeColumnGeometryButHidesLootPanel()
+        {
+            const float screenWidth = 1500f;
+            float spacing =
+                HomeInventoryController.CalculateInventorySectionSpacing(
+                    screenWidth);
+            Rect content = new Rect(
+                spacing,
+                124f,
+                screenWidth - spacing * 2f,
+                554f);
+            Rect equipment =
+                HomeInventoryController.CalculateInventoryColumn(
+                    content,
+                    0,
+                    spacing);
+            Rect backpack =
+                HomeInventoryController.CalculateInventoryColumn(
+                    content,
+                    1,
+                    spacing);
+            Rect reservedLootSpace =
+                HomeInventoryController.CalculateInventoryColumn(
+                    content,
+                    2,
+                    spacing);
+
+            Assert.That(equipment.width, Is.EqualTo(backpack.width));
+            Assert.That(backpack.width, Is.EqualTo(reservedLootSpace.width));
+            Assert.That(
+                backpack.x - equipment.xMax,
+                Is.EqualTo(spacing * 0.25f).Within(0.001f));
+            Assert.That(equipment.xMin, Is.EqualTo(content.xMin));
+            Assert.That(reservedLootSpace.xMax, Is.EqualTo(content.xMax));
+            Assert.That(
+                HomeInventoryController.ShouldDrawLootSection(false, false),
+                Is.False);
+            Assert.That(
+                HomeInventoryController.ShouldDrawLootSection(true, false),
+                Is.True);
+            Assert.That(
+                HomeInventoryController.ShouldDrawLootSection(false, true),
+                Is.True);
         }
 
         [TestCase(1920f, 1080f)]
@@ -282,8 +348,8 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(panel.yMin, Is.GreaterThanOrEqualTo(16f));
             Assert.That(panel.xMax, Is.LessThanOrEqualTo(screenWidth - 16f));
             Assert.That(panel.yMax, Is.LessThanOrEqualTo(screenHeight - 16f));
-            Assert.That(panel.width, Is.LessThanOrEqualTo(900f));
-            Assert.That(panel.height, Is.LessThanOrEqualTo(540f));
+            Assert.That(panel.width, Is.LessThanOrEqualTo(1080f));
+            Assert.That(panel.height, Is.LessThanOrEqualTo(620f));
         }
 
         [Test]
@@ -340,6 +406,21 @@ namespace WorldBuilder.Tests.EditMode
                 Object.FindFirstObjectByType<HomeBaseController>(
                     FindObjectsInactive.Include);
             Assert.That(homeBase, Is.Not.Null);
+            Assert.That(RenderSettings.skybox, Is.Not.Null);
+            Assert.That(RenderSettings.skybox.name, Is.EqualTo("RaidSky129"));
+            GameObject baseFloor = GameObject.Find("Base Floor");
+            Assert.That(baseFloor, Is.Not.Null);
+            BoxCollider baseFloorCollider =
+                baseFloor.GetComponent<BoxCollider>();
+            Assert.That(baseFloorCollider, Is.Not.Null);
+            Assert.That(baseFloorCollider.enabled, Is.True);
+            Assert.That(baseFloorCollider.isTrigger, Is.False);
+            Assert.That(
+                baseFloorCollider.bounds.max.y,
+                Is.EqualTo(0f).Within(0.01f));
+            Assert.That(
+                baseFloorCollider.bounds.size.y,
+                Is.EqualTo(0.5f).Within(0.01f));
             SerializedObject serialized =
                 new SerializedObject(homeBase);
             Assert.That(
@@ -347,26 +428,67 @@ namespace WorldBuilder.Tests.EditMode
                     .objectReferenceValue,
                 Is.SameAs(player.GetComponent<PlayerInputSource>()));
             AssertInventoryLayout();
-            Assert.That(
-                Object.FindObjectsByType<HomeStorageChest>(
-                    FindObjectsInactive.Include,
-                    FindObjectsSortMode.None),
-                Has.Length.EqualTo(4));
+            HomePlacementGrid placementGrid =
+                Object.FindFirstObjectByType<HomePlacementGrid>(
+                    FindObjectsInactive.Include);
+            Assert.That(placementGrid, Is.Not.Null);
+            HomeBlockGridInteractor blockGrid =
+                homeBase.GetComponent<HomeBlockGridInteractor>() ??
+                homeBase.gameObject.AddComponent<
+                    HomeBlockGridInteractor>();
+            blockGrid.Configure(placementGrid, player.transform);
+            Assert.That(blockGrid.BuildReach, Is.EqualTo(7.5f));
             HomeStorageChest[] chests =
                 Object.FindObjectsByType<HomeStorageChest>(
-                    FindObjectsInactive.Include,
+                    FindObjectsInactive.Exclude,
                     FindObjectsSortMode.None)
                     .OrderBy(chest => chest.ChestId)
                     .ToArray();
+            Assert.That(chests, Has.Length.EqualTo(1));
+            HomeStorageChest.ResetFocusCacheForTests();
+            foreach (HomeStorageChest chest in chests)
+            {
+                _ = chest.CanInteract;
+                _ = chest.CanInteract;
+            }
+            Assert.That(
+                HomeStorageChest.FocusRefreshCount,
+                Is.EqualTo(1),
+                "All Home chests must share one focus query per frame.");
             Assert.That(
                 chests.Select(chest => chest.ChestId),
-                Is.EqualTo(new[]
-                {
-                    "home-chest-1",
-                    "home-chest-2",
-                    "home-chest-3",
-                    "home-chest-4"
-                }));
+                Is.EqualTo(new[] { "home-chest-1" }));
+            GameObject anvil = GameObject.Find("Home Anvil");
+            Assert.That(anvil, Is.Not.Null);
+            HomeGridOccupant anvilOccupant =
+                anvil.GetComponent<HomeGridOccupant>();
+            Assert.That(anvilOccupant, Is.Not.Null);
+            Assert.That(
+                anvilOccupant.Cell,
+                Is.EqualTo(new Vector2Int(-3, 3)));
+            Renderer anvilRenderer =
+                anvil.GetComponentInChildren<Renderer>();
+            Assert.That(anvilRenderer, Is.Not.Null);
+            Assert.That(
+                anvilRenderer.bounds.min.y,
+                Is.EqualTo(0f).Within(0.04f));
+            Assert.That(
+                anvilRenderer.bounds.center.x,
+                Is.EqualTo(anvil.transform.position.x).Within(0.03f));
+            Assert.That(
+                anvilRenderer.bounds.center.z,
+                Is.EqualTo(anvil.transform.position.z).Within(0.03f));
+            Assert.That(
+                Mathf.Max(
+                    anvilRenderer.bounds.size.x,
+                    Mathf.Max(
+                        anvilRenderer.bounds.size.y,
+                        anvilRenderer.bounds.size.z)),
+                Is.LessThanOrEqualTo(1.3f));
+            Assert.That(
+                anvil.GetComponent<BoxCollider>(),
+                Is.Null,
+                "The decorative anvil must not block Home movement.");
             HomeGridOccupant[] chestOccupants =
                 chests.Select(chest =>
                         chest.GetComponentInParent<
@@ -377,14 +499,9 @@ namespace WorldBuilder.Tests.EditMode
                 Has.All.Not.Null);
             Assert.That(
                 chestOccupants.Select(occupant =>
-                    occupant.Cell.y),
-                Has.All.EqualTo(
-                    chestOccupants[0].Cell.y));
-            Assert.That(
-                chestOccupants.Select(occupant =>
                         occupant.Cell.x)
                     .OrderBy(value => value),
-                Is.EqualTo(new[] { -4, -3, -2, -1 }));
+                Is.EqualTo(new[] { -4 }));
             Assert.That(
                 chests,
                 Has.All.Matches<HomeStorageChest>(
@@ -408,13 +525,19 @@ namespace WorldBuilder.Tests.EditMode
                     Is.EqualTo(0f).Within(0.04f));
                 Assert.That(
                     renderer.bounds.size.x,
-                    Is.LessThanOrEqualTo(2.2f));
+                    Is.EqualTo(1.5f).Within(0.06f));
                 Assert.That(
                     renderer.bounds.size.z,
-                    Is.LessThanOrEqualTo(1.7f));
+                    Is.EqualTo(1.5f).Within(0.06f));
                 Assert.That(
                     renderer.bounds.size.y,
-                    Is.GreaterThan(0.5f));
+                    Is.EqualTo(1.5f).Within(0.06f));
+                Assert.That(
+                    renderer.bounds.center.x,
+                    Is.EqualTo(chestRoot.position.x).Within(0.03f));
+                Assert.That(
+                    renderer.bounds.center.z,
+                    Is.EqualTo(chestRoot.position.z).Within(0.03f));
                 GameObject source =
                     PrefabUtility
                         .GetCorrespondingObjectFromSource(
@@ -441,9 +564,9 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(new Vector2Int(3, 1)));
             HomeGridOccupant[] allOccupants =
                 Object.FindObjectsByType<HomeGridOccupant>(
-                    FindObjectsInactive.Include,
+                    FindObjectsInactive.Exclude,
                     FindObjectsSortMode.None);
-            Assert.That(allOccupants, Has.Length.EqualTo(5));
+            Assert.That(allOccupants, Has.Length.EqualTo(3));
             Vector2Int[] occupiedCells =
                 allOccupants
                     .SelectMany(occupant =>
@@ -620,6 +743,18 @@ namespace WorldBuilder.Tests.EditMode
                     crosshair.BowWeapon.ArrowFlybyClip),
                 Is.EqualTo(
                     "Assets/_Project/Audio/SFX/Arrow Flyby.mp3"));
+            BowWeapon[] sceneBows =
+                Object.FindObjectsByType<BowWeapon>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None);
+            Assert.That(sceneBows, Has.Length.EqualTo(18));
+            Assert.That(
+                sceneBows.All(bow =>
+                    bow.ReleaseClip != null &&
+                    AssetDatabase.GetAssetPath(bow.ReleaseClip) ==
+                        "Assets/_Project/Audio/SFX/Bow Release.wav"),
+                Is.True,
+                "Every player and enemy Raid bow must serialize the release SFX directly.");
             Assert.That(
                 Object.FindFirstObjectByType<SceneNavigationMenu>(
                     FindObjectsInactive.Include),
@@ -981,6 +1116,7 @@ namespace WorldBuilder.Tests.EditMode
                 "campChestPrefab",
                 "campBenchPrefab",
                 "campBarrelPrefab",
+                "campWoodenBoxPrefab",
                 "campOuterSpikePrefabA",
                 "campOuterSpikePrefabB",
                 "campInnerBarricadePrefabA",
@@ -998,6 +1134,13 @@ namespace WorldBuilder.Tests.EditMode
                     Is.Not.Null,
                     field);
             }
+            Assert.That(
+                AssetDatabase.GetAssetPath(
+                    serialized.FindProperty("campWoodenBoxPrefab")
+                        .objectReferenceValue),
+                Is.EqualTo(
+                    "Assets/_Project/Art/Environment/CampPack/" +
+                    "Models/camp_items/Wooden_Box.blend"));
             Assert.That(
                 serialized.FindProperty("treeBarkMaterial")
                     .objectReferenceValue,

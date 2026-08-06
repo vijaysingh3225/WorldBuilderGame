@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -58,17 +59,30 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void Awake()
         {
+            DisableLegacyPedestal(transform);
             BoxCollider trigger = GetComponent<BoxCollider>();
             trigger.isTrigger = true;
             ApplyVisualState();
+        }
+
+        public static void DisableLegacyPedestal(Transform obeliskRoot)
+        {
+            Transform pedestal = obeliskRoot != null
+                ? obeliskRoot.Find("Buried Stone Base")
+                : null;
+            if (pedestal != null)
+            {
+                pedestal.gameObject.SetActive(false);
+            }
         }
 
         private void Update()
         {
             if (activated ||
                 !PlayerInside ||
-                Keyboard.current == null ||
-                !Keyboard.current.fKey.wasPressedThisFrame)
+                !PlayerControlBindings.WasPressedThisFrame(
+                    Keyboard.current,
+                    PlayerControl.Interact))
             {
                 return;
             }
@@ -111,7 +125,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             LoopSceneGui.DrawPanel(prompt, monumentColor);
             GUI.Label(
                 prompt,
-                $"[F]  ACTIVATE {displayName.ToUpperInvariant()}",
+                $"[{PlayerControlBindings.KeyName(PlayerControlBindings.GetKey(PlayerControl.Interact))}]  ACTIVATE {displayName.ToUpperInvariant()}",
                 LoopSceneGui.Centered);
         }
 

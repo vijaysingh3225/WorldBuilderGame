@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
@@ -66,8 +67,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null &&
-                keyboard.eKey.wasPressedThisFrame)
+            if (PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Interact))
             {
                 raidController ??=
                     Object.FindFirstObjectByType<
@@ -111,7 +113,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new Color(0.36f, 0.72f, 0.48f));
             GUI.Label(
                 panel,
-                $"[E]  EXTRACT  /  {DisplayName}",
+                $"[{PlayerControlBindings.KeyName(PlayerControlBindings.GetKey(PlayerControl.Interact))}]  EXTRACT  /  {DisplayName}",
                 LoopSceneGui.Centered);
         }
     }

@@ -53,10 +53,16 @@ namespace WorldBuilder.Tests.EditMode
                 Cursor.visible = true;
                 InvokePrivate(input, "Update");
 
+                bool cursorWasLocked =
+                    Cursor.lockState == CursorLockMode.Locked;
                 Assert.That(
                     input.GameplayCursorCaptureRequested,
-                    Is.False,
-                    "The next input frame must consume the queued cursor recapture without a click.");
+                    Is.EqualTo(!cursorWasLocked),
+                    "Cursor recapture must remain queued until Unity accepts the lock.");
+                if (cursorWasLocked)
+                {
+                    Assert.That(Cursor.visible, Is.False);
+                }
             }
             finally
             {

@@ -167,6 +167,37 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void PlayerDamageCreatesAVisiblePlayerAnchoredNumber()
+        {
+            GameObject player = new GameObject("Damage Number Player");
+            try
+            {
+                Health playerHealth = player.AddComponent<Health>();
+                playerHealth.Configure(100f);
+                FloatingDamageNumberPresenter presenter =
+                    player.AddComponent<FloatingDamageNumberPresenter>();
+                presenter.Configure(playerHealth, null, true);
+
+                playerHealth.ReceiveDamage(new DamageRequest(
+                    enemy,
+                    17f,
+                    player.transform.position,
+                    Vector3.back,
+                    "enemy-arrow"));
+
+                FloatingDamageNumberOverlay overlay =
+                    Object.FindFirstObjectByType<
+                        FloatingDamageNumberOverlay>();
+                Assert.That(presenter.ActiveNumberCount, Is.EqualTo(1));
+                Assert.That(overlay.PlayerNumberCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
         public void CombatLabAndRaidProfilesRemainDistinctAndKillable()
         {
             profile.Configure(EnemyCombatVariant.RaidEnemy);

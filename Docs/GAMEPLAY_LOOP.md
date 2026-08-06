@@ -85,8 +85,9 @@ can be tested immediately, but it is not yet constrained by extracted storage.
 - Home Base: `Tab` Weapon Grid, `Enter` or `R` begin raid, `M` menu.
 - Raid: normal combat controls, `Tab` inventory, `F` loot a nearby corpse or
   camp chest, `E` extract while inside the extraction marker, `H` abandon to
-  Home Base. Drawing the bow displays the same centered crosshair used by
-  Combat Lab. With zero carried arrows the nocked-arrow model is hidden and
+  Home Base. Hold left click to draw the equipped bow and release left click
+  to fire; drawing displays the same centered crosshair used by Combat Lab.
+  With zero carried arrows the nocked-arrow model is hidden and
   the bow cannot fire. In a loot inventory, left click moves a full stack,
   right click takes half or places one, and Shift-click smart-transfers in
   either direction. Pressing `R` while holding an item rotates its persisted

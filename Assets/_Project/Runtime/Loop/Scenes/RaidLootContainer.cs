@@ -5,6 +5,7 @@ using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
+using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -43,7 +44,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             player != null &&
             Vector3.SqrMagnitude(
                 player.position - transform.position) <=
-            interactionDistance * interactionDistance;
+            Mathf.Min(
+                interactionDistance,
+                LootInteractionPresentation.DefaultDistance) *
+            Mathf.Min(
+                interactionDistance,
+                LootInteractionPresentation.DefaultDistance);
+        public bool CanInteract =>
+            available &&
+            LootInteractionPresentation.IsFocused(
+                player,
+                transform,
+                interactionDistance,
+                sourceKind == LootSourceKind.Corpse);
 
         public void ConfigureChest(string label, int seed)
         {
@@ -266,12 +279,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             ResolveInteractionReferences();
-            if (!PlayerInRange ||
+            if (!CanInteract ||
                 inventory == null ||
                 inventory.IsOpen ||
-                Keyboard.current == null ||
-                !Keyboard.current.fKey.wasPressedThisFrame ||
-                !IsNearestAvailableSource())
+                !PlayerControlBindings.WasPressedThisFrame(
+                    Keyboard.current,
+                    PlayerControl.Interact) ||
+                !IsBestFocusedSource())
             {
                 return;
             }
@@ -281,27 +295,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void OnGUI()
         {
-            if (!PlayerInRange ||
+            if (!CanInteract ||
                 inventory == null ||
                 inventory.IsOpen)
             {
                 return;
             }
 
-            Rect prompt = new Rect(
-                Screen.width * 0.5f - 170f,
-                Screen.height - 92f,
-                340f,
-                46f);
-            LoopSceneGui.DrawPanel(
-                prompt,
-                sourceKind == LootSourceKind.Chest
-                    ? new Color(0.56f, 0.39f, 0.20f)
-                    : new Color(0.33f, 0.36f, 0.38f));
-            GUI.Label(
-                prompt,
-                $"[F]  LOOT {displayName.ToUpperInvariant()}",
-                LoopSceneGui.Centered);
+            if (IsBestFocusedSource())
+            {
+                LootInteractionPresentation.DrawPrompt(
+                    sourceKind == LootSourceKind.Chest
+                        ? "Open Chest"
+                        : "Loot Body");
+            }
         }
 
         private void OnDestroy()
@@ -428,26 +435,31 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             inventory ??= FindFirstObjectByType<HomeInventoryController>();
         }
 
-        private bool IsNearestAvailableSource()
+        private bool IsBestFocusedSource()
         {
             RaidLootContainer[] sources =
                 FindObjectsByType<RaidLootContainer>(
                     FindObjectsSortMode.None);
-            float nearestDistance = float.PositiveInfinity;
+            float bestPriority = float.PositiveInfinity;
             RaidLootContainer nearest = null;
             for (int index = 0; index < sources.Length; index++)
             {
                 RaidLootContainer source = sources[index];
-                if (source == null || !source.IsAvailable)
+                source?.ResolveInteractionReferences();
+                if (source == null || !source.IsAvailable ||
+                    !LootInteractionPresentation.TryGetFocusScore(
+                        source.player,
+                        source.transform,
+                        source.interactionDistance,
+                        out float focusScore,
+                        source.sourceKind == LootSourceKind.Corpse))
                 {
                     continue;
                 }
 
-                float distance = Vector3.SqrMagnitude(
-                    player.position - source.transform.position);
-                if (distance < nearestDistance)
+                if (focusScore < bestPriority)
                 {
-                    nearestDistance = distance;
+                    bestPriority = focusScore;
                     nearest = source;
                 }
             }

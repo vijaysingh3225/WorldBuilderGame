@@ -12,8 +12,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public const float DefaultCharacterYaw = 12f;
         public const float SecondaryThumbnailYaw = 90f;
         public const float SecondaryThumbnailRoll = -90f;
+        public const int StudioLightCount = 3;
+        public static Quaternion SecondaryThumbnailRotation =>
+            Quaternion.AngleAxis(
+                SecondaryThumbnailRoll,
+                Vector3.forward) *
+            Quaternion.AngleAxis(
+                SecondaryThumbnailYaw,
+                Vector3.up);
         private static readonly Vector3 StagePosition =
             new Vector3(4096f, -4096f, 4096f);
+        private static readonly Color StudioAmbientColor =
+            new Color(0.38f, 0.40f, 0.43f, 1f);
 
         private Transform sourcePlayer;
         private TwoSlotWeaponPresenter weaponPresenter;
@@ -22,7 +32,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private GameObject primaryProxy;
         private GameObject secondaryProxy;
         private Camera previewCamera;
-        private Light previewLight;
+        private readonly List<Light> previewLights = new List<Light>();
         private RenderTexture characterTexture;
         private RenderTexture primaryThumbnail;
         private RenderTexture secondaryThumbnail;
@@ -41,9 +51,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public float CharacterYaw => characterYaw;
         public float WeaponYaw => weaponYaw;
 
-        public void Configure(Transform player)
+        public void Configure(Transform player, bool rebuild = false)
         {
-            if (sourcePlayer == player && built)
+            if (!rebuild && sourcePlayer == player && built)
             {
                 return;
             }
@@ -54,6 +64,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 ? player.GetComponentInChildren<TwoSlotWeaponPresenter>(true)
                 : null;
             BuildPreview();
+            if (built)
+            {
+                RenderPreviews();
+            }
         }
 
         public void RotateCharacter(float delta)
@@ -111,7 +125,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 secondaryThumbnail,
                 SecondaryThumbnailYaw,
                 1.12f,
-                SecondaryThumbnailRoll);
+                SecondaryThumbnailRoll,
+                yawBeforeRoll: true);
             RenderProxy(
                 selectedWeapon == 0 ? primaryProxy : secondaryProxy,
                 weaponTexture,
@@ -172,22 +187,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             previewCamera.allowHDR = false;
             previewCamera.allowMSAA = true;
 
-            GameObject lightObject =
-                new GameObject("Inventory Preview Light")
-                {
-                    hideFlags = HideFlags.HideAndDontSave,
-                    layer = PreviewLayer
-                };
-            lightObject.transform.SetParent(stage.transform, false);
-            previewLight = lightObject.AddComponent<Light>();
-            previewLight.type = LightType.Directional;
-            previewLight.intensity = 1.35f;
-            previewLight.color = new Color(0.92f, 0.96f, 1f);
-            previewLight.cullingMask = 1 << PreviewLayer;
-            previewLight.shadows = LightShadows.None;
-            previewLight.enabled = false;
-            lightObject.transform.rotation =
-                Quaternion.Euler(34f, -38f, 0f);
+            CreateStudioLight(
+                "Inventory Preview Key Light",
+                new Color(1f, 0.93f, 0.84f),
+                0.88f,
+                new Vector3(0.18f, -0.66f, -0.73f));
+            CreateStudioLight(
+                "Inventory Preview Fill Light",
+                new Color(0.72f, 0.83f, 1f),
+                0.42f,
+                new Vector3(-0.46f, -0.28f, -0.84f));
+            CreateStudioLight(
+                "Inventory Preview Rim Light",
+                new Color(0.82f, 0.90f, 1f),
+                0.16f,
+                new Vector3(0.30f, -0.36f, 0.88f));
 
             characterTexture = CreateTexture(512, 700, "Character Inventory Preview");
             primaryThumbnail = CreateTexture(512, 192, "Primary Weapon Thumbnail");
@@ -195,6 +209,31 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             weaponTexture = CreateTexture(512, 700, "Weapon Grid Preview");
             built = true;
             renderRequested = true;
+        }
+
+        private void CreateStudioLight(
+            string lightName,
+            Color color,
+            float intensity,
+            Vector3 lightDirection)
+        {
+            GameObject lightObject = new GameObject(lightName)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = PreviewLayer
+            };
+            lightObject.transform.SetParent(stage.transform, false);
+            lightObject.transform.rotation = Quaternion.LookRotation(
+                lightDirection.normalized,
+                Vector3.up);
+            Light light = lightObject.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = intensity;
+            light.color = color;
+            light.cullingMask = 1 << PreviewLayer;
+            light.shadows = LightShadows.None;
+            light.enabled = false;
+            previewLights.Add(light);
         }
 
         private GameObject CreateNeutralCharacterProxy()
@@ -450,7 +489,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             RenderTexture target,
             float yaw,
             float padding,
-            float roll = 0f)
+            float roll = 0f,
+            bool yawBeforeRoll = false)
         {
             if (proxy == null || target == null || previewCamera == null)
             {
@@ -460,7 +500,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             characterProxy.SetActive(proxy == characterProxy);
             primaryProxy.SetActive(proxy == primaryProxy);
             secondaryProxy.SetActive(proxy == secondaryProxy);
-            proxy.transform.localRotation = Quaternion.Euler(0f, yaw, roll);
+            proxy.transform.localRotation = yawBeforeRoll
+                ? Quaternion.AngleAxis(roll, Vector3.forward) *
+                    Quaternion.AngleAxis(yaw, Vector3.up)
+                : Quaternion.Euler(0f, yaw, roll);
             Renderer[] renderers = proxy.GetComponentsInChildren<Renderer>(true);
             if (!TryGetBounds(renderers, out Bounds bounds))
             {
@@ -479,15 +522,117 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             previewCamera.transform.rotation =
                 Quaternion.LookRotation(Vector3.back, Vector3.up);
             previewCamera.targetTexture = target;
-            previewLight.enabled = true;
+            List<Light> suspendedSceneLights =
+                SuspendSceneLights();
+            RenderEnvironmentSnapshot environment =
+                RenderEnvironmentSnapshot.Capture();
+            ApplyStudioEnvironment();
+            SetStudioLightsEnabled(true);
             try
             {
                 previewCamera.Render();
             }
             finally
             {
-                previewLight.enabled = false;
+                SetStudioLightsEnabled(false);
+                environment.Restore();
+                RestoreSceneLights(suspendedSceneLights);
                 previewCamera.targetTexture = null;
+            }
+        }
+
+        private List<Light> SuspendSceneLights()
+        {
+            Light[] allLights = FindObjectsByType<Light>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+            var suspended = new List<Light>();
+            for (int index = 0; index < allLights.Length; index++)
+            {
+                Light light = allLights[index];
+                if (light == null ||
+                    !light.enabled ||
+                    previewLights.Contains(light))
+                {
+                    continue;
+                }
+                light.enabled = false;
+                suspended.Add(light);
+            }
+            return suspended;
+        }
+
+        private static void RestoreSceneLights(
+            IReadOnlyList<Light> suspendedLights)
+        {
+            for (int index = 0; index < suspendedLights.Count; index++)
+            {
+                if (suspendedLights[index] != null)
+                {
+                    suspendedLights[index].enabled = true;
+                }
+            }
+        }
+
+        private void SetStudioLightsEnabled(bool value)
+        {
+            for (int index = 0; index < previewLights.Count; index++)
+            {
+                if (previewLights[index] != null)
+                {
+                    previewLights[index].enabled = value;
+                }
+            }
+        }
+
+        private static void ApplyStudioEnvironment()
+        {
+            RenderSettings.fog = false;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = StudioAmbientColor;
+            RenderSettings.ambientIntensity = 1f;
+            RenderSettings.reflectionIntensity = 0f;
+        }
+
+        private readonly struct RenderEnvironmentSnapshot
+        {
+            private readonly bool fog;
+            private readonly AmbientMode ambientMode;
+            private readonly Color ambientLight;
+            private readonly float ambientIntensity;
+            private readonly float reflectionIntensity;
+
+            private RenderEnvironmentSnapshot(
+                bool fog,
+                AmbientMode ambientMode,
+                Color ambientLight,
+                float ambientIntensity,
+                float reflectionIntensity)
+            {
+                this.fog = fog;
+                this.ambientMode = ambientMode;
+                this.ambientLight = ambientLight;
+                this.ambientIntensity = ambientIntensity;
+                this.reflectionIntensity = reflectionIntensity;
+            }
+
+            public static RenderEnvironmentSnapshot Capture()
+            {
+                return new RenderEnvironmentSnapshot(
+                    RenderSettings.fog,
+                    RenderSettings.ambientMode,
+                    RenderSettings.ambientLight,
+                    RenderSettings.ambientIntensity,
+                    RenderSettings.reflectionIntensity);
+            }
+
+            public void Restore()
+            {
+                RenderSettings.fog = fog;
+                RenderSettings.ambientMode = ambientMode;
+                RenderSettings.ambientLight = ambientLight;
+                RenderSettings.ambientIntensity = ambientIntensity;
+                RenderSettings.reflectionIntensity = reflectionIntensity;
             }
         }
 
@@ -575,6 +720,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 Destroy(stage);
             }
+            previewLights.Clear();
             ReleaseTexture(characterTexture);
             ReleaseTexture(primaryThumbnail);
             ReleaseTexture(secondaryThumbnail);

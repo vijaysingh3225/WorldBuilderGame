@@ -349,6 +349,88 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void SecureContainerItemIsRetainedWhenPlayerDies()
+        {
+            GameSession session = CreateRaidSandboxSession();
+            StorageEntry protectedArtifact = StorageEntry.Create(
+                "artifact-protected");
+            session.ActiveProfile.AddToStorage(protectedArtifact);
+            Assert.That(
+                session.ActiveProfile.TryMoveToInventory(
+                    protectedArtifact.EntryId,
+                    5),
+                Is.True);
+            RaidSession raid = session.BeginRaid(
+                seedOverride: 18,
+                carriedStorageEntryIds: new[]
+                {
+                    protectedArtifact.EntryId
+                });
+            Assert.That(
+                raid.TryTakeCarried(
+                    protectedArtifact.EntryId,
+                    1,
+                    session.ActiveProfile,
+                    out StorageEntry held),
+                Is.True);
+            Assert.That(
+                ProfileInventoryTransactions.TryAddSecure(
+                    session.ActiveProfile,
+                    held,
+                    0,
+                    false),
+                Is.EqualTo(1));
+
+            RaidResult result = session.CompleteActiveRaid(
+                RaidCompletionReason.PlayerDied,
+                out _);
+
+            Assert.That(
+                result.LostStorageEntryIds,
+                Does.Not.Contain(protectedArtifact.EntryId));
+            Assert.That(
+                session.ActiveProfile.IsInSecureContainer(
+                    protectedArtifact.EntryId),
+                Is.True);
+            Assert.That(
+                session.ActiveProfile.GetSecureEntryAtSlot(0)?.EntryId,
+                Is.EqualTo(protectedArtifact.EntryId));
+        }
+
+        [Test]
+        public void RaidLootPlacedInSecureContainerIsRetainedOnDeath()
+        {
+            GameSession session = CreateRaidSandboxSession();
+            RaidSession raid = session.BeginRaid(seedOverride: 19);
+            StorageEntry loot = StorageEntry.Create("artifact-secured-in-raid");
+            raid.RecordLoot(loot, session.ActiveProfile);
+            StorageEntry carriedLoot = raid.CollectedStorageEntries.Single(
+                entry => entry.DefinitionId == loot.DefinitionId);
+            Assert.That(
+                raid.TryTakeCarried(
+                    carriedLoot.EntryId,
+                    carriedLoot.Quantity,
+                    session.ActiveProfile,
+                    out StorageEntry held),
+                Is.True);
+            Assert.That(
+                ProfileInventoryTransactions.TryAddSecure(
+                    session.ActiveProfile,
+                    held,
+                    3,
+                    false),
+                Is.EqualTo(1));
+
+            session.CompleteActiveRaid(
+                RaidCompletionReason.PlayerDied,
+                out _);
+
+            Assert.That(
+                session.ActiveProfile.GetSecureEntryAtSlot(3)?.DefinitionId,
+                Is.EqualTo(loot.DefinitionId));
+        }
+
+        [Test]
         public void FailedRaidOutcomeRollsBackProfileAndReopensSameRaid()
         {
             ThrowOnceRaidOutcomeSink sink = new ThrowOnceRaidOutcomeSink();

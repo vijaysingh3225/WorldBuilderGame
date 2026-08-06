@@ -9,6 +9,24 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class BowArrowTrailTests
     {
         [Test]
+        public void ProjectileUpdatesAfterFinalHumanoidHitboxPose()
+        {
+            DefaultExecutionOrder projectileOrder =
+                typeof(BowArrowProjectile).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+            DefaultExecutionOrder hitboxOrder =
+                typeof(HumanoidDamageHitboxRig).GetCustomAttribute<
+                    DefaultExecutionOrder>();
+
+            Assert.That(projectileOrder, Is.Not.Null);
+            Assert.That(hitboxOrder, Is.Not.Null);
+            Assert.That(
+                projectileOrder.order,
+                Is.GreaterThan(hitboxOrder.order),
+                "Arrow contact and embedding must use the final visible humanoid pose.");
+        }
+
+        [Test]
         public void LaunchedArrowGetsShortWhiteRearTrail()
         {
             GameObject arrowObject =
@@ -357,6 +375,76 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void EnemyArrowEmbedsAtPlayerContactAndFollowsStruckBone()
+        {
+            GameObject player = new GameObject("arrow-stick-player");
+            GameObject struckBone = new GameObject("arrow-stick-chest-bone");
+            GameObject hitbox = new GameObject("arrow-stick-player-hitbox");
+            GameObject arrowObject = new GameObject("arrow-stick-enemy-arrow");
+            try
+            {
+                player.AddComponent<Health>().Configure(100f);
+                struckBone.transform.SetParent(player.transform, false);
+                hitbox.transform.SetParent(player.transform, false);
+                hitbox.transform.position = Vector3.forward * 1.1f;
+                hitbox.transform.localScale = Vector3.one * 0.2f;
+                hitbox.AddComponent<BoxCollider>();
+                hitbox.AddComponent<HumanoidDamageZone>().Configure(
+                    HumanoidHitRegion.Torso,
+                    struckBone.transform);
+                Physics.SyncTransforms();
+
+                BowArrowProjectile arrow =
+                    arrowObject.AddComponent<BowArrowProjectile>();
+                arrow.Launch(null, Vector3.forward * 28f, 10f);
+                for (int index = 0; index < 5 && !arrow.IsStuck; index++)
+                {
+                    InvokeFixedUpdate(arrow);
+                }
+
+                Assert.That(arrow.IsStuck, Is.True);
+                Assert.That(arrow.StuckTo, Is.SameAs(struckBone.transform));
+                Assert.That(
+                    Vector3.Distance(
+                        arrow.transform.TransformPoint(
+                            Vector3.forward * 0.605f),
+                        arrow.HitPoint),
+                    Is.LessThan(0.00001f),
+                    "The visible arrowhead must touch the exact player-body contact point.");
+                Assert.That(
+                    player.GetComponent<Health>().Current,
+                    Is.EqualTo(90f).Within(0.001f),
+                    "A player anatomical hitbox must forward damage to player health.");
+
+                Vector3 localTip =
+                    struckBone.transform.InverseTransformPoint(
+                        arrow.HitPoint);
+                struckBone.transform.SetPositionAndRotation(
+                    new Vector3(0.35f, 0.2f, 0f),
+                    Quaternion.Euler(0f, 35f, 20f));
+                InvokeLateUpdate(arrow);
+
+                Assert.That(
+                    Vector3.Distance(
+                        arrow.HitPoint,
+                        struckBone.transform.TransformPoint(localTip)),
+                    Is.LessThan(0.00001f),
+                    "The embedded contact must follow the specific animated bone that was struck.");
+                Assert.That(
+                    Vector3.Distance(
+                        arrow.transform.TransformPoint(
+                            Vector3.forward * 0.605f),
+                        arrow.HitPoint),
+                    Is.LessThan(0.00001f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(arrowObject);
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
         public void VerticalShotKeepsArrowForwardPointedUp()
         {
             Quaternion verticalRotation =
@@ -432,6 +520,18 @@ namespace WorldBuilder.Tests.EditMode
             advanceFlight.Invoke(
                 arrow,
                 new object[] { Time.fixedDeltaTime });
+        }
+
+        private static void InvokeLateUpdate(
+            BowArrowProjectile arrow)
+        {
+            MethodInfo lateUpdate =
+                typeof(BowArrowProjectile).GetMethod(
+                    "LateUpdate",
+                    BindingFlags.Instance |
+                    BindingFlags.NonPublic);
+            Assert.That(lateUpdate, Is.Not.Null);
+            lateUpdate.Invoke(arrow, null);
         }
     }
 }

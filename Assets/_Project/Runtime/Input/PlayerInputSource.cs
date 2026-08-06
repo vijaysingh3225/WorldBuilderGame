@@ -39,7 +39,6 @@ namespace WorldBuilder.Gameplay.Input
         public void RequestGameplayCursorCapture()
         {
             gameplayCursorCaptureRequested = true;
-            LockCursor();
         }
 
         public void SetDiagnosticOverride(in PlayerIntent intent)
@@ -89,8 +88,19 @@ namespace WorldBuilder.Gameplay.Input
 
             if (gameplayCursorCaptureRequested)
             {
-                gameplayCursorCaptureRequested = false;
+                Keyboard captureKeyboard = Keyboard.current;
+                if (PlayerControlBindings.IsPressed(
+                        captureKeyboard,
+                        PlayerControl.Pause))
+                {
+                    CurrentIntent = default;
+                    CameraOrbitHeld = false;
+                    return;
+                }
+
                 LockCursor();
+                gameplayCursorCaptureRequested =
+                    Cursor.lockState != CursorLockMode.Locked;
                 CurrentIntent = default;
                 CameraOrbitHeld = false;
                 return;
@@ -112,7 +122,9 @@ namespace WorldBuilder.Gameplay.Input
             bool inspectionClickPressed =
                 mouse != null && mouse.middleButton.wasPressedThisFrame;
 
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+            if (PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Pause))
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
@@ -128,8 +140,20 @@ namespace WorldBuilder.Gameplay.Input
             Vector2 move = Vector2.zero;
             if (keyboard != null)
             {
-                move.x = ReadAxis(keyboard.aKey.isPressed, keyboard.dKey.isPressed);
-                move.y = ReadAxis(keyboard.sKey.isPressed, keyboard.wKey.isPressed);
+                move.x = ReadAxis(
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveLeft),
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveRight));
+                move.y = ReadAxis(
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveBackward),
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveForward));
             }
 
             bool cursorLocked = Cursor.lockState == CursorLockMode.Locked;
@@ -139,25 +163,36 @@ namespace WorldBuilder.Gameplay.Input
                 mouse.middleButton.isPressed;
             Vector2 look = cursorLocked && mouse != null ? mouse.delta.ReadValue() * lookScale : Vector2.zero;
             bool attackPressed = primaryClickPressed;
+            bool attackHeld =
+                cursorLocked &&
+                mouse != null &&
+                mouse.leftButton.isPressed;
             bool blockHeld =
                 cursorLocked &&
                 mouse != null &&
                 mouse.rightButton.isPressed;
-            bool sprintHeld = keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
-            bool jumpPressed = keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
-            bool jumpHeld = keyboard != null && keyboard.spaceKey.isPressed;
-            bool crouchPressed = keyboard != null &&
-                (keyboard.leftCtrlKey.wasPressedThisFrame ||
-                 keyboard.rightCtrlKey.wasPressedThisFrame ||
-                 keyboard.cKey.wasPressedThisFrame);
+            bool sprintHeld = PlayerControlBindings.IsPressed(
+                keyboard,
+                PlayerControl.Sprint);
+            bool jumpPressed = PlayerControlBindings.WasPressedThisFrame(
+                keyboard,
+                PlayerControl.Jump);
+            bool jumpHeld = PlayerControlBindings.IsPressed(
+                keyboard,
+                PlayerControl.Jump);
+            bool crouchPressed =
+                PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Crouch);
             if (crouchPressed)
             {
                 crouchToggled = !crouchToggled;
             }
 
             if (cursorLocked &&
-                keyboard != null &&
-                keyboard.xKey.wasPressedThisFrame)
+                PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.SwapShoulder))
             {
                 shoulderSide = -shoulderSide;
             }
@@ -171,7 +206,8 @@ namespace WorldBuilder.Gameplay.Input
                 jumpHeld,
                 crouchToggled,
                 attackPressed,
-                blockHeld);
+                blockHeld,
+                attackHeld);
         }
 
         private void ReadWeaponSlotRequest(Keyboard keyboard, Mouse mouse)
@@ -179,13 +215,15 @@ namespace WorldBuilder.Gameplay.Input
             int requestedSlot = -1;
             if (keyboard != null)
             {
-                if (keyboard.digit1Key.wasPressedThisFrame ||
-                    keyboard.numpad1Key.wasPressedThisFrame)
+                if (PlayerControlBindings.WasPressedThisFrame(
+                        keyboard,
+                        PlayerControl.WeaponSlotOne))
                 {
                     requestedSlot = 0;
                 }
-                else if (keyboard.digit2Key.wasPressedThisFrame ||
-                    keyboard.numpad2Key.wasPressedThisFrame)
+                else if (PlayerControlBindings.WasPressedThisFrame(
+                        keyboard,
+                        PlayerControl.WeaponSlotTwo))
                 {
                     requestedSlot = 1;
                 }

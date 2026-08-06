@@ -32,6 +32,8 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Audio/SFX/Sword Hit.mp3";
         private const string BowPullbackAudioPath =
             "Assets/_Project/Audio/SFX/Bow Pullback.wav";
+        private const string BowReleaseAudioPath =
+            "Assets/_Project/Audio/SFX/Bow Release.wav";
         private const string ArrowImpactAudioPath =
             "Assets/_Project/Audio/SFX/Arrow Impact.wav";
         private const string ArrowHitFeedbackAudioPath =
@@ -735,7 +737,8 @@ namespace WorldBuilder.Editor
             controller.radius = 0.36f;
             controller.center = Vector3.zero;
             controller.skinWidth = 0.04f;
-            controller.stepOffset = 0.22f;
+            controller.stepOffset =
+                ThirdPersonMotor.MinimumTraversalStepOffset;
 
             StableId stableId = player.AddComponent<StableId>();
             stableId.EnsureAssigned();
@@ -913,7 +916,9 @@ namespace WorldBuilder.Editor
                         AssetDatabase.LoadAssetAtPath<AudioClip>(
                             HeadshotFeedbackAudioPath),
                         AssetDatabase.LoadAssetAtPath<AudioClip>(
-                            ArrowFlybyAudioPath));
+                            ArrowFlybyAudioPath),
+                        AssetDatabase.LoadAssetAtPath<AudioClip>(
+                            BowReleaseAudioPath));
                     TwoSlotWeaponPresenter loadoutPresenter =
                         animator.gameObject.AddComponent<TwoSlotWeaponPresenter>();
                     loadoutPresenter.Configure(

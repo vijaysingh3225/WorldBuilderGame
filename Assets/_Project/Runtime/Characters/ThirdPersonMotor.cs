@@ -1,6 +1,7 @@
 using UnityEngine;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Presentation;
 
 namespace WorldBuilder.Gameplay.Characters
 {
@@ -17,6 +18,8 @@ namespace WorldBuilder.Gameplay.Characters
         public const float DefaultSprintSpeed = 4.6f;
         public const float DefaultCrouchSpeed = 1.0f;
         public const float DefaultCrouchTransitionSpeed = 2.75f;
+        public const float MinimumTraversalStepOffset = 0.34f;
+        public const float DefaultSteepSlopeSlideSpeed = 5.25f;
 
         [SerializeField, Min(0f)] private float walkSpeed = DefaultWalkSpeed;
         [SerializeField, Min(0f)] private float sprintSpeed = DefaultSprintSpeed;
@@ -41,6 +44,8 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField] private LayerMask groundSupportMask = ~(1 << 2);
         [SerializeField, Min(0.05f)] private float groundProbeRadius = 0.18f;
         [SerializeField, Min(0.01f)] private float groundProbeDistance = 0.15f;
+        [SerializeField, Min(0f)] private float steepSlopeSlideSpeed =
+            DefaultSteepSlopeSlideSpeed;
 
         private CharacterController controller;
         private PlayerInputSource input;
@@ -186,8 +191,13 @@ namespace WorldBuilder.Gameplay.Characters
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
+            controller.stepOffset = Mathf.Max(
+                controller.stepOffset,
+                MinimumTraversalStepOffset);
             input = GetComponent<PlayerInputSource>();
             health = GetComponent<Health>();
+            EnsurePlayerDamageNumbers();
+            EnsureAnatomicalDamageHitboxes();
             standingHeight = controller.height;
             standingCenter = controller.center;
             crouchingHeight = Mathf.Clamp(crouchingHeight, controller.radius * 2f, standingHeight);
@@ -196,6 +206,45 @@ namespace WorldBuilder.Gameplay.Characters
             isGrounded = HasSupportedGroundContact();
             facingOverrideBehaviours =
                 GetComponentsInChildren<MonoBehaviour>(true);
+        }
+
+        private void EnsureAnatomicalDamageHitboxes()
+        {
+            Animator animator =
+                GetComponentInChildren<Animator>(true);
+            if (animator == null || !animator.isHuman)
+            {
+                return;
+            }
+
+            HumanoidDamageHitboxRig hitboxes =
+                GetComponent<HumanoidDamageHitboxRig>();
+            if (hitboxes == null)
+            {
+                hitboxes = gameObject.AddComponent<
+                    HumanoidDamageHitboxRig>();
+            }
+            hitboxes.Configure(animator);
+        }
+
+        private void EnsurePlayerDamageNumbers()
+        {
+            if (health == null)
+            {
+                return;
+            }
+
+            FloatingDamageNumberPresenter presenter =
+                GetComponent<FloatingDamageNumberPresenter>();
+            if (presenter == null)
+            {
+                presenter = gameObject.AddComponent<
+                    FloatingDamageNumberPresenter>();
+            }
+            presenter.Configure(
+                health,
+                null,
+                true);
         }
 
         private void Update()
@@ -232,7 +281,7 @@ namespace WorldBuilder.Gameplay.Characters
                 bool sprintAllowed = CalculateSprintAllowed(
                     facingOverridden,
                     inspectionMovementOrbit,
-                    intent.BlockHeld,
+                    intent.BlockHeld || intent.AttackHeld,
                     intent.SprintHeld);
                 float targetSpeed = isCrouched
                     ? CrouchSpeed
@@ -271,6 +320,16 @@ namespace WorldBuilder.Gameplay.Characters
 
             UpdateVerticalMotion(intent);
             Vector3 motion = horizontalVelocity + Vector3.up * verticalVelocity;
+            if (!hasGroundControl &&
+                TryGetGroundSurface(out RaycastHit groundHit) &&
+                IsSteepSlope(groundHit.normal, controller.slopeLimit))
+            {
+                motion = ApplySteepSlopeSlide(
+                    motion,
+                    groundHit.normal,
+                    controller.slopeLimit,
+                    steepSlopeSlideSpeed);
+            }
             controller.Move(motion * Time.deltaTime);
             isGrounded = HasSupportedGroundContact();
         }
@@ -546,6 +605,13 @@ namespace WorldBuilder.Gameplay.Characters
                 return false;
             }
 
+            return TryGetGroundSurface(out RaycastHit hit) &&
+                !IsSteepSlope(hit.normal, controller.slopeLimit);
+        }
+
+        private bool TryGetGroundSurface(out RaycastHit closestHit)
+        {
+            closestHit = default;
             Vector3 worldCenter = transform.TransformPoint(controller.center);
             Vector3 controllerBottom = worldCenter - Vector3.up * (controller.height * 0.5f);
             Vector3 probeOrigin = controllerBottom + Vector3.up * (groundProbeRadius + 0.05f);
@@ -557,7 +623,6 @@ namespace WorldBuilder.Gameplay.Characters
                 groundSupportMask,
                 QueryTriggerInteraction.Ignore);
             float closestDistance = float.PositiveInfinity;
-            bool supported = false;
             for (int index = 0; index < hits.Length; index++)
             {
                 Collider hitCollider = hits[index].collider;
@@ -569,10 +634,66 @@ namespace WorldBuilder.Gameplay.Characters
                 }
 
                 closestDistance = hits[index].distance;
-                supported = hits[index].normal.y >= 0.55f;
+                closestHit = hits[index];
             }
 
-            return supported;
+            return closestDistance < float.PositiveInfinity;
+        }
+
+        public static bool IsSteepSlope(
+            Vector3 surfaceNormal,
+            float slopeLimit)
+        {
+            if (surfaceNormal.sqrMagnitude <= 0.0001f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(surfaceNormal, Vector3.up) >
+                Mathf.Clamp(slopeLimit, 0f, 89.9f) + 0.05f;
+        }
+
+        public static Vector3 ApplySteepSlopeSlide(
+            Vector3 requestedMotion,
+            Vector3 surfaceNormal,
+            float slopeLimit,
+            float maximumSlideSpeed)
+        {
+            float slopeAngle = Vector3.Angle(
+                surfaceNormal,
+                Vector3.up);
+            if (slopeAngle <= slopeLimit ||
+                maximumSlideSpeed <= 0f)
+            {
+                return requestedMotion;
+            }
+
+            Vector3 downhill = Vector3.ProjectOnPlane(
+                Vector3.down,
+                surfaceNormal).normalized;
+            Vector3 planarDownhill = Vector3.ProjectOnPlane(
+                downhill,
+                Vector3.up).normalized;
+            Vector3 planarMotion = Vector3.ProjectOnPlane(
+                requestedMotion,
+                Vector3.up);
+            float uphillSpeed = Vector3.Dot(
+                planarMotion,
+                -planarDownhill);
+            if (uphillSpeed > 0f)
+            {
+                requestedMotion += planarDownhill * uphillSpeed;
+            }
+
+            float slideStrength = Mathf.InverseLerp(
+                slopeLimit,
+                90f,
+                slopeAngle);
+            return requestedMotion +
+                downhill * Mathf.Lerp(
+                    maximumSlideSpeed * 0.45f,
+                    maximumSlideSpeed,
+                    slideStrength);
         }
     }
 }

@@ -50,6 +50,17 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.1f)] private float maximumBowHold = 1.38f;
         [SerializeField, Min(0.1f)] private float minimumBowRecovery = 0.45f;
         [SerializeField, Min(0.1f)] private float maximumBowRecovery = 0.75f;
+        [Header("Ranged Movement")]
+        [SerializeField, Min(0.1f)]
+        private float minimumRangedStrafeDuration = 2.8f;
+        [SerializeField, Min(0.1f)]
+        private float maximumRangedStrafeDuration = 4.2f;
+        [SerializeField, Min(0.1f)]
+        private float minimumRangedStrafePause = 1.2f;
+        [SerializeField, Min(0.1f)]
+        private float maximumRangedStrafePause = 2f;
+        [SerializeField, Range(0f, 1f)]
+        private float rangedStrafeStrength = 0.38f;
         [Header("Perception")]
         [SerializeField, Min(1f)] private float passiveSightRange = 32f;
         [SerializeField, Min(1f)] private float alertedSightRange = 100f;
@@ -142,6 +153,8 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3 alertSourceDirection;
         private float rangedStrafeDirection = 1f;
         private float rangedStrafeTimer;
+        private bool rangedStrafeActive;
+        private bool rangedStrafeInitialized;
         private Vector3 patrolLookDirection;
         private int lastHeardArrowId;
         private float passiveAwareness;
@@ -1053,7 +1066,14 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdateInvestigation()
         {
-            if (lostSightWaitTimer > 0f)
+            bool isSwordPursuit =
+                weaponLoadout == WeaponLoadout.SwordOnly ||
+                swordModeActive;
+            if (isSwordPursuit)
+            {
+                lostSightWaitTimer = 0f;
+            }
+            else if (lostSightWaitTimer > 0f)
             {
                 lostSightWaitTimer -= Time.deltaTime;
                 SetAim(
@@ -1126,7 +1146,10 @@ namespace WorldBuilder.Gameplay.Characters
                     WorldDirectionToInput(movement),
                     false,
                     false);
-                ChangeState(EnemyState.Investigating);
+                ChangeState(
+                    isSwordPursuit
+                        ? EnemyState.Pursuing
+                        : EnemyState.Investigating);
                 return;
             }
 
@@ -1815,11 +1838,33 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector2 ResolveRangedStrafeIntent()
         {
             rangedStrafeTimer -= Time.deltaTime;
-            if (rangedStrafeTimer <= 0f)
+            if (!rangedStrafeInitialized)
             {
+                rangedStrafeInitialized = true;
+                rangedStrafeActive = true;
                 rangedStrafeDirection =
                     UnityEngine.Random.value < 0.5f ? -1f : 1f;
-                rangedStrafeTimer = UnityEngine.Random.Range(1.6f, 2.8f);
+                rangedStrafeTimer = UnityEngine.Random.Range(
+                    minimumRangedStrafeDuration,
+                    maximumRangedStrafeDuration);
+            }
+            else if (rangedStrafeTimer <= 0f)
+            {
+                rangedStrafeActive = !rangedStrafeActive;
+                if (rangedStrafeActive)
+                {
+                    rangedStrafeDirection =
+                        UnityEngine.Random.value < 0.5f ? -1f : 1f;
+                    rangedStrafeTimer = UnityEngine.Random.Range(
+                        minimumRangedStrafeDuration,
+                        maximumRangedStrafeDuration);
+                }
+                else
+                {
+                    rangedStrafeTimer = UnityEngine.Random.Range(
+                        minimumRangedStrafePause,
+                        maximumRangedStrafePause);
+                }
             }
 
             Vector3 toTarget = target != null
@@ -1834,7 +1879,9 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 tangent =
                 Vector3.Cross(Vector3.up, direction) *
                 rangedStrafeDirection;
-            Vector3 movement = tangent * 0.48f;
+            Vector3 movement = rangedStrafeActive
+                ? tangent * rangedStrafeStrength
+                : Vector3.zero;
             if (distance < 4.5f)
             {
                 movement -= direction * 0.34f;

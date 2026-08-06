@@ -2802,6 +2802,7 @@ MonoBehaviour:
   bowRoot: {fileID: 744944764}
   nockedArrow: {fileID: 875399723}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
@@ -4253,6 +4254,7 @@ MonoBehaviour:
   bowRoot: {fileID: 1362498210}
   nockedArrow: {fileID: 266762035}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
@@ -7394,6 +7396,7 @@ MonoBehaviour:
   bowRoot: {fileID: 881512143}
   nockedArrow: {fileID: 428424695}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
@@ -18108,6 +18111,7 @@ MonoBehaviour:
   bowRoot: {fileID: 451706145}
   nockedArrow: {fileID: 702788846}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
@@ -20050,6 +20054,7 @@ MonoBehaviour:
   bowRoot: {fileID: 1506713117}
   nockedArrow: {fileID: 1161886761}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
@@ -23351,6 +23356,7 @@ MonoBehaviour:
   bowRoot: {fileID: 119071645}
   nockedArrow: {fileID: 1911775151}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}
@@ -26221,6 +26227,7 @@ MonoBehaviour:
   bowRoot: {fileID: 593087096}
   nockedArrow: {fileID: 468937490}
   pullbackClip: {fileID: 8300000, guid: 68bf03f16312bfa4093091e6d6e6ef14, type: 3}
+  releaseClip: {fileID: 8300000, guid: 6eaecb22268b4ff3a022d734a025a447, type: 3}
   arrowImpactClip: {fileID: 8300000, guid: 83a6d3afddea328488b4f6cbdff9b7c1, type: 3}
   enemyHitFeedbackClip: {fileID: 8300000, guid: b7645e1b61d988c47a30cb3d77c8ab87, type: 3}
   headshotFeedbackClip: {fileID: 8300000, guid: d33c32f2498c45c47a82b22ec88c580a, type: 3}

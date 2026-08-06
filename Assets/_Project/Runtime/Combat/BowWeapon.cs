@@ -13,19 +13,24 @@ namespace WorldBuilder.Gameplay.Combat
     public sealed class BowWeapon : MonoBehaviour
     {
         private const float MinimumNpcReleaseCharge = 0.995f;
+        private const string ReleaseAudioResourcePath =
+            "Audio/SFX/Bow Release";
         [SerializeField] private PlayerInputSource input;
         [SerializeField] private Transform characterRoot;
         [SerializeField] private Transform bowRoot;
         [SerializeField] private Transform nockedArrow;
         [SerializeField] private AudioClip pullbackClip;
+        [SerializeField] private AudioClip releaseClip;
         [SerializeField] private AudioClip arrowImpactClip;
         [SerializeField] private AudioClip enemyHitFeedbackClip;
         [SerializeField] private AudioClip headshotFeedbackClip;
         [SerializeField] private AudioClip arrowFlybyClip;
         [SerializeField] private AudioSource bowAudioSource;
+        [SerializeField] private AudioSource releaseAudioSource;
         [SerializeField] private AudioSource hitFeedbackAudioSource;
         [SerializeField, Range(0f, 1f)] private float pullbackVolume = 0.30f;
         [SerializeField, Range(0.5f, 1.5f)] private float pullbackPitch = 0.62f;
+        [SerializeField, Range(0f, 1f)] private float releaseVolume = 0.35f;
         [SerializeField] private CameraAimTarget aimTarget;
         [SerializeField] private CharacterAimSource characterAimSource;
         [SerializeField, Min(10f)] private float maximumAimDistance = 150f;
@@ -39,6 +44,7 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField, Min(0f)] private float minimumDamage = 10f;
         [SerializeField, Min(0f)] private float maximumDamage = 34f;
         [SerializeField, Min(0.05f)] private float reloadDuration = 0.38f;
+        [SerializeField, Min(0.05f)] private float playerReloadDuration = 0.65f;
         [SerializeField, Min(0.01f)] private float readyBlendDuration = 0.18f;
 
         private bool weaponEquipped;
@@ -55,12 +61,20 @@ namespace WorldBuilder.Gameplay.Combat
         private float pendingReleaseCharge;
         private bool pendingReleaseAimLocked;
         private Ray pendingReleaseAimRay;
+        private int releasePlaybackCount;
         private RaidPrototypeController raidController;
 
         public event Action<float> ArrowFired;
 
         public bool WeaponEquipped => weaponEquipped;
         public bool IsDrawing => weaponEquipped && drawHeldLastFrame;
+        public bool DrawInputHeld =>
+            weaponEquipped &&
+            arrowReady &&
+            input != null &&
+            (playerOwned
+                ? input.CurrentIntent.AttackHeld
+                : input.CurrentIntent.BlockHeld);
         public bool ArrowReady => arrowReady;
         public bool CanFire =>
             arrowReady &&
@@ -110,12 +124,26 @@ namespace WorldBuilder.Gameplay.Combat
         public bool LastUsedElevatedTargetDepth { get; private set; }
         public bool AudioConfigured =>
             pullbackClip != null &&
+            releaseClip != null &&
             arrowImpactClip != null &&
             enemyHitFeedbackClip != null &&
             headshotFeedbackClip != null &&
-            bowAudioSource != null;
+            bowAudioSource != null &&
+            releaseAudioSource != null;
         public float PullbackVolume => pullbackVolume;
         public float PullbackPitch => pullbackPitch;
+        public AudioClip ReleaseClip => releaseClip;
+        public float ReleaseVolume => releaseVolume;
+        public int ReleasePlaybackCount => releasePlaybackCount;
+        public AudioSource LastReleaseAudioSource { get; private set; }
+        public float ReleaseSpatialBlend =>
+            releaseAudioSource != null
+                ? releaseAudioSource.spatialBlend
+                : 0f;
+        public GameObject ReleaseAudioHost =>
+            releaseAudioSource != null
+                ? releaseAudioSource.gameObject
+                : null;
         public AudioClip EnemyHitFeedbackClip =>
             enemyHitFeedbackClip;
         public AudioClip HeadshotFeedbackClip =>
@@ -138,6 +166,16 @@ namespace WorldBuilder.Gameplay.Combat
                 ? hitFeedbackAudioSource.gameObject
                 : null;
         public float FullDrawDuration => fullDrawDuration;
+        public float EffectiveReloadDuration =>
+            playerOwned
+                ? Mathf.Max(reloadDuration, playerReloadDuration)
+                : reloadDuration;
+        public float ReloadRemaining => reloadRemaining;
+        public float CurrentReadyBlendDuration =>
+            playerOwned &&
+            (pendingRelease || reloadRemaining > 0f)
+                ? EffectiveReloadDuration
+                : readyBlendDuration;
         public float MaximumArrowSpeed => maximumArrowSpeed;
         public float RuntimeDamageBonus => runtimeDamageBonus;
         public float PartialVelocityExponent =>
@@ -155,7 +193,8 @@ namespace WorldBuilder.Gameplay.Combat
             AudioClip impactClip = null,
             AudioClip enemyHitClip = null,
             AudioClip headshotClip = null,
-            AudioClip flybyClip = null)
+            AudioClip flybyClip = null,
+            AudioClip bowReleaseClip = null)
         {
             input = intentSource;
             characterRoot = root;
@@ -166,6 +205,7 @@ namespace WorldBuilder.Gameplay.Combat
             enemyHitFeedbackClip = enemyHitClip;
             headshotFeedbackClip = headshotClip;
             arrowFlybyClip = flybyClip;
+            releaseClip = bowReleaseClip;
             ConfigureAudio();
             ResolveRaidController();
             SetWeaponEquipped(false);
@@ -244,23 +284,17 @@ namespace WorldBuilder.Gameplay.Combat
             if (input != null && input.UserInterfaceCaptureActive)
             {
                 CancelDraw(false);
+                UpdateReadyPresentation(false);
                 return;
             }
 
             bool drawHeld =
-                weaponEquipped &&
-                input != null &&
-                input.CurrentIntent.BlockHeld;
-
-            float targetReadyWeight = drawHeld ? 1f : 0f;
-            readyWeight = Mathf.MoveTowards(
-                readyWeight,
-                targetReadyWeight,
-                Time.deltaTime / Mathf.Max(0.01f, readyBlendDuration));
+                DrawInputHeld;
 
             if (!weaponEquipped)
             {
                 drawHeldLastFrame = false;
+                UpdateReadyPresentation(false);
                 return;
             }
 
@@ -274,6 +308,7 @@ namespace WorldBuilder.Gameplay.Combat
                 arrowReady = false;
                 reloadRemaining = 0f;
                 SetNockedArrowVisible(false);
+                UpdateReadyPresentation(false);
                 return;
             }
             if (!arrowReady && reloadRemaining <= 0f)
@@ -294,7 +329,7 @@ namespace WorldBuilder.Gameplay.Combat
                         characterRoot != null
                             ? characterRoot.gameObject
                             : gameObject,
-                        "secondary");
+                        playerOwned ? "primary" : "ai-hold");
                 }
 
                 heldDuration += Time.deltaTime;
@@ -305,6 +340,65 @@ namespace WorldBuilder.Gameplay.Combat
             }
 
             drawHeldLastFrame = drawHeld;
+            UpdateReadyPresentation(drawHeld);
+        }
+
+        private void UpdateReadyPresentation(bool drawHeld)
+        {
+            readyWeight = CalculateReadyWeight(
+                readyWeight,
+                drawHeld,
+                Time.deltaTime,
+                readyBlendDuration,
+                EffectiveReloadDuration,
+                pendingRelease
+                    ? EffectiveReloadDuration
+                    : reloadRemaining,
+                playerOwned &&
+                (pendingRelease || reloadRemaining > 0f));
+        }
+
+        public static float CalculateReadyWeight(
+            float currentWeight,
+            bool drawHeld,
+            float deltaTime,
+            float normalBlendDuration,
+            float recoveryDuration,
+            float recoveryRemaining,
+            bool recoveringFromPlayerShot)
+        {
+            if (!drawHeld && recoveringFromPlayerShot)
+            {
+                return CalculatePostShotReadyWeight(
+                    recoveryRemaining,
+                    recoveryDuration,
+                    normalBlendDuration);
+            }
+
+            return Mathf.MoveTowards(
+                Mathf.Clamp01(currentWeight),
+                drawHeld ? 1f : 0f,
+                Mathf.Max(0f, deltaTime) /
+                    Mathf.Max(0.01f, normalBlendDuration));
+        }
+
+        public static float CalculatePostShotReadyWeight(
+            float recoveryRemaining,
+            float recoveryDuration,
+            float returnDuration)
+        {
+            float duration = Mathf.Max(0.01f, recoveryDuration);
+            float finalReturnDuration = Mathf.Clamp(
+                returnDuration,
+                0.01f,
+                duration);
+            float remaining = Mathf.Clamp(
+                recoveryRemaining,
+                0f,
+                duration);
+            return remaining >= finalReturnDuration
+                ? 1f
+                : remaining / finalReturnDuration;
         }
 
         private void UpdateReload()
@@ -331,6 +425,7 @@ namespace WorldBuilder.Gameplay.Combat
                 releaseCharge >= MinimumNpcReleaseCharge;
             if (CanFire && npcCommittedRelease)
             {
+                PlayReleaseAudio();
                 // Preserve charge now, but resolve the rendered camera ray at
                 // the end of the frame after Cinemachine has updated it.
                 pendingRelease = true;
@@ -470,13 +565,12 @@ namespace WorldBuilder.Gameplay.Combat
                 hitFeedbackAudioSource,
                 playerOwned,
                 arrowFlybyClip);
-
             firedArrowCount++;
             lastShotCharge = charge;
             LastShotSpeed = shotSpeed;
             LastShotDirection = direction;
             arrowReady = false;
-            reloadRemaining = reloadDuration;
+            reloadRemaining = EffectiveReloadDuration;
             SetNockedArrowVisible(false);
             GameplayEventLog.Publish(
                 "bow-arrow-fired",
@@ -801,6 +895,9 @@ namespace WorldBuilder.Gameplay.Combat
 
         private void ConfigureAudio()
         {
+            releaseClip ??=
+                Resources.Load<AudioClip>(ReleaseAudioResourcePath);
+            EnsureAudioDataLoaded(releaseClip);
             EnsureAudioDataLoaded(enemyHitFeedbackClip);
             EnsureAudioDataLoaded(headshotFeedbackClip);
             playerOwned =
@@ -823,10 +920,39 @@ namespace WorldBuilder.Gameplay.Combat
             pullbackVolume = playerOwned
                 ? 0.09f
                 : 0.14f;
+            releaseVolume = 0.30f;
             bowAudioSource.spatialBlend =
                 playerOwned ? 0f : 1f;
             bowAudioSource.minDistance = 1.4f;
             bowAudioSource.maxDistance = 20f;
+
+            if (releaseAudioSource == null)
+            {
+                GameObject releaseHost =
+                    characterRoot != null
+                        ? characterRoot.gameObject
+                        : gameObject;
+                releaseAudioSource =
+                    releaseHost.AddComponent<AudioSource>();
+            }
+            releaseAudioSource.enabled = true;
+            releaseAudioSource.playOnAwake = false;
+            releaseAudioSource.loop = false;
+            releaseAudioSource.pitch = 1f;
+            releaseAudioSource.volume = 1f;
+            releaseAudioSource.mute = false;
+            releaseAudioSource.dopplerLevel = 0f;
+            releaseAudioSource.priority = 0;
+            releaseAudioSource.ignoreListenerPause = true;
+            releaseAudioSource.bypassEffects = true;
+            releaseAudioSource.bypassListenerEffects = true;
+            releaseAudioSource.bypassReverbZones = true;
+            releaseAudioSource.spatialBlend =
+                playerOwned ? 0f : 1f;
+            releaseAudioSource.rolloffMode =
+                AudioRolloffMode.Logarithmic;
+            releaseAudioSource.minDistance = 1.5f;
+            releaseAudioSource.maxDistance = 28f;
 
             if (hitFeedbackAudioSource == null)
             {
@@ -907,6 +1033,23 @@ namespace WorldBuilder.Gameplay.Combat
                 bowAudioSource.Stop();
                 bowAudioSource.clip = null;
             }
+        }
+
+        private void PlayReleaseAudio()
+        {
+            if (bowAudioSource == null || releaseClip == null)
+            {
+                return;
+            }
+
+            bowAudioSource.Stop();
+            bowAudioSource.clip = releaseClip;
+            bowAudioSource.pitch = 1f;
+            bowAudioSource.volume = releaseVolume;
+            bowAudioSource.mute = false;
+            bowAudioSource.Play();
+            LastReleaseAudioSource = bowAudioSource;
+            releasePlaybackCount++;
         }
     }
 }

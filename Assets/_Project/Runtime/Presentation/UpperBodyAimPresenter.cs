@@ -31,30 +31,16 @@ namespace WorldBuilder.Gameplay.Presentation
         private float bowTorsoYawSmoothTime = 0.08f;
         [SerializeField, Range(0f, 1f)]
         private float bowHeadCounterRotation = 1f;
-        [SerializeField, Range(0f, 20f)] private float walkTorsoYaw = 12f;
-        [SerializeField, Range(0f, 24f)] private float runTorsoYaw = 18f;
-        [SerializeField, Range(0f, 1f)] private float locomotionHeadLock = 1f;
-        [SerializeField, Min(90f)] private float headLockAngularSpeed = 360f;
 
         private Transform spine;
         private Transform chest;
         private Transform upperChest;
         private Transform head;
-        private Transform leftHand;
-        private Transform rightHand;
         private ThirdPersonMotor motor;
         private float currentYaw;
         private float yawVelocity;
-        private float locomotionYaw;
-        private float locomotionYawVelocity;
         private float bowDrawTorsoYaw;
         private float bowDrawTorsoYawVelocity;
-        private float idleHandSeparation;
-        private bool hasIdleHandSeparation;
-        private Quaternion idleHeadRootRotation;
-        private bool hasIdleHeadRotation;
-        private Quaternion lockedHeadWorldRotation;
-        private bool headLockActive;
         private AimStanceLocomotionPresenter stancePresenter;
 
         public float CurrentYaw => currentYaw;
@@ -126,9 +112,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         public bool BowAimLocked =>
             bowWeapon != null &&
-            bowWeapon.WeaponEquipped &&
-            input != null &&
-            input.CurrentIntent.BlockHeld;
+            bowWeapon.DrawInputHeld;
         public bool SwordGuardLocked =>
             blockPresenter != null &&
             blockPresenter.WeaponEquipped &&
@@ -242,8 +226,6 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 currentYaw = 0f;
                 yawVelocity = 0f;
-                locomotionYaw = 0f;
-                locomotionYawVelocity = 0f;
                 bowDrawTorsoYaw = 0f;
                 bowDrawTorsoYawVelocity = 0f;
                 return;
@@ -293,10 +275,9 @@ namespace WorldBuilder.Gameplay.Presentation
                 ref yawVelocity,
                 yawSmoothTime);
 
-            UpdateLocomotionYaw(rootForward);
             UpdateBowDrawTorsoYaw();
             float sharedYaw = CalculateShoulderCompensatedAimYaw(
-                currentYaw + locomotionYaw,
+                currentYaw,
                 CurrentShoulderSideBlend) +
                 bowDrawTorsoYaw;
             ApplyWorldYaw(spine, sharedYaw * spineShare, up);
@@ -309,7 +290,6 @@ namespace WorldBuilder.Gameplay.Presentation
                 head,
                 -bowDrawTorsoYaw * bowHeadCounterRotation,
                 up);
-            StabilizeHeadRotation(up);
         }
 
         private void UpdateBowDrawTorsoYaw()
@@ -349,107 +329,6 @@ namespace WorldBuilder.Gameplay.Presentation
                 1f);
         }
 
-        private void UpdateLocomotionYaw(Vector3 rootForward)
-        {
-            float targetYaw = 0f;
-            if (motor != null && leftHand != null && rightHand != null)
-            {
-                float handSeparation = Vector3.Dot(
-                    rightHand.position - leftHand.position,
-                    rootForward);
-                bool standingStill = motor.HorizontalSpeed < 0.1f;
-                if (standingStill && motor.IsGrounded)
-                {
-                    idleHandSeparation = handSeparation;
-                    hasIdleHandSeparation = true;
-                    if (head != null && !hasIdleHeadRotation)
-                    {
-                        idleHeadRootRotation =
-                            Quaternion.Inverse(characterRoot.rotation) *
-                            Quaternion.Inverse(Quaternion.AngleAxis(currentYaw, characterRoot.up)) *
-                            head.rotation;
-                        hasIdleHeadRotation = true;
-                    }
-                }
-
-                bool canSway =
-                    hasIdleHandSeparation &&
-                    !AimLocked &&
-                    motor.IsGrounded &&
-                    !motor.IsCrouched &&
-                    !IsAttacking() &&
-                    motor.HorizontalSpeed >= 0.1f;
-                if (canSway)
-                {
-                    float armSwing = Mathf.Clamp(
-                        (handSeparation - idleHandSeparation) / 0.35f,
-                        -1f,
-                        1f);
-                    float locomotionSpeedBlend = Mathf.InverseLerp(
-                        ThirdPersonMotor.DefaultWalkSpeed,
-                        ThirdPersonMotor.DefaultSprintSpeed,
-                        motor.AnimationHorizontalSpeed);
-                    float maximumYaw = Mathf.Lerp(
-                        walkTorsoYaw,
-                        runTorsoYaw,
-                        locomotionSpeedBlend);
-                    // A forward right hand brings the right shoulder forward, which
-                    // is a small turn to the character's left.
-                    targetYaw = -armSwing * maximumYaw;
-                }
-            }
-
-            locomotionYaw = Mathf.SmoothDampAngle(
-                locomotionYaw,
-                targetYaw,
-                ref locomotionYawVelocity,
-                0.06f);
-        }
-
-        private void StabilizeHeadRotation(Vector3 up)
-        {
-            bool shouldLock =
-                head != null &&
-                hasIdleHeadRotation &&
-                !AimLocked &&
-                motor != null &&
-                motor.IsGrounded &&
-                !motor.IsCrouched &&
-                !IsAttacking() &&
-                motor.HorizontalSpeed >= 0.1f;
-            if (!shouldLock)
-            {
-                headLockActive = false;
-                return;
-            }
-
-            Quaternion stableRotation =
-                Quaternion.AngleAxis(currentYaw, up) *
-                characterRoot.rotation *
-                idleHeadRootRotation;
-            if (!headLockActive)
-            {
-                lockedHeadWorldRotation = head.rotation;
-                headLockActive = true;
-            }
-
-            lockedHeadWorldRotation = Quaternion.RotateTowards(
-                lockedHeadWorldRotation,
-                stableRotation,
-                headLockAngularSpeed * Time.deltaTime);
-            head.rotation = Quaternion.Slerp(
-                head.rotation,
-                lockedHeadWorldRotation,
-                locomotionHeadLock);
-        }
-
-        private bool IsAttacking()
-        {
-            int attackLayer =
-                animator.GetLayerIndex(ShortSwordAttackPresenter.AttackLayerName);
-            return attackLayer >= 0 && animator.GetLayerWeight(attackLayer) > 0.01f;
-        }
-
         private void ResolveBones()
         {
             if (animator == null || !animator.isHuman)
@@ -461,8 +340,6 @@ namespace WorldBuilder.Gameplay.Presentation
             chest = animator.GetBoneTransform(HumanBodyBones.Chest);
             upperChest = animator.GetBoneTransform(HumanBodyBones.UpperChest);
             head = animator.GetBoneTransform(HumanBodyBones.Head);
-            leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
-            rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
         }
 
         private void ResolveCombatReferences()

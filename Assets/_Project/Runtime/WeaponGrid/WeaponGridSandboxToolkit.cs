@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Loop.Scenes;
 using WorldBuilder.Gameplay.Presentation;
@@ -16,12 +17,6 @@ namespace WorldBuilder.Gameplay.WeaponGrid
     [DisallowMultipleComponent]
     public sealed class WeaponGridSandboxToolkit : MonoBehaviour
     {
-        private enum GridTool
-        {
-            Place,
-            Remove
-        }
-
         [SerializeField] private WeaponGridRuntime gridRuntime;
         [SerializeField] private PlayerInputSource inputSource;
         [SerializeField] private InventoryPreviewRenderer previewRenderer;
@@ -29,7 +24,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         [SerializeField] private bool startOpen;
         [SerializeField] private bool pauseWhileOpen = true;
         [SerializeField] private bool initializeSandboxIfPristine = true;
-        [SerializeField] private Rect windowRect = new Rect(0f, 0f, 900f, 540f);
+        [SerializeField] private Rect windowRect = new Rect(0f, 0f, 1080f, 620f);
 
         private readonly Dictionary<GridCoordinate, Rect> cellRects =
             new Dictionary<GridCoordinate, Rect>();
@@ -42,12 +37,6 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         private bool capturedCursorVisible;
         private bool capturedInputCaptureState;
         private bool sandboxInitializationChecked;
-        private string selectedDefinitionId;
-        private int selectedRotation;
-        private GridTool activeTool;
-        private string seedText = "1337";
-        private string statusMessage =
-            "Choose an artifact and click a cell. Shift-click rotates; right-click removes.";
         private GUIStyle titleStyle;
         private GUIStyle headingStyle;
         private GUIStyle bodyStyle;
@@ -55,7 +44,10 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         private GUIStyle centeredStyle;
         private GUIStyle tabStyle;
         private GUIStyle selectedTabStyle;
+        private GUIStyle inventoryCellStyle;
         private Texture2D whiteTexture;
+        private MeleeWeapon meleeWeapon;
+        private BowWeapon bowWeapon;
 
         public bool IsOpen => isOpen;
         public WeaponGridRuntime Runtime => gridRuntime;
@@ -82,8 +74,9 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         {
             if (toggleWithTab &&
                 !SceneNavigationMenu.IsAnyOpen &&
-                Keyboard.current != null &&
-                Keyboard.current.tabKey.wasPressedThisFrame)
+                PlayerControlBindings.WasPressedThisFrame(
+                    Keyboard.current,
+                    PlayerControl.Inventory))
             {
                 Toggle();
             }
@@ -93,7 +86,9 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 return;
             }
 
-            if (Keyboard.current.escapeKey.wasPressedThisFrame)
+            if (PlayerControlBindings.WasPressedThisFrame(
+                    Keyboard.current,
+                    PlayerControl.Pause))
             {
                 Close();
             }
@@ -184,7 +179,6 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             EnsureRuntime();
             int selected = Mathf.Clamp(weaponIndex, 0, 1);
             gridRuntime.SelectWeapon(selected);
-            seedText = gridRuntime.ActiveGrid.Seed.ToString();
             EnsurePreview();
             previewRenderer?.SelectWeapon(selected);
             Open();
@@ -203,7 +197,8 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
         private void DrawWindow(int windowId)
         {
-            DrawPanelBackground(new Rect(0f, 0f, windowRect.width, windowRect.height));
+            DrawInventorySection(
+                new Rect(0f, 0f, windowRect.width, windowRect.height));
             GUI.Label(
                 new Rect(18f, 10f, 420f, 30f),
                 "WEAPON GRID",
@@ -213,9 +208,9 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 "Drag title bar to move  |  drag weapon to rotate  |  Esc closes",
                 mutedStyle);
 
-            if (GUI.Button(
-                new Rect(windowRect.width - 40f, 10f, 26f, 26f),
-                "X"))
+            var closeRect = new Rect(windowRect.width - 40f, 10f, 26f, 26f);
+            DrawInventoryButtonSurface(closeRect, false);
+            if (GUI.Button(closeRect, "X", tabStyle))
             {
                 Close();
                 return;
@@ -224,12 +219,12 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             DrawWeaponTabs(new Rect(18f, 64f, windowRect.width - 36f, 34f));
             float previewWidth = Mathf.Clamp(
                 windowRect.width * 0.24f,
-                180f,
-                220f);
-            float sidebarWidth = Mathf.Clamp(
-                windowRect.width * 0.24f,
                 200f,
-                224f);
+                250f);
+            float sidebarWidth = Mathf.Clamp(
+                windowRect.width * 0.23f,
+                210f,
+                250f);
             var previewArea = new Rect(
                 18f,
                 108f,
@@ -255,8 +250,8 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         public static Rect CalculateWindowRect(float screenWidth, float screenHeight)
         {
             const float margin = 16f;
-            float width = Mathf.Max(0f, Mathf.Min(900f, screenWidth - margin * 2f));
-            float height = Mathf.Max(0f, Mathf.Min(540f, screenHeight - margin * 2f));
+            float width = Mathf.Max(0f, Mathf.Min(1080f, screenWidth - margin * 2f));
+            float height = Mathf.Max(0f, Mathf.Min(620f, screenHeight - margin * 2f));
             return new Rect(
                 (screenWidth - width) * 0.5f,
                 (screenHeight - height) * 0.5f,
@@ -288,7 +283,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
         private void DrawWeaponPreview(Rect area)
         {
-            DrawPanelBackground(area, new Color(0.055f, 0.065f, 0.071f, 0.99f));
+            DrawInventorySection(area);
             GUI.Label(
                 new Rect(area.x + 16f, area.y + 14f, area.width - 32f, 26f),
                 gridRuntime.ActiveGrid.DisplayName,
@@ -327,9 +322,14 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         private void DrawWeaponTabs(Rect area)
         {
             WeaponGridLoadoutState loadout = gridRuntime.Loadout;
-            float tabWidth = (area.width - 8f) * 0.5f;
+            const float gap = 2f;
+            float tabWidth = (area.width - gap) * 0.5f;
+            var primaryRect = new Rect(area.x, area.y, tabWidth, area.height);
+            DrawInventoryButtonSurface(
+                primaryRect,
+                gridRuntime.ActiveWeaponIndex == 0);
             if (GUI.Button(
-                new Rect(area.x, area.y, tabWidth, area.height),
+                primaryRect,
                 loadout.Primary.DisplayName,
                 gridRuntime.ActiveWeaponIndex == 0
                     ? selectedTabStyle
@@ -337,11 +337,18 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             {
                 gridRuntime.SelectWeapon(0);
                 previewRenderer?.SelectWeapon(0);
-                seedText = loadout.Primary.Seed.ToString();
             }
 
+            var secondaryRect = new Rect(
+                area.x + tabWidth + gap,
+                area.y,
+                tabWidth,
+                area.height);
+            DrawInventoryButtonSurface(
+                secondaryRect,
+                gridRuntime.ActiveWeaponIndex == 1);
             if (GUI.Button(
-                new Rect(area.x + tabWidth + 8f, area.y, tabWidth, area.height),
+                secondaryRect,
                 loadout.Secondary.DisplayName,
                 gridRuntime.ActiveWeaponIndex == 1
                     ? selectedTabStyle
@@ -349,33 +356,27 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             {
                 gridRuntime.SelectWeapon(1);
                 previewRenderer?.SelectWeapon(1);
-                seedText = loadout.Secondary.Seed.ToString();
             }
         }
 
         private void DrawGridPanel(Rect area)
         {
-            DrawPanelBackground(area, new Color(0.075f, 0.085f, 0.095f, 0.98f));
+            DrawInventorySection(area);
             GUI.Label(
                 new Rect(area.x + 18f, area.y + 14f, 280f, 26f),
                 gridRuntime.ActiveGrid.DisplayName,
                 headingStyle);
             GUI.Label(
-                new Rect(area.xMax - 260f, area.y + 16f, 242f, 22f),
-                $"CELLS  {gridRuntime.ActiveGrid.UnlockedCells.Count}   |   GROWTH  {gridRuntime.ActiveGrid.GrowthStep}",
+                new Rect(area.xMax - 180f, area.y + 16f, 162f, 22f),
+                $"{gridRuntime.ActiveGrid.UnlockedCells.Count} CELLS",
                 mutedStyle);
 
             var boardArea = new Rect(
                 area.x + 18f,
                 area.y + 52f,
                 area.width - 36f,
-                area.height - 106f);
+                area.height - 70f);
             DrawBoard(boardArea);
-
-            GUI.Label(
-                new Rect(area.x + 18f, area.yMax - 38f, area.width - 36f, 22f),
-                statusMessage,
-                mutedStyle);
         }
 
         private void DrawBoard(Rect area)
@@ -407,7 +408,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                     (area.height - 30f) / Mathf.Max(3, rows + 1)),
                 27f,
                 58f);
-            float gap = Mathf.Clamp(cellSize * 0.08f, 2f, 5f);
+            const float gap = 2f;
             float boardWidth = columns * cellSize;
             float boardHeight = rows * cellSize;
             float startX = area.center.x - boardWidth * 0.5f;
@@ -441,162 +442,66 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                     out definition);
             }
 
-            Color previousBackground = GUI.backgroundColor;
-            Color cellColor = definition != null
-                ? definition.DisplayColor
-                : coordinate == GridCoordinate.Root
-                    ? new Color(0.38f, 0.5f, 0.58f)
-                    : new Color(0.2f, 0.23f, 0.26f);
-            GUI.backgroundColor = cellColor;
+            DrawInventoryCellSurface(rect);
             string label = definition != null
                 ? GetInitials(definition.DisplayName)
-                : coordinate == GridCoordinate.Root ? "ROOT" : string.Empty;
-
-            Event currentEvent = Event.current;
-            bool shiftClick = currentEvent.shift;
-            bool rightClick =
-                currentEvent.type == EventType.MouseDown &&
-                currentEvent.button == 1 &&
-                rect.Contains(currentEvent.mousePosition);
-            bool leftClick = GUI.Button(rect, label, centeredStyle);
-            GUI.backgroundColor = previousBackground;
-
-            if (rightClick)
+                : string.Empty;
+            if (definition != null)
             {
-                RemoveAt(coordinate);
-                currentEvent.Use();
+                Color previous = GUI.color;
+                GUI.color = new Color(
+                    definition.DisplayColor.r,
+                    definition.DisplayColor.g,
+                    definition.DisplayColor.b,
+                    0.78f);
+                GUI.DrawTexture(Inset(rect, 4f), whiteTexture);
+                GUI.color = previous;
             }
-            else if (leftClick)
-            {
-                if (shiftClick && placement != null)
-                {
-                    RotatePlacedAt(coordinate);
-                }
-                else if (activeTool == GridTool.Remove)
-                {
-                    RemoveAt(coordinate);
-                }
-                else
-                {
-                    PlaceAt(coordinate);
-                }
-            }
+
+            GUI.Label(rect, label, centeredStyle);
         }
 
         private void DrawSidebar(Rect area)
         {
-            DrawPanelBackground(area, new Color(0.09f, 0.1f, 0.115f, 0.99f));
+            DrawInventorySection(area);
             float x = area.x + 16f;
             float width = area.width - 32f;
             float y = area.y + 14f;
-
-            GUI.Label(new Rect(x, y, width, 24f), "GRID GROWTH", headingStyle);
-            y += 31f;
-            GUI.Label(new Rect(x, y + 3f, 40f, 22f), "Seed", mutedStyle);
-            seedText = GUI.TextField(
-                new Rect(x + 42f, y, 92f, 26f),
-                seedText,
-                11);
-            if (GUI.Button(new Rect(x + 142f, y, 70f, 26f), "+ CELL"))
-            {
-                GridCoordinate added = gridRuntime.GrowActive();
-                statusMessage = $"Unlocked {added}.";
-            }
-
-            if (GUI.Button(new Rect(x + 218f, y, width - 218f, 26f), "+ 5"))
-            {
-                gridRuntime.GrowWeapon(gridRuntime.ActiveWeaponIndex, 5);
-                statusMessage = "Unlocked five deterministic frontier cells.";
-            }
-
-            y += 34f;
-            if (GUI.Button(new Rect(x, y, width, 27f), "RESET GRID FROM SEED"))
-            {
-                int seed = ParseSeed();
-                gridRuntime.ResetActive(seed);
-                statusMessage = $"Grid reset to root with seed {seed}.";
-            }
-
-            y += 43f;
-            GUI.Label(new Rect(x, y, width, 24f), "ARTIFACT PALETTE", headingStyle);
-            y += 30f;
-            IReadOnlyList<ArtifactDefinitionData> definitions =
-                gridRuntime.Definitions;
-            for (int index = 0; index < definitions.Count; index++)
-            {
-                ArtifactDefinitionData definition = definitions[index];
-                bool selected =
-                    activeTool == GridTool.Place &&
-                    string.Equals(
-                        selectedDefinitionId,
-                        definition.DefinitionId,
-                        StringComparison.Ordinal);
-                Color previousBackground = GUI.backgroundColor;
-                GUI.backgroundColor = selected
-                    ? definition.DisplayColor
-                    : Color.Lerp(definition.DisplayColor, Color.gray, 0.52f);
-                if (GUI.Button(
-                    new Rect(x, y, width, 30f),
-                    $"{definition.DisplayName}     {FormatModifiers(definition)}",
-                    selected ? selectedTabStyle : tabStyle))
-                {
-                    selectedDefinitionId = definition.DefinitionId;
-                    activeTool = GridTool.Place;
-                    statusMessage =
-                        $"{definition.DisplayName} selected. Click a cell to place.";
-                }
-
-                GUI.backgroundColor = previousBackground;
-                y += 34f;
-            }
-
-            y += 3f;
-            float half = (width - 6f) * 0.5f;
-            if (GUI.Button(
-                new Rect(x, y, half, 28f),
-                $"ROTATE  {selectedRotation * 90} DEG"))
-            {
-                RotateSelection();
-            }
-
-            Color priorBackground = GUI.backgroundColor;
-            if (activeTool == GridTool.Remove)
-            {
-                GUI.backgroundColor = new Color(0.75f, 0.28f, 0.22f);
-            }
-
-            if (GUI.Button(
-                new Rect(x + half + 6f, y, half, 28f),
-                "REMOVE TOOL"))
-            {
-                activeTool = GridTool.Remove;
-                statusMessage = "Remove tool active. Click an occupied cell.";
-            }
-
-            GUI.backgroundColor = priorBackground;
-            y += 43f;
-            DrawStats(new Rect(x, y, width, area.yMax - y - 12f));
+            DrawStats(new Rect(x, y, width, area.height - 28f));
         }
 
         private void DrawStats(Rect area)
         {
-            GUI.Label(new Rect(area.x, area.y, area.width, 24f), "RESOLVED MODIFIERS", headingStyle);
-            WeaponGridModifierSummary summary =
-                gridRuntime.GetModifierSummary();
-            float y = area.y + 29f;
-            DrawStatLine(area.x, ref y, area.width, "WEAPON 1", summary.Primary);
-            DrawStatLine(area.x, ref y, area.width, "WEAPON 2", summary.Secondary);
-            y += 4f;
-            GUI.Label(
-                new Rect(area.x, y, area.width, 20f),
-                "EFFECTIVE LOADOUT",
-                mutedStyle);
-            y += 20f;
-            WeaponGridModifiers effective = summary.Effective;
-            GUI.Label(
-                new Rect(area.x, y, area.width, 22f),
-                $"+{effective.Damage:0.##} active damage   +{effective.MaxHealth:0.##} health   +{effective.MoveSpeed:0.##} move",
-                bodyStyle);
+            ResolveWeapons();
+            GUI.Label(new Rect(area.x, area.y, area.width, 24f), "WEAPON STATS", headingStyle);
+            float y = area.y + 38f;
+            if (gridRuntime.ActiveWeaponIndex == 0)
+            {
+                if (meleeWeapon == null)
+                {
+                    DrawUnavailableStats(area.x, ref y, area.width);
+                    return;
+                }
+
+                DrawStatLine(area.x, ref y, area.width, "DAMAGE", $"{meleeWeapon.Damage:0.#}");
+                DrawStatLine(area.x, ref y, area.width, "ATTACK COOLDOWN", $"{meleeWeapon.Cooldown:0.00} s");
+                DrawStatLine(area.x, ref y, area.width, "BLADE REACH", $"{meleeWeapon.Reach:0.00} m");
+                DrawStatLine(area.x, ref y, area.width, "HIT RADIUS", $"{meleeWeapon.Radius:0.00} m");
+                return;
+            }
+
+            if (bowWeapon == null)
+            {
+                DrawUnavailableStats(area.x, ref y, area.width);
+                return;
+            }
+
+            float minimumDamage = bowWeapon.MinimumDamage + bowWeapon.RuntimeDamageBonus;
+            float maximumDamage = bowWeapon.MaximumDamage + bowWeapon.RuntimeDamageBonus;
+            DrawStatLine(area.x, ref y, area.width, "DAMAGE", $"{minimumDamage:0.#} - {maximumDamage:0.#}");
+            DrawStatLine(area.x, ref y, area.width, "MAX ARROW SPEED", $"{bowWeapon.MaximumArrowSpeed:0.#} m/s");
+            DrawStatLine(area.x, ref y, area.width, "FULL DRAW", $"{bowWeapon.FullDrawDuration:0.00} s");
+            DrawStatLine(area.x, ref y, area.width, "SHOT RECOVERY", $"{bowWeapon.EffectiveReloadDuration:0.00} s");
         }
 
         private void DrawStatLine(
@@ -604,90 +509,28 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             ref float y,
             float width,
             string label,
-            WeaponGridModifiers modifiers)
+            string value)
         {
+            DrawInventoryCellSurface(new Rect(x, y, width, 38f));
             GUI.Label(
-                new Rect(x, y, width, 20f),
-                $"{label}     DMG +{modifiers.Damage:0.##}   HP +{modifiers.MaxHealth:0.##}   SPD +{modifiers.MoveSpeed:0.##}",
-                bodyStyle);
-            y += 22f;
+                new Rect(x + 10f, y, width * 0.62f, 38f),
+                label,
+                mutedStyle);
+            GUI.Label(
+                new Rect(x + width * 0.48f, y, width * 0.52f - 10f, 38f),
+                value,
+                centeredStyle);
+            y += 42f;
         }
 
-        private void PlaceAt(GridCoordinate coordinate)
+        private void DrawUnavailableStats(float x, ref float y, float width)
         {
-            if (activeTool != GridTool.Place ||
-                string.IsNullOrEmpty(selectedDefinitionId))
-            {
-                statusMessage = "Choose an artifact from the palette first.";
-                return;
-            }
-
-            if (gridRuntime.TryPlaceActive(
-                selectedDefinitionId,
-                coordinate,
-                selectedRotation,
-                out string reason))
-            {
-                gridRuntime.TryGetDefinition(
-                    selectedDefinitionId,
-                    out ArtifactDefinitionData definition);
-                statusMessage =
-                    $"{definition?.DisplayName ?? "Artifact"} placed at {coordinate}.";
-            }
-            else
-            {
-                statusMessage = reason;
-            }
-        }
-
-        private void RemoveAt(GridCoordinate coordinate)
-        {
-            if (gridRuntime.TryRemoveActiveAt(
-                coordinate,
-                out ArtifactInstance removed))
-            {
-                string shortId = removed.InstanceId.Substring(
-                    0,
-                    Mathf.Min(6, removed.InstanceId.Length));
-                statusMessage = $"Removed artifact {shortId}.";
-            }
-            else
-            {
-                statusMessage = $"No artifact occupies {coordinate}.";
-            }
-        }
-
-        private void RotatePlacedAt(GridCoordinate coordinate)
-        {
-            if (gridRuntime.TryRotateActiveAt(
-                coordinate,
-                1,
-                out string reason))
-            {
-                statusMessage = $"Rotated artifact at {coordinate}.";
-            }
-            else
-            {
-                statusMessage = reason;
-            }
-        }
-
-        private void RotateSelection()
-        {
-            selectedRotation = (selectedRotation + 1) % 4;
-            statusMessage = $"Artifact rotation: {selectedRotation * 90} degrees.";
-        }
-
-        private int ParseSeed()
-        {
-            if (int.TryParse(seedText, out int parsed))
-            {
-                return parsed;
-            }
-
-            int fallback = gridRuntime.ActiveGrid.Seed;
-            seedText = fallback.ToString();
-            return fallback;
+            DrawInventoryCellSurface(new Rect(x, y, width, 38f));
+            GUI.Label(
+                new Rect(x + 10f, y, width - 20f, 38f),
+                "Weapon is not present in this scene",
+                mutedStyle);
+            y += 42f;
         }
 
         private void EnsureRuntime()
@@ -718,10 +561,6 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 }
             }
 
-            if (string.IsNullOrEmpty(seedText))
-            {
-                seedText = gridRuntime.ActiveGrid.Seed.ToString();
-            }
         }
 
         private void CapturePresentationState()
@@ -798,6 +637,30 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             }
         }
 
+        private void ResolveWeapons()
+        {
+            if (meleeWeapon != null && bowWeapon != null)
+            {
+                return;
+            }
+
+            EnsureInputSource();
+            Transform character = inputSource != null
+                ? inputSource.transform
+                : null;
+            if (character == null)
+            {
+                return;
+            }
+
+            meleeWeapon ??=
+                character.GetComponent<MeleeWeapon>() ??
+                character.GetComponentInParent<MeleeWeapon>();
+            bowWeapon ??=
+                character.GetComponentInChildren<BowWeapon>(true) ??
+                character.GetComponentInParent<BowWeapon>();
+        }
+
         private void EnsurePreview()
         {
             EnsureInputSource();
@@ -860,9 +723,13 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 13,
                 fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
+                normal =
+                {
+                    background = null,
+                    textColor = Color.white
+                }
             };
-            tabStyle ??= new GUIStyle(GUI.skin.button)
+            tabStyle ??= new GUIStyle()
             {
                 font = GameTypography.UiFont,
                 alignment = TextAnchor.MiddleCenter,
@@ -874,37 +741,66 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = Color.white }
             };
+            inventoryCellStyle ??= new GUIStyle(GUI.skin.box)
+            {
+                normal = { background = Texture2D.grayTexture }
+            };
         }
 
-        private void DrawPanelBackground(Rect area)
-        {
-            DrawPanelBackground(area, new Color(0.055f, 0.062f, 0.07f, 0.99f));
-        }
-
-        private void DrawPanelBackground(Rect area, Color color)
+        private void DrawInventorySection(Rect area)
         {
             Color previous = GUI.color;
-            GUI.color = color;
+            GUI.color = new Color(0.24f, 0.25f, 0.27f, 0.98f);
             GUI.DrawTexture(area, whiteTexture);
+            DrawBorder(area, new Color(0.56f, 0.59f, 0.61f, 1f), 2f);
             GUI.color = previous;
         }
 
-        private static string FormatModifiers(ArtifactDefinitionData definition)
+        private void DrawInventoryCellSurface(
+            Rect area,
+            bool highlighted = false)
         {
-            var parts = new List<string>();
-            IReadOnlyList<ArtifactStatModifier> modifiers = definition.Modifiers;
-            for (int index = 0; index < modifiers.Count; index++)
+            GUI.Box(area, GUIContent.none, inventoryCellStyle);
+            if (highlighted)
             {
-                ArtifactStatModifier modifier = modifiers[index];
-                string stat = modifier.Stat == ArtifactStat.Damage
-                    ? "DMG"
-                    : modifier.Stat == ArtifactStat.MaxHealth
-                        ? "HP"
-                        : "SPD";
-                parts.Add($"+{modifier.Amount:0.##} {stat}");
+                DrawBorder(
+                    area,
+                    new Color(0.92f, 0.79f, 0.48f, 1f),
+                    2f);
             }
+        }
 
-            return string.Join("  ", parts);
+        private void DrawInventoryButtonSurface(Rect area, bool selected)
+        {
+            DrawInventoryCellSurface(area, selected);
+        }
+
+        private void DrawBorder(Rect area, Color color, float thickness)
+        {
+            Color previous = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(
+                new Rect(area.x, area.y, area.width, thickness),
+                whiteTexture);
+            GUI.DrawTexture(
+                new Rect(area.x, area.yMax - thickness, area.width, thickness),
+                whiteTexture);
+            GUI.DrawTexture(
+                new Rect(area.x, area.y, thickness, area.height),
+                whiteTexture);
+            GUI.DrawTexture(
+                new Rect(area.xMax - thickness, area.y, thickness, area.height),
+                whiteTexture);
+            GUI.color = previous;
+        }
+
+        private static Rect Inset(Rect area, float amount)
+        {
+            return new Rect(
+                area.x + amount,
+                area.y + amount,
+                Mathf.Max(0f, area.width - amount * 2f),
+                Mathf.Max(0f, area.height - amount * 2f));
         }
 
         private static string GetInitials(string value)

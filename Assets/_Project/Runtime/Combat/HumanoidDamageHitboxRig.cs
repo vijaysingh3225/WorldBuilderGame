@@ -269,14 +269,11 @@ namespace WorldBuilder.Gameplay.Combat
             collider.center = Vector3.zero;
             HumanoidDamageZone zone =
                 hitboxObject.AddComponent<HumanoidDamageZone>();
-            bool pelvis = name.Contains("Pelvis");
-            bool spansBothSides =
-                name.Contains("Shoulders");
             zone.Configure(
                 ResolveRegion(name),
-                pelvis ? null : start,
-                spansBothSides ? end : null,
-                spansBothSides);
+                start,
+                end,
+                true);
             capsules.Add(new TrackedCapsule
             {
                 Start = start,

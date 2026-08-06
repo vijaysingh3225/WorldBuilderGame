@@ -235,13 +235,16 @@ namespace WorldBuilder.Gameplay.Loop
     [Serializable]
     public sealed class PlayerProfile
     {
-        public const int CurrentSchemaVersion = 5;
+        public const int CurrentSchemaVersion = 6;
         public const int InventoryColumns = 4;
         public const int InventoryRows = 6;
         public const int InventoryCapacity = 24;
         public const int ChestColumns = 5;
         public const int ChestRows = 10;
         public const int ChestCapacity = 50;
+        public const int SecureColumns = 2;
+        public const int SecureRows = 2;
+        public const int SecureCapacity = 4;
         public const string DefaultChestId = "home-chest-1";
 
         [SerializeField] private int schemaVersion = CurrentSchemaVersion;
@@ -251,6 +254,8 @@ namespace WorldBuilder.Gameplay.Loop
         [SerializeField] private string lastSavedUtc;
         [SerializeField] private List<StorageEntry> storage = new List<StorageEntry>();
         [SerializeField] private List<string> inventoryEntryIds =
+            new List<string>();
+        [SerializeField] private List<string> secureEntryIds =
             new List<string>();
         [SerializeField] private List<ChestStorageAssignment>
             chestStorageAssignments =
@@ -266,6 +271,7 @@ namespace WorldBuilder.Gameplay.Loop
         public IReadOnlyList<StorageEntry> Storage => storage;
         public IReadOnlyList<string> InventoryEntryIds =>
             inventoryEntryIds;
+        public IReadOnlyList<string> SecureEntryIds => secureEntryIds;
         public IReadOnlyList<ChestStorageAssignment>
             ChestStorageAssignments =>
                 chestStorageAssignments;
@@ -358,6 +364,8 @@ namespace WorldBuilder.Gameplay.Loop
             storage.RemoveAt(index);
             inventoryEntryIds.RemoveAll(id =>
                 string.Equals(id, entryId, StringComparison.Ordinal));
+            secureEntryIds.RemoveAll(id =>
+                string.Equals(id, entryId, StringComparison.Ordinal));
             RemoveChestAssignment(entryId);
             return true;
         }
@@ -384,6 +392,81 @@ namespace WorldBuilder.Gameplay.Loop
                         id,
                         entryId,
                         StringComparison.Ordinal));
+        }
+
+        public bool IsInSecureContainer(string entryId)
+        {
+            return !string.IsNullOrWhiteSpace(entryId) &&
+                secureEntryIds.Exists(id =>
+                    string.Equals(
+                        id,
+                        entryId,
+                        StringComparison.Ordinal));
+        }
+
+        public bool TryMoveToSecureContainer(
+            string entryId,
+            int preferredSlot = -1)
+        {
+            StorageEntry entry = FindStorageEntry(entryId);
+            if (entry == null)
+            {
+                return false;
+            }
+            if (IsInSecureContainer(entryId))
+            {
+                return preferredSlot < 0 ||
+                    TryMoveSecureEntryToSlot(entryId, preferredSlot);
+            }
+            if (secureEntryIds.Count >= SecureCapacity)
+            {
+                return false;
+            }
+            int slot = ResolveAvailableSecureSlot(entry, preferredSlot);
+            if (slot < 0)
+            {
+                return false;
+            }
+            inventoryEntryIds.RemoveAll(id =>
+                string.Equals(id, entryId, StringComparison.Ordinal));
+            RemoveChestAssignment(entryId);
+            entry.SetSlotIndex(slot);
+            secureEntryIds.Add(entryId);
+            return true;
+        }
+
+        public StorageEntry GetSecureEntryAtSlot(int slotIndex)
+        {
+            if (slotIndex < 0 || slotIndex >= SecureCapacity)
+            {
+                return null;
+            }
+            return ItemGridPlacement.GetEntryAtSlot(
+                GetEntries(secureEntryIds),
+                slotIndex,
+                SecureColumns,
+                SecureRows);
+        }
+
+        public bool TryMoveSecureEntryToSlot(
+            string entryId,
+            int targetSlot)
+        {
+            StorageEntry entry = FindStorageEntry(entryId);
+            if (entry == null || !IsInSecureContainer(entryId) ||
+                targetSlot < 0 || targetSlot >= SecureCapacity ||
+                !ItemGridPlacement.CanPlace(
+                    GetEntries(secureEntryIds),
+                    entry,
+                    targetSlot,
+                    SecureColumns,
+                    SecureRows,
+                    entry.EntryId))
+            {
+                return false;
+            }
+            entry.SetSlotIndex(targetSlot);
+            return true;
         }
 
         public bool TryMoveToInventory(string entryId)
@@ -422,6 +505,8 @@ namespace WorldBuilder.Gameplay.Loop
                 return false;
             }
             RemoveChestAssignment(entryId);
+            secureEntryIds.RemoveAll(id =>
+                string.Equals(id, entryId, StringComparison.Ordinal));
             entry.SetSlotIndex(slot);
             inventoryEntryIds.Add(entryId);
             return true;
@@ -583,6 +668,14 @@ namespace WorldBuilder.Gameplay.Loop
             string entryId,
             string chestId)
         {
+            return MoveToChest(entryId, chestId, -1);
+        }
+
+        public bool MoveToChest(
+            string entryId,
+            string chestId,
+            int preferredSlot)
+        {
             if (string.IsNullOrWhiteSpace(entryId) ||
                 string.IsNullOrWhiteSpace(chestId) ||
                 FindStorageEntry(entryId) == null)
@@ -609,7 +702,11 @@ namespace WorldBuilder.Gameplay.Loop
                         id,
                         entryId,
                         StringComparison.Ordinal));
-                return true;
+                return preferredSlot < 0 ||
+                    TryMoveChestEntryToSlot(
+                        entryId,
+                        normalizedChestId,
+                        preferredSlot);
             }
 
             if (GetChestEntryIds(normalizedChestId).Count >=
@@ -622,12 +719,17 @@ namespace WorldBuilder.Gameplay.Loop
             int destinationSlot = ResolveAvailableChestSlot(
                 normalizedChestId,
                 entry,
-                -1);
+                preferredSlot);
             if (destinationSlot < 0)
             {
                 return false;
             }
             inventoryEntryIds.RemoveAll(id =>
+                string.Equals(
+                    id,
+                    entryId,
+                    StringComparison.Ordinal));
+            secureEntryIds.RemoveAll(id =>
                 string.Equals(
                     id,
                     entryId,
@@ -638,6 +740,47 @@ namespace WorldBuilder.Gameplay.Loop
                 ChestStorageAssignment.Create(
                     entryId,
                     normalizedChestId));
+            return true;
+        }
+
+        public bool TryMoveChestEntryToSlot(
+            string entryId,
+            string chestId,
+            int targetSlot)
+        {
+            StorageEntry entry = FindStorageEntry(entryId);
+            if (entry == null || string.IsNullOrWhiteSpace(chestId) ||
+                targetSlot < 0 || targetSlot >= ChestCapacity)
+            {
+                return false;
+            }
+            string normalizedChestId = chestId.Trim();
+            IReadOnlyList<string> chestIds = GetChestEntryIds(
+                normalizedChestId);
+            bool assigned = false;
+            for (int index = 0; index < chestIds.Count; index++)
+            {
+                if (string.Equals(
+                        chestIds[index],
+                        entryId,
+                        StringComparison.Ordinal))
+                {
+                    assigned = true;
+                    break;
+                }
+            }
+            if (!assigned ||
+                !ItemGridPlacement.CanPlace(
+                    GetEntries(chestIds),
+                    entry,
+                    targetSlot,
+                    ChestColumns,
+                    ChestRows,
+                    entry.EntryId))
+            {
+                return false;
+            }
+            entry.SetSlotIndex(targetSlot);
             return true;
         }
 
@@ -660,6 +803,27 @@ namespace WorldBuilder.Gameplay.Loop
                 entry,
                 InventoryColumns,
                 InventoryRows);
+        }
+
+        private int ResolveAvailableSecureSlot(
+            StorageEntry entry,
+            int preferredSlot)
+        {
+            if (preferredSlot >= 0 &&
+                ItemGridPlacement.CanPlace(
+                    GetEntries(secureEntryIds),
+                    entry,
+                    preferredSlot,
+                    SecureColumns,
+                    SecureRows))
+            {
+                return preferredSlot;
+            }
+            return ItemGridPlacement.FindFirstAvailableSlot(
+                GetEntries(secureEntryIds),
+                entry,
+                SecureColumns,
+                SecureRows);
         }
 
         private int ResolveAvailableChestSlot(
@@ -748,6 +912,7 @@ namespace WorldBuilder.Gameplay.Loop
                 storage = new List<StorageEntry>(storage.Count),
                 inventoryEntryIds =
                     new List<string>(inventoryEntryIds),
+                secureEntryIds = new List<string>(secureEntryIds),
                 chestStorageAssignments =
                     new List<ChestStorageAssignment>(
                         chestStorageAssignments.Count),
@@ -794,12 +959,34 @@ namespace WorldBuilder.Gameplay.Loop
             }
 
             inventoryEntryIds ??= new List<string>();
+            secureEntryIds ??= new List<string>();
             var validEntryIds = new HashSet<string>(
                 StringComparer.Ordinal);
             for (int index = 0; index < storage.Count; index++)
             {
                 validEntryIds.Add(storage[index].EntryId);
             }
+
+            var normalizedSecureIds = new List<string>(
+                Mathf.Min(SecureCapacity, secureEntryIds.Count));
+            for (int index = 0;
+                 index < secureEntryIds.Count &&
+                 normalizedSecureIds.Count < SecureCapacity;
+                 index++)
+            {
+                string entryId = secureEntryIds[index];
+                if (!string.IsNullOrWhiteSpace(entryId) &&
+                    validEntryIds.Contains(entryId) &&
+                    !normalizedSecureIds.Contains(entryId))
+                {
+                    normalizedSecureIds.Add(entryId);
+                }
+            }
+            secureEntryIds = normalizedSecureIds;
+            NormalizeSlots(
+                secureEntryIds,
+                SecureColumns,
+                SecureRows);
 
             var normalizedInventoryIds = new List<string>(
                 Mathf.Min(
@@ -813,6 +1000,7 @@ namespace WorldBuilder.Gameplay.Loop
                 string entryId = inventoryEntryIds[index];
                 if (!string.IsNullOrWhiteSpace(entryId) &&
                     validEntryIds.Contains(entryId) &&
+                    !secureEntryIds.Contains(entryId) &&
                     !normalizedInventoryIds.Contains(entryId))
                 {
                     normalizedInventoryIds.Add(entryId);
@@ -846,6 +1034,8 @@ namespace WorldBuilder.Gameplay.Loop
                         assignment.ChestId) ||
                     !validEntryIds.Contains(
                         assignment.EntryId) ||
+                    secureEntryIds.Contains(
+                        assignment.EntryId) ||
                     inventoryEntryIds.Contains(
                         assignment.EntryId) ||
                     !assignedEntryIds.Add(
@@ -878,6 +1068,7 @@ namespace WorldBuilder.Gameplay.Loop
             {
                 string entryId = storage[index].EntryId;
                 if (inventoryEntryIds.Contains(entryId) ||
+                    secureEntryIds.Contains(entryId) ||
                     assignedEntryIds.Contains(entryId))
                 {
                     continue;
@@ -979,6 +1170,10 @@ namespace WorldBuilder.Gameplay.Loop
             inventoryEntryIds ??= new List<string>();
             inventoryEntryIds.Clear();
             inventoryEntryIds.AddRange(snapshot.inventoryEntryIds);
+
+            secureEntryIds ??= new List<string>();
+            secureEntryIds.Clear();
+            secureEntryIds.AddRange(snapshot.secureEntryIds);
 
             chestStorageAssignments ??=
                 new List<ChestStorageAssignment>();

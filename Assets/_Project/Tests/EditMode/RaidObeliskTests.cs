@@ -9,6 +9,29 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class RaidObeliskTests
     {
         [Test]
+        public void LegacyCircularPedestalIsHidden()
+        {
+            GameObject root = new GameObject("Pedestal-Free Obelisk");
+            try
+            {
+                root.AddComponent<BoxCollider>();
+                GameObject pedestal = GameObject.CreatePrimitive(
+                    PrimitiveType.Cylinder);
+                pedestal.name = "Buried Stone Base";
+                pedestal.transform.SetParent(root.transform, false);
+
+                root.AddComponent<RaidObelisk>();
+                RaidObelisk.DisableLegacyPedestal(root.transform);
+
+                Assert.That(pedestal.activeSelf, Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void FourActivationsGlowAndRaiseTheFutureObjectiveHook()
         {
             GameObject controllerObject =

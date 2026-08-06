@@ -79,6 +79,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private GameObject campChestPrefab;
         [SerializeField] private GameObject campBenchPrefab;
         [SerializeField] private GameObject campBarrelPrefab;
+        [SerializeField] private GameObject campWoodenBoxPrefab;
         [SerializeField] private GameObject campOuterSpikePrefabA;
         [SerializeField] private GameObject campOuterSpikePrefabB;
         [SerializeField] private GameObject campInnerBarricadePrefabA;
@@ -160,6 +161,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float GuardPatrolHalfLength = 12f;
         private const int GuardPlacementAttempts = 128;
         private const int GrassPlacementsPerBatch = 768;
+        public const float GrassCoverageMultiplier = 2f;
         private const float EnvironmentChunkSize = 20f;
         // Local placement and surface rules only care about splines inside
         // this radius. Queries outside it intentionally return infinity;
@@ -186,6 +188,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float CookingSpitOverFireChance = 0.35f;
         private const float CookingSpitNearFireDistance = 1.65f;
         private const float LevelOneFirewoodEdgeInset = 1.8f;
+        public const float LevelOneWoodenBoxChance = 0.5f;
+        private const float CampWoodenBoxTargetSize = 1.45f;
         public const float ObeliskTreeClearance = 6f;
         private const float ObeliskBoulderClearance = 2.6f;
         private const float ObeliskRiverClearance = 5f;
@@ -221,6 +225,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public int TentCount;
             public bool IsLevelTwo;
             public bool[] BowGuards;
+            public int WoodenBoxCount;
         }
 
         private struct HabitatSample
@@ -770,6 +775,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private int generatedCampTentCount;
         private int generatedCampBowGuardCount;
         private int generatedCampSwordGuardCount;
+        private int generatedCampWoodenBoxCount;
         private int generatedBridgeCount;
         private int generatedRendererCount;
         private int generatedColliderCount;
@@ -875,6 +881,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             generatedCampBowGuardCount;
         public int GeneratedCampSwordGuardCount =>
             generatedCampSwordGuardCount;
+        public int GeneratedCampWoodenBoxCount =>
+            generatedCampWoodenBoxCount;
         public int GeneratedLevelTwoCampCount
         {
             get
@@ -920,6 +928,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             return campIndex >= 0 && campIndex < campSites.Count
                 ? campSites[campIndex].TentCount
+                : 0;
+        }
+        public int CampWoodenBoxCount(int campIndex)
+        {
+            return campIndex >= 0 && campIndex < campSites.Count
+                ? campSites[campIndex].WoodenBoxCount
                 : 0;
         }
         public bool IsInsideEnemyRiverExclusion(
@@ -1122,6 +1136,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     worldPoint.z));
         }
 
+        public float SampleTerrainHeight(float x, float z)
+        {
+            return TerrainHeight(x, z);
+        }
+
         public void Configure(
             Transform playerRoot,
             EnemyBrain[] raidEnemies,
@@ -1199,6 +1218,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GameObject chest,
             GameObject bench,
             GameObject barrel,
+            GameObject woodenBox,
             GameObject outerSpikeA,
             GameObject outerSpikeB,
             GameObject innerBarricadeA,
@@ -1219,6 +1239,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             campChestPrefab = chest;
             campBenchPrefab = bench;
             campBarrelPrefab = barrel;
+            campWoodenBoxPrefab = woodenBox;
             campOuterSpikePrefabA = outerSpikeA;
             campOuterSpikePrefabB = outerSpikeB;
             campInnerBarricadePrefabA = innerBarricadeA;
@@ -3878,6 +3899,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             generatedCampCount = 0;
             generatedCampTentCount = 0;
+            generatedCampWoodenBoxCount = 0;
             Transform root =
                 new GameObject("Forest Camps").transform;
             root.SetParent(generatedRoot, false);
@@ -4041,6 +4063,36 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         "Camp Chest",
                         $"Camp Chest {campIndex + 1}",
                         random);
+                    if (campWoodenBoxPrefab != null &&
+                        random.NextDouble() <
+                            LevelOneWoodenBoxChance)
+                    {
+                        Vector2 boxPoint =
+                            FindLevelOneWoodenBoxPoint(
+                                site,
+                                tentPoints,
+                                chestPoint,
+                                firewoodPoint,
+                                random);
+                        GameObject box = CreateNamedCampProp(
+                            campWoodenBoxPrefab,
+                            camp,
+                            boxPoint,
+                            CampWoodenBoxTargetSize,
+                            campItemMaterial,
+                            site.Rotation +
+                                Mathf.Lerp(
+                                    -35f,
+                                    35f,
+                                    (float)random.NextDouble()),
+                            "Wooden Box 1",
+                            random);
+                        if (box != null)
+                        {
+                            site.WoodenBoxCount = 1;
+                            generatedCampWoodenBoxCount++;
+                        }
+                    }
                 }
                 generatedCampCount++;
             }
@@ -4082,22 +4134,53 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 "Cooking Pot 2",
                 random);
 
-            for (int chestIndex = 0; chestIndex < 2; chestIndex++)
-            {
-                float sign = chestIndex == 0 ? -1f : 1f;
-                Vector2 chestDirection = DirectionFromAngle(
-                    site.Rotation + sign * 52f);
-                Vector2 chestPoint = site.Center +
-                    chestDirection * 12.85f;
-                CreateLootableCampChest(
+            float boxClusterSign =
+                random.NextDouble() < 0.5d ? -1f : 1f;
+            Vector2 boxClusterDirection = DirectionFromAngle(
+                site.Rotation + boxClusterSign * 52f);
+            Vector2 boxClusterCenter = site.Center +
+                boxClusterDirection * 13.35f;
+            List<GameObject> woodenBoxes =
+                CreateLevelTwoWoodenBoxCluster(
                     camp,
-                    chestPoint,
-                    YawFacingDirection(site.Center - chestPoint) + 90f,
-                    $"Camp Chest {chestIndex + 1}",
-                    $"Level Two Camp {campIndex + 1} Chest " +
-                        $"{chestIndex + 1}",
+                    site,
+                    boxClusterCenter,
+                    boxClusterDirection,
                     random);
+
+            bool chestOnBox =
+                woodenBoxes.Count >= 3 &&
+                random.NextDouble() < 0.5d;
+            Vector2 clusterChestPoint = chestOnBox
+                ? ToXZ(woodenBoxes[2].transform.position)
+                : boxClusterCenter + boxClusterDirection * 1.65f;
+            GameObject clusteredChest = CreateLootableCampChest(
+                camp,
+                clusterChestPoint,
+                YawFacingDirection(
+                    site.Center - clusterChestPoint) + 90f,
+                "Camp Chest 1 - Box Supplies",
+                $"Level Two Camp {campIndex + 1} Chest 1",
+                random);
+            if (chestOnBox && clusteredChest != null)
+            {
+                PlacePropOnTop(
+                    clusteredChest,
+                    woodenBoxes[2]);
             }
+
+            Vector2 normalChestDirection = DirectionFromAngle(
+                site.Rotation - boxClusterSign * 52f);
+            Vector2 normalChestPoint = site.Center +
+                normalChestDirection * 12.85f;
+            CreateLootableCampChest(
+                camp,
+                normalChestPoint,
+                YawFacingDirection(
+                    site.Center - normalChestPoint) + 90f,
+                "Camp Chest 2",
+                $"Level Two Camp {campIndex + 1} Chest 2",
+                random);
 
             for (int barrelIndex = 0; barrelIndex < 2; barrelIndex++)
             {
@@ -4138,6 +4221,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 CreateCampSwordDisplay(
                     camp,
                     barricade,
+                    site.Center,
                     YawFacingDirection(direction) +
                         (index == 0 ? 72f : 108f),
                     $"Rack Sword {index + 1}");
@@ -4161,6 +4245,130 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     $"Outer Log Defense {index + 1}",
                     random);
             }
+        }
+
+        private List<GameObject> CreateLevelTwoWoodenBoxCluster(
+            Transform camp,
+            CampSite site,
+            Vector2 center,
+            Vector2 outward,
+            System.Random random)
+        {
+            int targetCount = random.Next(2, 5);
+            var boxes = new List<GameObject>(targetCount);
+            Vector2 across = new Vector2(-outward.y, outward.x);
+            if (random.NextDouble() < 0.5d)
+            {
+                across = -across;
+            }
+
+            Vector2[] groundOffsets =
+            {
+                Vector2.zero,
+                Vector2.zero,
+                across * 1.12f + outward * 0.10f,
+                -across * 0.62f - outward * 0.92f
+            };
+            for (int index = 0; index < targetCount; index++)
+            {
+                Vector2 point = center + groundOffsets[index];
+                GameObject box = CreateNamedCampProp(
+                    campWoodenBoxPrefab,
+                    camp,
+                    point,
+                    CampWoodenBoxTargetSize,
+                    campItemMaterial,
+                    site.Rotation +
+                        Mathf.Lerp(
+                            -24f,
+                            24f,
+                            (float)random.NextDouble()),
+                    $"Wooden Box {index + 1}",
+                    random);
+                if (box == null)
+                {
+                    continue;
+                }
+
+                if (index == 1 && boxes.Count > 0)
+                {
+                    box.transform.position +=
+                        new Vector3(
+                            across.x * 0.08f,
+                            0f,
+                            across.y * 0.08f);
+                    PlacePropOnTop(box, boxes[0]);
+                }
+                boxes.Add(box);
+            }
+
+            site.WoodenBoxCount = boxes.Count;
+            generatedCampWoodenBoxCount += boxes.Count;
+            return boxes;
+        }
+
+        private static void PlacePropOnTop(
+            GameObject prop,
+            GameObject support)
+        {
+            if (prop == null || support == null ||
+                !TryGetRendererBounds(
+                    prop.GetComponentsInChildren<Renderer>(true),
+                    out Bounds propBounds) ||
+                !TryGetRendererBounds(
+                    support.GetComponentsInChildren<Renderer>(true),
+                    out Bounds supportBounds))
+            {
+                return;
+            }
+
+            prop.transform.position += Vector3.up *
+                (supportBounds.max.y - propBounds.min.y + 0.015f);
+        }
+
+        private static Vector2 FindLevelOneWoodenBoxPoint(
+            CampSite site,
+            IReadOnlyList<Vector2> tentPoints,
+            Vector2 chestPoint,
+            Vector2 firewoodPoint,
+            System.Random random)
+        {
+            for (int attempt = 0; attempt < 16; attempt++)
+            {
+                float angle = site.Rotation +
+                    (float)random.NextDouble() * 360f;
+                Vector2 candidate = site.Center +
+                    DirectionFromAngle(angle) *
+                    Mathf.Lerp(
+                        site.ClearingRadius * 0.66f,
+                        site.ClearingRadius * 0.82f,
+                        (float)random.NextDouble());
+                if (Vector2.Distance(candidate, chestPoint) < 2.15f ||
+                    Vector2.Distance(candidate, firewoodPoint) < 1.9f)
+                {
+                    continue;
+                }
+
+                bool clear = true;
+                for (int index = 0; index < tentPoints.Count; index++)
+                {
+                    if (Vector2.Distance(
+                            candidate,
+                            tentPoints[index]) < 2.55f)
+                    {
+                        clear = false;
+                        break;
+                    }
+                }
+                if (clear)
+                {
+                    return candidate;
+                }
+            }
+
+            return site.Center -
+                DirectionFromAngle(site.Rotation) *
+                (site.ClearingRadius * 0.76f);
         }
 
         private GameObject CreateLootableCampChest(
@@ -4195,6 +4403,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void CreateCampSwordDisplay(
             Transform camp,
             GameObject support,
+            Vector2 campCenter,
             float yaw,
             string objectName)
         {
@@ -4214,16 +4423,45 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             Transform sword = new GameObject(objectName).transform;
             sword.SetParent(camp, false);
-            sword.position = new Vector3(
+            const float swordScale = 1.18f;
+            float bladeTipLocalHeight =
+                0.215f + campSwordBladeMesh.bounds.max.y;
+            float swordLength = bladeTipLocalHeight * swordScale;
+            Vector2 supportPoint = new Vector2(
                 supportBounds.center.x,
-                Mathf.Lerp(
-                    supportBounds.min.y,
-                    supportBounds.max.y,
-                    0.64f) + 0.035f,
                 supportBounds.center.z);
-            sword.rotation = Quaternion.AngleAxis(yaw, Vector3.up) *
-                Quaternion.Euler(90f, 0f, 0f);
-            sword.localScale = Vector3.one * 1.18f;
+            Vector2 awayFromCamp = supportPoint - campCenter;
+            if (awayFromCamp.sqrMagnitude < 0.0001f)
+            {
+                awayFromCamp = DirectionFromAngle(yaw);
+            }
+            awayFromCamp.Normalize();
+
+            float horizontalLean = swordLength * 0.56f;
+            Vector2 tipPoint = supportPoint +
+                awayFromCamp * horizontalLean;
+            float tipHeight = TerrainHeight(tipPoint.x, tipPoint.y) +
+                0.025f;
+            float verticalLean = Mathf.Sqrt(Mathf.Max(
+                0.01f,
+                swordLength * swordLength -
+                    horizontalLean * horizontalLean));
+            Vector3 hiltPoint = new Vector3(
+                supportPoint.x,
+                tipHeight + verticalLean,
+                supportPoint.y);
+            Vector3 bladeDirection = new Vector3(
+                tipPoint.x,
+                tipHeight,
+                tipPoint.y) - hiltPoint;
+
+            sword.position = hiltPoint;
+            sword.rotation =
+                Quaternion.FromToRotation(
+                    Vector3.up,
+                    bladeDirection.normalized) *
+                Quaternion.AngleAxis(yaw, Vector3.up);
+            sword.localScale = Vector3.one * swordScale;
 
             CreateCampSwordPrimitive(
                 "Leather Grip",
@@ -4389,6 +4627,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 material,
                 yaw,
                 random,
+                true,
                 true);
             if (prop != null)
             {
@@ -4888,7 +5127,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Mathf.Sqrt(
                     Mathf.PI * usableRadius *
                     usableRadius /
-                    (grassCount * 2.40f));
+                    (grassCount * 2.40f *
+                        GrassCoverageMultiplier));
             int cellsAcross =
                 Mathf.CeilToInt(
                     usableRadius * 2f /
@@ -7306,30 +7546,35 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 terrainHeight - 0.015f;
             if (conformToSlope)
             {
-                float footprintRadiusX =
-                    Mathf.Max(
-                        0.06f,
-                        scaledBounds.extents.x * 0.72f);
-                float footprintRadiusZ =
-                    Mathf.Max(
-                        0.06f,
-                        scaledBounds.extents.z * 0.72f);
                 float settlingDepth =
                     Mathf.Min(
-                        0.12f,
-                        scaledBounds.size.y * 0.045f);
-                groundedBaseHeight =
-                    MinimumTerrainHeightUnderFootprint(
-                        point,
-                        footprintRadiusX,
-                        footprintRadiusZ,
-                        12) -
-                    settlingDepth;
+                        0.055f,
+                        scaledBounds.size.y * 0.025f);
+                Vector3 terrainNormal = TerrainNormalAt(
+                    point.x,
+                    point.y);
+                terrainNormal = Vector3.RotateTowards(
+                    Vector3.up,
+                    terrainNormal,
+                    Mathf.Deg2Rad * 22f,
+                    0f).normalized;
+                AlignVisibleBaseToSurfacePlane(
+                    instance.transform,
+                    renderers,
+                    new Vector3(
+                        point.x,
+                        terrainHeight,
+                        point.y),
+                    terrainNormal,
+                    settlingDepth);
             }
-            instance.transform.position +=
-                Vector3.up *
-                (groundedBaseHeight -
-                 scaledBounds.min.y);
+            else
+            {
+                instance.transform.position +=
+                    Vector3.up *
+                    (groundedBaseHeight -
+                     scaledBounds.min.y);
+            }
 
             if (addCollider)
             {
@@ -7337,6 +7582,59 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     renderers);
             }
             return instance;
+        }
+
+        private static void AlignVisibleBaseToSurfacePlane(
+            Transform instance,
+            Renderer[] renderers,
+            Vector3 planePoint,
+            Vector3 planeNormal,
+            float settlingDepth)
+        {
+            float minimumDistance = float.PositiveInfinity;
+            for (int rendererIndex = 0;
+                 rendererIndex < renderers.Length;
+                 rendererIndex++)
+            {
+                Renderer renderer = renderers[rendererIndex];
+                MeshFilter filter = renderer != null
+                    ? renderer.GetComponent<MeshFilter>()
+                    : null;
+                if (filter == null || filter.sharedMesh == null)
+                {
+                    continue;
+                }
+
+                Bounds bounds = filter.sharedMesh.bounds;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 localCorner = new Vector3(
+                        (corner & 1) == 0
+                            ? bounds.min.x
+                            : bounds.max.x,
+                        (corner & 2) == 0
+                            ? bounds.min.y
+                            : bounds.max.y,
+                        (corner & 4) == 0
+                            ? bounds.min.z
+                            : bounds.max.z);
+                    Vector3 worldCorner =
+                        filter.transform.TransformPoint(localCorner);
+                    minimumDistance = Mathf.Min(
+                        minimumDistance,
+                        Vector3.Dot(
+                            worldCorner - planePoint,
+                            planeNormal));
+                }
+            }
+
+            if (minimumDistance == float.PositiveInfinity)
+            {
+                return;
+            }
+
+            instance.position += planeNormal *
+                (-minimumDistance - settlingDepth);
         }
 
         private void AddExactTreeWoodColliders(

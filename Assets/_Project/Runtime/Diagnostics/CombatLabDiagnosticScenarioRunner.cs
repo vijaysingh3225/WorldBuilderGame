@@ -137,7 +137,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             if (!bowWeapon.AudioConfigured)
             {
                 throw new InvalidOperationException(
-                    "The Combat Lab bow is missing its trimmed pullback or impact audio.");
+                    "The Combat Lab bow is missing its trimmed pullback, release, or impact audio.");
             }
             if (bowWeapon.PullbackVolume > 0.40f ||
                 bowWeapon.FullDrawDuration < 1.05f ||
@@ -574,7 +574,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     arrowsBeforeGrace = bowWeapon.FiredArrowCount,
                 Intent = frame => Intent(
                     Vector2.zero,
-                    blockHeld: frame < 6),
+                    attackHeld: frame < 6),
                 OnEnd = () =>
                 {
                     if (bowWeapon.FiredArrowCount != arrowsBeforeGrace)
@@ -590,7 +590,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 "combat",
                 "bow-partial-draw",
                 32,
-                Intent(Vector2.zero, blockHeld: true),
+                Intent(Vector2.zero, attackHeld: true),
                 screenshot: true,
                 onEnd: () =>
                 {
@@ -647,7 +647,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 "combat",
                 "bow-full-draw",
                 66,
-                Intent(Vector2.zero, blockHeld: true),
+                Intent(Vector2.zero, attackHeld: true),
                 screenshot: true,
                 onEnd: () =>
                 {
@@ -704,7 +704,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 },
                 Intent = _ => Intent(
                     Vector2.zero,
-                    blockHeld: true),
+                    attackHeld: true),
                 BeforeFrame = _ =>
                 {
                     maximumInspectionFacingDrift = Mathf.Max(
@@ -766,7 +766,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 FrameCount = 30,
                 Intent = _ => Intent(
                     Vector2.zero,
-                    blockHeld: true),
+                    attackHeld: true),
                 OnEnd = () =>
                 {
                     Camera activeCamera = Camera.main;
@@ -832,7 +832,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 },
                 Intent = frame => Intent(
                     Vector2.zero,
-                    blockHeld: true,
+                    attackHeld: true,
                     look: new Vector2(
                         frame < 60 ? 1.5f : -1.5f,
                         0f)),
@@ -895,7 +895,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 },
                 Intent = frame => Intent(
                     Vector2.zero,
-                    blockHeld: true,
+                    attackHeld: true,
                     look: new Vector2(
                         0f,
                         frame < 30
@@ -996,7 +996,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 Intent = _ => Intent(
                     Vector2.left,
                     sprint: true,
-                    blockHeld: true),
+                    attackHeld: true),
                 BeforeFrame = frame =>
                 {
                     maximumBowStrafeFacingError = Mathf.Max(
@@ -1098,7 +1098,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     maximumBowBackpedalFacingError = 0f,
                 Intent = _ => Intent(
                     Vector2.down,
-                    blockHeld: true),
+                    attackHeld: true),
                 BeforeFrame = _ =>
                     maximumBowBackpedalFacingError = Mathf.Max(
                         maximumBowBackpedalFacingError,
@@ -1123,7 +1123,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 Screenshot = true,
                 Intent = _ => Intent(
                     Vector2.up,
-                    blockHeld: true),
+                    attackHeld: true),
                 OnEnd = () =>
                 {
                     RequireBowWalk(
@@ -1489,6 +1489,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             bool crouch = false,
             bool attackPressed = false,
             bool blockHeld = false,
+            bool attackHeld = false,
             Vector2 look = default)
         {
             return new PlayerIntent(
@@ -1499,7 +1500,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 jumpHeld,
                 crouch,
                 attackPressed,
-                blockHeld);
+                blockHeld,
+                attackHeld);
         }
 
         private static int CountStuckArrows()

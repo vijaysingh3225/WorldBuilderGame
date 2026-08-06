@@ -101,6 +101,7 @@ namespace WorldBuilder.Gameplay.Characters
             DisableCharacterCollision();
             BuildBodies();
             BuildJoints();
+            IgnorePlayerCollision();
             animator.enabled = false;
             DisableCharacterControllers();
 
@@ -162,6 +163,48 @@ namespace WorldBuilder.Gameplay.Characters
             AddJoint(HumanBodyBones.LeftLowerLeg, HumanBodyBones.LeftUpperLeg, 7f, 10f);
             AddJoint(HumanBodyBones.RightUpperLeg, HumanBodyBones.Hips, 34f, 42f);
             AddJoint(HumanBodyBones.RightLowerLeg, HumanBodyBones.RightUpperLeg, 7f, 10f);
+        }
+
+        private void IgnorePlayerCollision()
+        {
+            GameObject player = GameObject.FindGameObjectWithTag("Player");
+            CharacterController playerController = player != null
+                ? player.GetComponent<CharacterController>()
+                : null;
+            if (playerController == null ||
+                playerController.transform.IsChildOf(transform) ||
+                transform.IsChildOf(playerController.transform))
+            {
+                return;
+            }
+
+            IgnoreControllerCollision(
+                playerController,
+                GetComponentsInChildren<Collider>(true));
+        }
+
+        public static void IgnoreControllerCollision(
+            CharacterController controller,
+            IEnumerable<Collider> corpseColliders)
+        {
+            if (controller == null || corpseColliders == null)
+            {
+                return;
+            }
+
+            foreach (Collider corpseCollider in corpseColliders)
+            {
+                if (corpseCollider == null ||
+                    ReferenceEquals(corpseCollider, controller))
+                {
+                    continue;
+                }
+
+                Physics.IgnoreCollision(
+                    controller,
+                    corpseCollider,
+                    true);
+            }
         }
 
         private void AddJoint(

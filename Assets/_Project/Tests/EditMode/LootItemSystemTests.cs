@@ -11,6 +11,36 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class LootItemSystemTests
     {
         [Test]
+        public void LeftDragDistributionSplitsEveryItemAcrossVisitedCells()
+        {
+            int[] amounts = Enumerable.Range(0, 3)
+                .Select(index =>
+                    HomeInventoryController.
+                        CalculateEvenDistributionAmount(
+                            10,
+                            3,
+                            index))
+                .ToArray();
+
+            Assert.That(amounts, Is.EqualTo(new[] { 4, 3, 3 }));
+            Assert.That(amounts.Sum(), Is.EqualTo(10));
+            Assert.That(
+                HomeInventoryController.
+                    CalculateEvenDistributionAmount(2, 4, 3),
+                Is.Zero,
+                "Dragging across more cells than items must not create extra items.");
+            Assert.That(
+                HomeInventoryController.
+                    CanAddEvenDistributionCell(2, 1),
+                Is.True);
+            Assert.That(
+                HomeInventoryController.
+                    CanAddEvenDistributionCell(2, 2),
+                Is.False,
+                "Every visibly selected cell must receive at least one item.");
+        }
+
+        [Test]
         public void ChestMaterialDefinitionsLoadTheirIconsAndStackLimits()
         {
             Assert.That(
@@ -519,6 +549,130 @@ namespace WorldBuilder.Tests.EditMode
             {
                 Object.DestroyImmediate(sourceObject);
                 Object.DestroyImmediate(systems);
+            }
+        }
+
+        [Test]
+        public void HideoutTransactionsSupportTheSamePickupSplitAndPlacementFlow()
+        {
+            PlayerProfile profile = PlayerProfile.CreateNew(
+                "hideout-transaction-profile");
+            StorageEntry arrows = StorageEntry.Create(
+                ItemDefinitionIds.Arrow,
+                9);
+            profile.AddToStorage(arrows);
+            Assert.That(
+                profile.TryMoveToInventory(arrows.EntryId, 8),
+                Is.True);
+            StorageEntry source = profile.GetInventoryEntryAtSlot(8);
+
+            Assert.That(
+                ProfileInventoryTransactions.TryTakeInventory(
+                    profile,
+                    source,
+                    5,
+                    out StorageEntry held),
+                Is.True);
+            Assert.That(held.Quantity, Is.EqualTo(5));
+            Assert.That(
+                profile.GetInventoryEntryAtSlot(8).Quantity,
+                Is.EqualTo(4));
+            Assert.That(
+                ProfileInventoryTransactions.TryAddChest(
+                    profile,
+                    PlayerProfile.DefaultChestId,
+                    held,
+                    12,
+                    false),
+                Is.EqualTo(5));
+            Assert.That(
+                profile.GetChestEntryIds(PlayerProfile.DefaultChestId)
+                    .Select(profile.FindStorageEntry)
+                    .Single(entry => entry.SlotIndex == 12)
+                    .Quantity,
+                Is.EqualTo(5));
+        }
+
+        [Test]
+        public void HideoutTransactionsCanRearrangeAFullStackInPlace()
+        {
+            PlayerProfile profile = PlayerProfile.CreateNew(
+                "hideout-rearrange-profile");
+            StorageEntry health = StorageEntry.Create(
+                ItemDefinitionIds.HealthPack,
+                3);
+            profile.AddToStorage(health);
+            Assert.That(
+                profile.TryMoveToInventory(health.EntryId, 2),
+                Is.True);
+            StorageEntry source = profile.GetInventoryEntryAtSlot(2);
+
+            Assert.That(
+                ProfileInventoryTransactions.TryTakeInventory(
+                    profile,
+                    source,
+                    source.Quantity,
+                    out StorageEntry held),
+                Is.True);
+            Assert.That(profile.GetInventoryEntryAtSlot(2), Is.Null);
+            Assert.That(
+                ProfileInventoryTransactions.TryAddInventory(
+                    profile,
+                    held,
+                    17,
+                    false),
+                Is.EqualTo(3));
+            Assert.That(
+                profile.GetInventoryEntryAtSlot(17)?.EntryId,
+                Is.EqualTo(health.EntryId));
+        }
+
+        [Test]
+        public void LootFocusUsesInvisibleLowerTorsoPoint()
+        {
+            Vector3 point = LootInteractionPresentation.CalculateAimPoint(
+                1920f,
+                1080f);
+            Assert.That(point.x, Is.EqualTo(960f));
+            Assert.That(point.y, Is.EqualTo(464.4f).Within(0.001f));
+        }
+
+        [Test]
+        public void LootFocusRequiresVeryCloseRange()
+        {
+            Assert.That(
+                LootInteractionPresentation.DefaultDistance,
+                Is.EqualTo(2.25f));
+            Assert.That(
+                LootInteractionPresentation.AimPointViewportY,
+                Is.EqualTo(0.43f));
+            Assert.That(
+                LootInteractionPresentation.AimPointViewportX,
+                Is.EqualTo(0.5f));
+        }
+
+        [Test]
+        public void CorpseFocusCanHitVisibleRendererBetweenRagdollCapsules()
+        {
+            GameObject corpse = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            try
+            {
+                corpse.name = "corpse-renderer-fallback-test";
+                corpse.transform.position = new Vector3(0f, 0f, 5f);
+                Object.DestroyImmediate(corpse.GetComponent<Collider>());
+
+                Assert.That(
+                    LootInteractionPresentation.TryIntersectRendererBounds(
+                        new Ray(Vector3.zero, Vector3.forward),
+                        corpse.transform,
+                        out float distance),
+                    Is.True);
+                Assert.That(distance, Is.EqualTo(4.5f).Within(0.01f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(corpse);
             }
         }
 

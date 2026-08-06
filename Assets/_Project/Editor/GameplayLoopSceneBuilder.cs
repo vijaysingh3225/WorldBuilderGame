@@ -40,6 +40,8 @@ namespace WorldBuilder.Editor
             CampModelFolder + "/camp_constructing";
         private const string CampItemsModelFolder =
             CampModelFolder + "/camp_items";
+        private const string CampWoodenBoxModelPath =
+            CampItemsModelFolder + "/Wooden_Box.blend";
         private const string CampStructureMaterialPath =
             "Assets/_Project/Art/Prototype/Materials/" +
             "CampConstructing.mat";
@@ -104,6 +106,10 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Art/Environment/Chest/Chest_Diffuse.png";
         private const string ChestNormalPath =
             "Assets/_Project/Art/Environment/Chest/Chest_Normal_OpenGL.png";
+        private const string HomeAnvilPrefabPath =
+            "Assets/_Project/Runtime/Resources/HomeBase/Anvil/anvil.fbx";
+        private const string HomeAnvilTexturePath =
+            "Assets/_Project/Runtime/Resources/HomeBase/Anvil/basecolor.png";
         private const string BridgeModelPath =
             "Assets/_Project/Art/Environment/StylizedBridge/source/Bridge_low.fbx";
         private const string BridgeTextureFolder =
@@ -517,6 +523,8 @@ namespace WorldBuilder.Editor
                 NewSceneSetup.EmptyScene,
                 NewSceneMode.Single);
             CombatLabSceneBuilder.CreateStandardLighting();
+            Material homeSkybox = GetOrCreateRaidSkyboxMaterial();
+            RenderSettings.skybox = homeSkybox;
             CreateSceneBootstrap(
                 GameLaunchMode.HomeSandbox,
                 initializeOnAwake: true);
@@ -524,11 +532,10 @@ namespace WorldBuilder.Editor
             Material floor = CombatLabSceneBuilder.GetStandardMaterial(
                 "HomeFloor",
                 new Color(0.17f, 0.19f, 0.18f));
-            Material wall = CombatLabSceneBuilder.GetStandardMaterial(
-                "HomeWall",
-                new Color(0.24f, 0.26f, 0.24f));
             Material chestMaterial =
                 GetOrCreateChestMaterial();
+            Material anvilMaterial =
+                GetOrCreateHomeAnvilMaterial();
             Material gate = CombatLabSceneBuilder.GetStandardMaterial(
                 "RaidGate",
                 new Color(0.24f, 0.48f, 0.35f),
@@ -544,41 +551,32 @@ namespace WorldBuilder.Editor
             HomePlacementGrid homeGrid =
                 gridObject.AddComponent<HomePlacementGrid>();
             homeGrid.Configure(2.5f);
-            CombatLabSceneBuilder.CreateStandardBlock(
+            GameObject baseFloor =
+                CombatLabSceneBuilder.CreateStandardBlock(
                 "Base Floor",
                 new Vector3(0f, -0.25f, 0f),
                 new Vector3(30f, 0.5f, 25f),
                 floor,
                 environment.transform);
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "North Wall",
-                new Vector3(0f, 2f, 12.25f),
-                new Vector3(30f, 4.5f, 0.5f),
-                wall,
-                environment.transform);
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "West Wall",
-                new Vector3(-14.75f, 2f, 0f),
-                new Vector3(0.5f, 4.5f, 25f),
-                wall,
-                environment.transform);
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "East Wall",
-                new Vector3(14.75f, 2f, 0f),
-                new Vector3(0.5f, 4.5f, 25f),
-                wall,
-                environment.transform);
+            GameObject fallCatch = new GameObject("Home Fall Catch");
+            fallCatch.transform.SetParent(environment.transform, false);
+            fallCatch.transform.position = new Vector3(0f, -1.5f, 0f);
+            BoxCollider fallCatchCollider =
+                fallCatch.AddComponent<BoxCollider>();
+            fallCatchCollider.size = new Vector3(30f, 2f, 25f);
 
-            GameObject[] storageChests = new GameObject[4];
-            for (int index = 0; index < 4; index++)
+            GameObject[] storageChests =
             {
-                storageChests[index] =
-                    CreateHomeStorageChest(
-                        index,
-                        homeGrid,
-                        chestMaterial,
-                        environment.transform);
-            }
+                CreateHomeStorageChest(
+                    0,
+                    homeGrid,
+                    chestMaterial,
+                    environment.transform)
+            };
+            CreateHomeAnvil(
+                homeGrid,
+                anvilMaterial,
+                environment.transform);
 
             GameObject raidGateAssembly =
                 new GameObject("Raid Gate Assembly");
@@ -591,24 +589,6 @@ namespace WorldBuilder.Editor
                 homeGrid,
                 new Vector2Int(-1, 4),
                 new Vector2Int(3, 1));
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "Raid Gate Left",
-                new Vector3(-3.5f, 2.5f, 11.9f),
-                new Vector3(1.25f, 5f, 1f),
-                gate,
-                raidGateAssembly.transform);
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "Raid Gate Right",
-                new Vector3(3.5f, 2.5f, 11.9f),
-                new Vector3(1.25f, 5f, 1f),
-                gate,
-                raidGateAssembly.transform);
-            CombatLabSceneBuilder.CreateStandardBlock(
-                "Raid Gate Header",
-                new Vector3(0f, 4.5f, 11.9f),
-                new Vector3(5.8f, 1f, 1f),
-                gate,
-                raidGateAssembly.transform);
             CombatLabSceneBuilder.CreateStandardMarker(
                 "Raid Launch Marker",
                 new Vector3(0f, 0.03f, 9.4f),
@@ -630,6 +610,9 @@ namespace WorldBuilder.Editor
             HomeBaseController homeBase =
                 systems.AddComponent<HomeBaseController>();
             homeBase.Configure(input);
+            HomeBlockGridInteractor blockGrid =
+                systems.AddComponent<HomeBlockGridInteractor>();
+            blockGrid.Configure(homeGrid, player.transform);
             AttachWeaponGrid(systems, player, input);
             WeaponGridSandboxToolkit toolkit =
                 systems.GetComponent<WeaponGridSandboxToolkit>();
@@ -650,11 +633,11 @@ namespace WorldBuilder.Editor
                     storageChests[index].transform,
                     false);
                 chestInteraction.transform.localPosition =
-                    new Vector3(0f, 0.35f, -0.65f);
+                    new Vector3(0f, 0.75f, 0f);
                 BoxCollider chestTrigger =
                     chestInteraction.AddComponent<BoxCollider>();
                 chestTrigger.size =
-                    new Vector3(2.4f, 2.4f, 2.8f);
+                    Vector3.one * 1.8f;
                 HomeStorageChest chest =
                     chestInteraction.AddComponent<HomeStorageChest>();
                 chest.Configure(
@@ -697,6 +680,12 @@ namespace WorldBuilder.Editor
                 0f,
                 2);
 
+            GameObject scaleObject =
+                new GameObject("Chest Scale Frame");
+            scaleObject.transform.SetParent(chest.transform, false);
+            scaleObject.transform.position = chest.transform.position;
+            scaleObject.transform.rotation = Quaternion.identity;
+
             GameObject source =
                 AssetDatabase.LoadAssetAtPath<GameObject>(
                     ChestPrefabPath);
@@ -704,7 +693,7 @@ namespace WorldBuilder.Editor
                 source != null
                     ? PrefabUtility.InstantiatePrefab(
                         source,
-                        chest.transform) as GameObject
+                        scaleObject.transform) as GameObject
                     : null;
             if (model == null)
             {
@@ -712,7 +701,7 @@ namespace WorldBuilder.Editor
                     GameObject.CreatePrimitive(
                         PrimitiveType.Cube);
                 model.transform.SetParent(
-                    chest.transform,
+                    scaleObject.transform,
                     false);
             }
             model.name = "Chest Model";
@@ -743,29 +732,28 @@ namespace WorldBuilder.Editor
                         out initialBounds);
                 }
 
-                float scale =
-                    Mathf.Min(
-                        2.15f /
-                            Mathf.Max(
-                                0.001f,
-                                initialBounds.size.x),
-                        Mathf.Min(
-                            1.25f /
-                                Mathf.Max(
-                                    0.001f,
-                                    initialBounds.size.y),
-                            1.65f /
-                                Mathf.Max(
-                                    0.001f,
-                                    initialBounds.size.z)));
-                model.transform.localScale *= scale;
+                const float cubeSize = 1.5f;
+                TryGetRendererBounds(
+                    renderers,
+                    out Bounds unscaledBounds);
+                Vector3 scale = scaleObject.transform.localScale;
+                scale.x *= cubeSize /
+                    Mathf.Max(0.001f, unscaledBounds.size.x);
+                scale.y *= cubeSize /
+                    Mathf.Max(0.001f, unscaledBounds.size.y);
+                scale.z *= cubeSize /
+                    Mathf.Max(0.001f, unscaledBounds.size.z);
+                scaleObject.transform.localScale = scale;
                 TryGetRendererBounds(
                     renderers,
                     out Bounds scaledBounds);
-                model.transform.position +=
-                    Vector3.up *
-                    (chest.transform.position.y -
-                     scaledBounds.min.y);
+                model.transform.position += new Vector3(
+                    chest.transform.position.x -
+                        scaledBounds.center.x,
+                    chest.transform.position.y -
+                        scaledBounds.min.y,
+                    chest.transform.position.z -
+                        scaledBounds.center.z);
             }
 
             var solidCollider =
@@ -790,6 +778,68 @@ namespace WorldBuilder.Editor
             }
 
             return chest;
+        }
+
+        private static GameObject CreateHomeAnvil(
+            HomePlacementGrid grid,
+            Material material,
+            Transform parent)
+        {
+            GameObject root = new GameObject("Home Anvil");
+            root.transform.SetParent(parent, false);
+            HomeGridOccupant occupant =
+                root.AddComponent<HomeGridOccupant>();
+            occupant.Configure(
+                grid,
+                new Vector2Int(-3, 3),
+                Vector2Int.one,
+                0f,
+                1);
+
+            GameObject source =
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    HomeAnvilPrefabPath);
+            GameObject model = source != null
+                ? PrefabUtility.InstantiatePrefab(
+                    source,
+                    root.transform) as GameObject
+                : null;
+            if (model == null)
+            {
+                return root;
+            }
+            model.name = "Anvil Model";
+
+            Renderer[] renderers =
+                model.GetComponentsInChildren<Renderer>(true);
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                renderers[index].sharedMaterial = material;
+            }
+            if (TryGetRendererBounds(
+                    renderers,
+                    out Bounds initialBounds))
+            {
+                const float maximumSize = 1.25f;
+                float scale = maximumSize / Mathf.Max(
+                    0.001f,
+                    Mathf.Max(
+                        initialBounds.size.x,
+                        Mathf.Max(
+                            initialBounds.size.y,
+                            initialBounds.size.z)));
+                model.transform.localScale *= scale;
+            }
+            if (TryGetRendererBounds(
+                    renderers,
+                    out Bounds bounds))
+            {
+                model.transform.position += new Vector3(
+                    root.transform.position.x - bounds.center.x,
+                    root.transform.position.y - bounds.min.y,
+                    root.transform.position.z - bounds.center.z);
+            }
+            return root;
         }
 
         private static void BuildRaidPrototype()
@@ -1125,6 +1175,8 @@ namespace WorldBuilder.Editor
                 AssetDatabase.LoadAssetAtPath<GameObject>(
                     CampItemsModelFolder +
                     "/01_barrel.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampWoodenBoxModelPath),
                 AssetDatabase.LoadAssetAtPath<GameObject>(
                     CampItemsModelFolder +
                     "/03_big_spike_1.blend"),
@@ -2495,6 +2547,26 @@ namespace WorldBuilder.Editor
             return material;
         }
 
+        private static Material GetOrCreateHomeAnvilMaterial()
+        {
+            Material material =
+                CombatLabSceneBuilder.GetStandardMaterial(
+                    "HomeAnvil",
+                    Color.white,
+                    0.58f,
+                    0.42f);
+            Texture2D baseColor =
+                AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    HomeAnvilTexturePath);
+            material.mainTexture = baseColor;
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", baseColor);
+            }
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
         private static bool TryGetRendererBounds(
             Renderer[] renderers,
             out Bounds bounds)
@@ -2520,6 +2592,50 @@ namespace WorldBuilder.Editor
                 {
                     bounds.Encapsulate(
                         renderer.bounds);
+                }
+            }
+            return found;
+        }
+
+        private static bool TryGetRendererLocalBounds(
+            Transform root,
+            Renderer[] renderers,
+            out Bounds bounds)
+        {
+            bounds = default;
+            bool found = false;
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                Renderer renderer = renderers[index];
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                Bounds local = renderer.localBounds;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 point = local.center + new Vector3(
+                        (corner & 1) == 0
+                            ? -local.extents.x
+                            : local.extents.x,
+                        (corner & 2) == 0
+                            ? -local.extents.y
+                            : local.extents.y,
+                        (corner & 4) == 0
+                            ? -local.extents.z
+                            : local.extents.z);
+                    point = root.InverseTransformPoint(
+                        renderer.transform.TransformPoint(point));
+                    if (!found)
+                    {
+                        bounds = new Bounds(point, Vector3.zero);
+                        found = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(point);
+                    }
                 }
             }
             return found;
@@ -2959,18 +3075,6 @@ namespace WorldBuilder.Editor
             BoxCollider solid = monument.AddComponent<BoxCollider>();
             solid.center = new Vector3(0f, 1.38f, 0f);
             solid.size = new Vector3(0.92f, 3.46f, 0.92f);
-
-            GameObject baseObject =
-                GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            baseObject.name = "Buried Stone Base";
-            baseObject.transform.SetParent(root.transform, false);
-            baseObject.transform.localPosition =
-                new Vector3(0f, -0.12f, 0f);
-            baseObject.transform.localScale =
-                new Vector3(1.45f, 0.18f, 1.45f);
-            baseObject.GetComponent<Renderer>().sharedMaterial = material;
-            Object.DestroyImmediate(
-                baseObject.GetComponent<Collider>());
 
             GameObject glowObject = new GameObject("Activation Glow");
             glowObject.transform.SetParent(root.transform, false);

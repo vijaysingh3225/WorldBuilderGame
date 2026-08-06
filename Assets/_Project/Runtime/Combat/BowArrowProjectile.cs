@@ -6,6 +6,10 @@ using WorldBuilder.Gameplay.Core;
 
 namespace WorldBuilder.Gameplay.Combat
 {
+    // Humanoid pose presenters finish through order 900 and their anatomical
+    // hitboxes synchronize at 950. Resolve flight contacts and embedded-arrow
+    // following afterward so both use the final visible pose for this frame.
+    [DefaultExecutionOrder(1000)]
     [DisallowMultipleComponent]
     public sealed class BowArrowProjectile : MonoBehaviour
     {
@@ -74,8 +78,11 @@ namespace WorldBuilder.Gameplay.Combat
         private AudioClip flybyClip;
         private AudioSource playerFeedbackAudioSource;
         private Transform flybyTarget;
+        private GameObject flybyEmitter;
+        private AudioSource flybyAudioSource;
         private bool playerHitFeedbackEnabled;
         private bool flybyPlayed;
+        private bool flybyStoppedByImpact;
         private float launchedAt;
         private bool stuck;
 
@@ -93,6 +100,10 @@ namespace WorldBuilder.Gameplay.Combat
             headshotFeedbackClip;
         public AudioClip FlybyClip => flybyClip;
         public bool FlybyPlayed => flybyPlayed;
+        public AudioSource ActiveFlybyAudioSource =>
+            flybyAudioSource;
+        public bool FlybyStoppedByImpact =>
+            flybyStoppedByImpact;
         public bool LastImpactDamagedEnemy
         {
             get;
@@ -135,6 +146,7 @@ namespace WorldBuilder.Gameplay.Combat
                 ? playerObject.transform
                 : null;
             flybyPlayed = false;
+            flybyStoppedByImpact = false;
             launchedAt = Time.time;
             launchWorldScale = transform.lossyScale;
             lastFlightRotation = transform.rotation;
@@ -180,11 +192,6 @@ namespace WorldBuilder.Gameplay.Combat
             }
         }
 
-        private void Update()
-        {
-            AdvanceFlight(Time.deltaTime);
-        }
-
         private void AdvanceFlight(float step)
         {
             if (stuck ||
@@ -212,7 +219,6 @@ namespace WorldBuilder.Gameplay.Combat
                     out RaycastHit hit))
             {
                 flightTipPosition = hit.point;
-                TryPlayFlyby(startTip, flightTipPosition);
                 lastFlightRotation = segmentRotation;
                 ImpactDirection = segmentDirection;
                 PublishFlightSignal(startTip, flightTipPosition, segmentDirection);
@@ -331,7 +337,13 @@ namespace WorldBuilder.Gameplay.Combat
 
         private void LateUpdate()
         {
-            if (!stuck || stuckTo == null)
+            if (!stuck)
+            {
+                AdvanceFlight(Time.deltaTime);
+                return;
+            }
+
+            if (stuckTo == null)
             {
                 return;
             }
@@ -348,6 +360,7 @@ namespace WorldBuilder.Gameplay.Combat
             Collider hitCollider,
             Vector3 hitPoint)
         {
+            StopFlybyAudioForImpact();
             HitPoint = hitPoint;
             ImpactDirection =
                 lastFlightRotation * Vector3.forward;
@@ -437,11 +450,12 @@ namespace WorldBuilder.Gameplay.Combat
 
             flybyPlayed = true;
             EnsureAudioDataLoaded(flybyClip);
-            GameObject emitter = new GameObject(
+            flybyEmitter = new GameObject(
                 "Arrow Flyby Audio");
-            emitter.transform.position = closestPoint;
-            AudioSource source =
-                emitter.AddComponent<AudioSource>();
+            flybyEmitter.transform.position = closestPoint;
+            flybyAudioSource =
+                flybyEmitter.AddComponent<AudioSource>();
+            AudioSource source = flybyAudioSource;
             source.playOnAwake = false;
             source.loop = false;
             source.spatialBlend = 1f;
@@ -455,11 +469,35 @@ namespace WorldBuilder.Gameplay.Combat
             if (Application.isPlaying)
             {
                 Destroy(
-                    emitter,
+                    flybyEmitter,
                     Mathf.Max(
                         0.25f,
                         flybyClip.length + 0.1f));
             }
+        }
+
+        private void StopFlybyAudioForImpact()
+        {
+            if (flybyAudioSource == null && flybyEmitter == null)
+            {
+                return;
+            }
+
+            flybyAudioSource?.Stop();
+            flybyStoppedByImpact = true;
+            if (flybyEmitter != null)
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(flybyEmitter);
+                }
+                else
+                {
+                    DestroyImmediate(flybyEmitter);
+                }
+            }
+            flybyAudioSource = null;
+            flybyEmitter = null;
         }
 
         private static Vector3 ClosestPointOnSegment(

@@ -90,9 +90,7 @@ namespace WorldBuilder.Gameplay.CameraSystem
                 : 0f;
         public bool IsBowAiming =>
             bowWeapon != null &&
-            bowWeapon.WeaponEquipped &&
-            input != null &&
-            input.CurrentIntent.BlockHeld;
+            bowWeapon.DrawInputHeld;
 
         public static float CalculateBowCameraTargetWeight(
             bool isBowAiming,

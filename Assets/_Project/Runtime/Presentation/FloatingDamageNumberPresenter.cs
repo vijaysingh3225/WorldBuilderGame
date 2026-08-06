@@ -8,6 +8,7 @@ namespace WorldBuilder.Gameplay.Presentation
     {
         [SerializeField] private Health health;
         [SerializeField] private EnemyDamageProfile profile;
+        [SerializeField] private bool playerOwned;
         private FloatingDamageNumberOverlay overlay;
 
         public int ActiveNumberCount =>
@@ -15,7 +16,8 @@ namespace WorldBuilder.Gameplay.Presentation
 
         public void Configure(
             Health observedHealth,
-            EnemyDamageProfile damageProfile)
+            EnemyDamageProfile damageProfile,
+            bool showBesidePlayer = false)
         {
             if (health != null)
             {
@@ -24,6 +26,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
             health = observedHealth;
             profile = damageProfile;
+            playerOwned = showBesidePlayer;
             if (health != null)
             {
                 health.Damaged -= HandleDamaged;
@@ -59,7 +62,14 @@ namespace WorldBuilder.Gameplay.Presentation
             // The overlay lives outside the enemy so lethal Raid hits remain
             // visible while that enemy changes into its ragdoll/death state.
             overlay = FloatingDamageNumberOverlay.GetOrCreate();
-            overlay.Show(request.Amount, request.HitPoint, critical);
+            Vector3 presentationPoint = playerOwned
+                ? transform.position + Vector3.up * 1.18f
+                : request.HitPoint;
+            overlay.Show(
+                request.Amount,
+                presentationPoint,
+                critical,
+                playerOwned);
         }
     }
 }

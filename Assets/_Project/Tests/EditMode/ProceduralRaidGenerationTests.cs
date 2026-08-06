@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
@@ -1110,6 +1111,10 @@ namespace WorldBuilder.Tests
                 generator.GeneratedCampBowGuardCount +
                     generator.GeneratedCampSwordGuardCount,
                 Is.EqualTo(generator.GeneratedCampGuardCount));
+            Assert.That(
+                ProceduralRaidGenerator.LevelOneWoodenBoxChance,
+                Is.EqualTo(0.5f).Within(0.0001f));
+            int observedWoodenBoxCount = 0;
             for (int campIndex = 0;
                  campIndex < camps.childCount;
                  campIndex++)
@@ -1128,6 +1133,7 @@ namespace WorldBuilder.Tests
                 var chests = new List<Transform>();
                 var tents = new List<Transform>();
                 var benches = new List<Transform>();
+                var woodenBoxes = new List<Transform>();
                 for (int childIndex = 0;
                      childIndex < camp.childCount;
                      childIndex++)
@@ -1151,6 +1157,10 @@ namespace WorldBuilder.Tests
                     if (child.name.StartsWith("Supply Barrel "))
                     {
                         barrelCount++;
+                    }
+                    if (child.name.StartsWith("Wooden Box "))
+                    {
+                        woodenBoxes.Add(child);
                     }
                     if (child.name.StartsWith("Inner Weapon Rack "))
                     {
@@ -1195,6 +1205,14 @@ namespace WorldBuilder.Tests
                 Assert.That(outerDefenseCount, Is.EqualTo(levelTwo ? 3 : 0));
                 Assert.That(rackSwordCount, Is.EqualTo(levelTwo ? 2 : 0));
                 Assert.That(potCount, Is.EqualTo(levelTwo ? 2 : 1));
+                Assert.That(
+                    woodenBoxes.Count,
+                    levelTwo ? Is.InRange(2, 4) : Is.InRange(0, 1));
+                Assert.That(
+                    woodenBoxes.Count,
+                    Is.EqualTo(
+                        generator.CampWoodenBoxCount(campIndex)));
+                observedWoodenBoxCount += woodenBoxes.Count;
                 Assert.That(firewood, Is.Not.Null);
                 Assert.That(cookingSpit, Is.Not.Null);
                 Vector2 campCenter = generator.CampCenters[campIndex];
@@ -1211,6 +1229,75 @@ namespace WorldBuilder.Tests
                         Is.GreaterThanOrEqualTo(
                             generator.CampClearingRadius(campIndex) - 2.25f),
                         "Level One firewood belongs near the clearing's outer edge, not beside the fire.");
+                    if (woodenBoxes.Count == 1)
+                    {
+                        float boxRadius = Vector2.Distance(
+                            ToXZ(woodenBoxes[0].position),
+                            campCenter);
+                        Assert.That(
+                            boxRadius,
+                            Is.InRange(
+                                generator.CampClearingRadius(campIndex) *
+                                    0.64f,
+                                generator.CampClearingRadius(campIndex) *
+                                    0.84f),
+                            "A Level One wooden box belongs in the clearing's middle outer ring.");
+                    }
+                }
+                else
+                {
+                    float lowestBox = woodenBoxes.Min(
+                        box => box.position.y);
+                    float highestBox = woodenBoxes.Max(
+                        box => box.position.y);
+                    Assert.That(
+                        highestBox - lowestBox,
+                        Is.GreaterThan(0.5f),
+                        "Every Level Two box group should include a visibly stacked box.");
+                    int chestsInBoxCluster = chests.Count(chest =>
+                        woodenBoxes.Any(box =>
+                            Vector2.Distance(
+                                ToXZ(chest.position),
+                                ToXZ(box.position)) <= 1.8f));
+                    Assert.That(
+                        chestsInBoxCluster,
+                        Is.EqualTo(1),
+                        "Exactly one Level Two chest belongs on or beside the wooden-box cluster.");
+
+                    for (int swordIndex = 1;
+                         swordIndex <= 2;
+                         swordIndex++)
+                    {
+                        Transform sword = camp.Find(
+                            $"Rack Sword {swordIndex}");
+                        Transform rack = camp.Find(
+                            $"Inner Weapon Rack {swordIndex}");
+                        Assert.That(sword, Is.Not.Null);
+                        Assert.That(rack, Is.Not.Null);
+                        Transform blade = sword.Find("Pointed Blade");
+                        Mesh bladeMesh = blade
+                            .GetComponent<MeshFilter>()
+                            .sharedMesh;
+                        Vector3 bladeTip = blade.TransformPoint(
+                            new Vector3(
+                                0f,
+                                bladeMesh.bounds.max.y,
+                                0f));
+                        Assert.That(
+                            bladeTip.y,
+                            Is.EqualTo(
+                                generator.SampleTerrainHeight(
+                                    bladeTip.x,
+                                    bladeTip.z) + 0.025f)
+                                .Within(0.035f),
+                            "A displayed camp sword should rest its blade point on the ground.");
+                        Assert.That(
+                            Vector2.Distance(
+                                ToXZ(sword.position),
+                                ToXZ(rack.position)),
+                            Is.LessThan(0.8f),
+                            "A displayed camp sword's hilt should lean against its weapon rack.");
+                    }
                 }
                 foreach (Transform bench in benches)
                 {
@@ -1308,6 +1395,9 @@ namespace WorldBuilder.Tests
                 Assert.That(fireLight, Is.Not.Null);
                 Assert.That(fireLight.range, Is.LessThanOrEqualTo(4.5f));
             }
+            Assert.That(
+                observedWoodenBoxCount,
+                Is.EqualTo(generator.GeneratedCampWoodenBoxCount));
             Vector3[] campTerrainVertices = terrainMesh.vertices;
             for (int campIndex = 0;
                  campIndex < generator.CampCenters.Count;
@@ -1439,8 +1529,11 @@ namespace WorldBuilder.Tests
                 }
             }
             Assert.That(
+                ProceduralRaidGenerator.GrassCoverageMultiplier,
+                Is.EqualTo(2f));
+            Assert.That(
                 generator.GeneratedGrassCount,
-                Is.GreaterThanOrEqualTo(124000));
+                Is.GreaterThanOrEqualTo(240000));
             Assert.That(
                 generator.GeneratedTrailTransitionGrassCount,
                 Is.GreaterThan(80),

@@ -150,7 +150,9 @@ namespace WorldBuilder.Gameplay.Loop
             RaidResult result;
             try
             {
-                result = completingRaid.Complete(completionReason);
+                result = completingRaid.Complete(
+                    completionReason,
+                    ActiveProfile);
                 receipt = outcomeSink.Apply(result, ActiveProfile);
             }
             catch

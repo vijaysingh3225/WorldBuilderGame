@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.WeaponGrid;
 
@@ -20,6 +21,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private bool previousCursorVisible;
         private bool previousInputCapture;
         private string statusMessage = string.Empty;
+        private bool showControls;
+        private PlayerControl? awaitingBinding;
+        private Vector2 controlsScroll;
 
         public static bool IsAnyOpen { get; private set; }
         public bool IsOpen => isOpen;
@@ -32,8 +36,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void Update()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard == null ||
-                !keyboard.escapeKey.wasPressedThisFrame)
+            if (keyboard == null)
+            {
+                return;
+            }
+
+            if (isOpen && awaitingBinding.HasValue)
+            {
+                CaptureBinding(keyboard);
+                return;
+            }
+            if (!PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Pause))
             {
                 return;
             }
@@ -74,8 +89,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             LoopSceneGui.DrawDimmer(0.72f);
-            float width = Mathf.Min(420f, Screen.width - 32f);
-            float height = Mathf.Min(500f, Screen.height - 32f);
+            float width = Mathf.Min(520f, Screen.width - 32f);
+            float height = Mathf.Min(680f, Screen.height - 32f);
             Rect panel = new Rect(
                 (Screen.width - width) * 0.5f,
                 (Screen.height - height) * 0.5f,
@@ -93,6 +108,30 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 "PAUSED",
                 LoopSceneGui.Title);
             y += 52f;
+
+            float tabWidth = (contentWidth - 8f) * 0.5f;
+            if (GUI.Button(
+                    new Rect(x, y, tabWidth, 38f),
+                    "MENU",
+                    LoopSceneGui.Button))
+            {
+                showControls = false;
+                awaitingBinding = null;
+            }
+            if (GUI.Button(
+                    new Rect(x + tabWidth + 8f, y, tabWidth, 38f),
+                    "CONTROLS",
+                    LoopSceneGui.Button))
+            {
+                showControls = true;
+            }
+            y += 50f;
+
+            if (showControls)
+            {
+                DrawControls(x, y, contentWidth, panel.yMax - y - 20f);
+                return;
+            }
 
             if (DrawButton(x, ref y, contentWidth, "RESUME"))
             {
@@ -157,6 +196,126 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return pressed;
         }
 
+        private void DrawControls(
+            float x,
+            float y,
+            float width,
+            float height)
+        {
+            GUI.Label(
+                new Rect(x, y, width, 24f),
+                awaitingBinding.HasValue
+                    ? $"PRESS ANY KEY FOR {PlayerControlBindings.ActionName(awaitingBinding.Value).ToUpperInvariant()}"
+                    : "SELECT A KEY TO REBIND",
+                LoopSceneGui.Heading);
+            y += 30f;
+
+            Rect viewport = new Rect(x, y, width, height - 48f);
+            float contentHeight =
+                PlayerControlBindings.AllControls.Length * 38f +
+                176f;
+            controlsScroll = GUI.BeginScrollView(
+                viewport,
+                controlsScroll,
+                new Rect(0f, 0f, width - 18f, contentHeight));
+            float rowY = 0f;
+            for (int index = 0;
+                 index < PlayerControlBindings.AllControls.Length;
+                 index++)
+            {
+                PlayerControl control =
+                    PlayerControlBindings.AllControls[index];
+                GUI.Label(
+                    new Rect(4f, rowY + 5f, width * 0.56f, 28f),
+                    PlayerControlBindings.ActionName(control),
+                    LoopSceneGui.Body);
+                string keyLabel = awaitingBinding == control
+                    ? "PRESS KEY..."
+                    : PlayerControlBindings.KeyName(
+                        PlayerControlBindings.GetKey(control));
+                if (GUI.Button(
+                        new Rect(
+                            width * 0.57f,
+                            rowY,
+                            width * 0.36f,
+                            32f),
+                        keyLabel,
+                        LoopSceneGui.Button))
+                {
+                    awaitingBinding = control;
+                    statusMessage = string.Empty;
+                }
+                rowY += 38f;
+            }
+
+            GUI.Label(
+                new Rect(4f, rowY + 4f, width * 0.56f, 26f),
+                "Attack / Draw Bow",
+                LoopSceneGui.Body);
+            GUI.Label(
+                new Rect(width * 0.62f, rowY + 4f, width * 0.30f, 26f),
+                "Left Mouse",
+                LoopSceneGui.Muted);
+            rowY += 30f;
+            GUI.Label(
+                new Rect(4f, rowY + 4f, width * 0.56f, 26f),
+                "Block",
+                LoopSceneGui.Body);
+            GUI.Label(
+                new Rect(width * 0.62f, rowY + 4f, width * 0.30f, 26f),
+                "Right Mouse",
+                LoopSceneGui.Muted);
+            rowY += 30f;
+            GUI.Label(
+                new Rect(4f, rowY + 4f, width * 0.56f, 26f),
+                "Orbit / Inspect",
+                LoopSceneGui.Body);
+            GUI.Label(
+                new Rect(width * 0.62f, rowY + 4f, width * 0.30f, 26f),
+                "Middle Mouse",
+                LoopSceneGui.Muted);
+            rowY += 30f;
+            GUI.Label(
+                new Rect(4f, rowY + 4f, width * 0.56f, 26f),
+                "Cycle Weapons",
+                LoopSceneGui.Body);
+            GUI.Label(
+                new Rect(width * 0.62f, rowY + 4f, width * 0.30f, 26f),
+                "Mouse Wheel",
+                LoopSceneGui.Muted);
+            rowY += 36f;
+            if (GUI.Button(
+                    new Rect(4f, rowY, width - 36f, 34f),
+                    "RESET DEFAULTS",
+                    LoopSceneGui.Button))
+            {
+                PlayerControlBindings.ResetToDefaults();
+                awaitingBinding = null;
+                statusMessage = "Controls restored to defaults.";
+            }
+            GUI.EndScrollView();
+        }
+
+        private void CaptureBinding(Keyboard keyboard)
+        {
+            foreach (KeyControl keyControl in keyboard.allKeys)
+            {
+                if (!keyControl.wasPressedThisFrame)
+                {
+                    continue;
+                }
+                PlayerControl control = awaitingBinding.Value;
+                PlayerControlBindings.Rebind(
+                    control,
+                    keyControl.keyCode);
+                awaitingBinding = null;
+                statusMessage =
+                    $"{PlayerControlBindings.ActionName(control)}: " +
+                    PlayerControlBindings.KeyName(keyControl.keyCode);
+                return;
+            }
+        }
+
         private void Open()
         {
             if (isOpen)
@@ -200,6 +359,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             isOpen = false;
             IsAnyOpen = false;
+            awaitingBinding = null;
+            showControls = false;
         }
 
         private void LoadScene(string sceneName)

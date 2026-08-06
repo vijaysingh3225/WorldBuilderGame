@@ -17,6 +17,7 @@ namespace WorldBuilder.Gameplay.Combat
         [SerializeField]
         private bool chooseClosestAttachment;
         private EnemyDamageProfile profile;
+        private Health health;
 
         public HumanoidHitRegion Region => region;
         public bool IsAlive
@@ -24,8 +25,9 @@ namespace WorldBuilder.Gameplay.Combat
             get
             {
                 ResolveProfile();
-                return profile != null &&
-                    profile.IsAlive;
+                return profile != null
+                    ? profile.IsAlive
+                    : health != null && health.IsAlive;
             }
         }
 
@@ -74,9 +76,15 @@ namespace WorldBuilder.Gameplay.Combat
             in DamageRequest request)
         {
             ResolveProfile();
-            profile?.ReceiveDamage(
-                region,
-                request);
+            if (profile != null)
+            {
+                profile.ReceiveDamage(
+                    region,
+                    request);
+                return;
+            }
+
+            health?.ReceiveDamage(request);
         }
 
         private void ResolveProfile()
@@ -84,6 +92,11 @@ namespace WorldBuilder.Gameplay.Combat
             profile ??=
                 GetComponentInParent<
                     EnemyDamageProfile>(true);
+            if (profile == null)
+            {
+                health ??=
+                    GetComponentInParent<Health>(true);
+            }
         }
     }
 }

@@ -106,6 +106,7 @@ namespace WorldBuilder.Gameplay.Presentation
             public Vector3 worldPoint;
             public float createdAt;
             public bool critical;
+            public bool receivedByPlayer;
             public float horizontalDirection;
         }
 
@@ -115,6 +116,8 @@ namespace WorldBuilder.Gameplay.Presentation
         private int placementSequence;
 
         public int ActiveNumberCount => entries.Count;
+        public int PlayerNumberCount => entries.FindAll(
+            entry => entry.receivedByPlayer).Count;
 
         public static FloatingDamageNumberOverlay GetOrCreate()
         {
@@ -132,7 +135,11 @@ namespace WorldBuilder.Gameplay.Presentation
             return host.AddComponent<FloatingDamageNumberOverlay>();
         }
 
-        public void Show(float amount, Vector3 worldPoint, bool critical)
+        public void Show(
+            float amount,
+            Vector3 worldPoint,
+            bool critical,
+            bool receivedByPlayer = false)
         {
             entries.Add(new Entry
             {
@@ -140,6 +147,7 @@ namespace WorldBuilder.Gameplay.Presentation
                 worldPoint = worldPoint,
                 createdAt = Time.time,
                 critical = critical,
+                receivedByPlayer = receivedByPlayer,
                 horizontalDirection = (placementSequence++ & 1) == 0
                     ? 1f
                     : -1f
@@ -195,14 +203,27 @@ namespace WorldBuilder.Gameplay.Presentation
 
                 numberStyle.fontSize = fontSize;
                 shadowStyle.fontSize = fontSize;
-                numberStyle.normal.textColor = entry.critical
-                    ? new Color(1f, 0.38f, 0.20f, alpha)
-                    : new Color(1f, 0.88f, 0.54f, alpha);
+                numberStyle.normal.textColor = entry.receivedByPlayer
+                    ? new Color(1f, 0.30f, 0.22f, alpha)
+                    : entry.critical
+                        ? new Color(1f, 0.38f, 0.20f, alpha)
+                        : new Color(1f, 0.88f, 0.54f, alpha);
                 shadowStyle.normal.textColor =
                     new Color(0f, 0f, 0f, alpha * 0.72f);
 
+                float horizontalOffset = entry.receivedByPlayer
+                    ? 64f
+                    : HorizontalOffset;
                 float x = screen.x +
-                    HorizontalOffset * entry.horizontalDirection;
+                    horizontalOffset * entry.horizontalDirection;
+                if (entry.receivedByPlayer)
+                {
+                    x = Mathf.Clamp(x, 42f, Screen.width - 42f);
+                    screen.y = Mathf.Clamp(
+                        screen.y,
+                        42f,
+                        Screen.height - 42f);
+                }
                 Rect rect = new Rect(
                     x - 35f,
                     Screen.height - screen.y - 13f,

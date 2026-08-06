@@ -282,6 +282,42 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void SwordGuardImmediatelyPursuesLastSeenPosition()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(Vector3.zero);
+            PlayerInputSource input =
+                enemy.AddComponent<PlayerInputSource>();
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            brain.ConfigureCampGuardLoadout(
+                EnemyBrain.WeaponLoadout.SwordOnly);
+            SetPrivateField(brain, "alerted", true);
+            SetPrivateField(brain, "hasVisualContact", false);
+            SetPrivateField(
+                brain,
+                "lastKnownPosition",
+                player.transform.position);
+            SetPrivateField(brain, "lostSightWaitTimer", 1.25f);
+
+            InvokePrivate(brain, "UpdateInvestigation");
+
+            Assert.That(
+                GetPrivateField<float>(brain, "lostSightWaitTimer"),
+                Is.Zero,
+                "A swordsman must not pause after losing sight.");
+            Assert.That(
+                input.CurrentIntent.Move.y,
+                Is.GreaterThan(0.9f),
+                "The swordsman should immediately move toward the last-seen position.");
+            Assert.That(
+                brain.CurrentState,
+                Is.EqualTo(EnemyBrain.EnemyState.Pursuing));
+        }
+
+        [Test]
         public void InvestigationCannotExpireBeforeEnemyReachesLastSeenPoint()
         {
             player = CreateTarget(
@@ -552,11 +588,34 @@ namespace WorldBuilder.Tests
                 ResolvePrivateMethod("ResolveRangedStrafeIntent")
                     .Invoke(brain, null);
 
-            Assert.That(intent.magnitude, Is.InRange(0.35f, 0.5f));
+            Assert.That(intent.magnitude, Is.InRange(0.28f, 0.4f));
             Assert.That(
                 Mathf.Abs(intent.x),
                 Is.GreaterThan(Mathf.Abs(intent.y) * 3f),
                 "Ranged movement should primarily strafe across the target rather than rush straight toward it.");
+
+            SetPrivateField(brain, "rangedStrafeTimer", -1f);
+            Vector2 pausedIntent = (Vector2)
+                ResolvePrivateMethod("ResolveRangedStrafeIntent")
+                    .Invoke(brain, null);
+
+            Assert.That(
+                pausedIntent,
+                Is.EqualTo(Vector2.zero),
+                "Archers should pause between committed strafes instead of changing direction continuously.");
+            Assert.That(
+                GetPrivateField<float>(brain, "rangedStrafeTimer"),
+                Is.InRange(1.2f, 2f));
+
+            SetPrivateField(brain, "rangedStrafeTimer", -1f);
+            Vector2 resumedIntent = (Vector2)
+                ResolvePrivateMethod("ResolveRangedStrafeIntent")
+                    .Invoke(brain, null);
+
+            Assert.That(resumedIntent.magnitude, Is.InRange(0.28f, 0.4f));
+            Assert.That(
+                GetPrivateField<float>(brain, "rangedStrafeTimer"),
+                Is.InRange(2.8f, 4.2f));
         }
 
         [Test]

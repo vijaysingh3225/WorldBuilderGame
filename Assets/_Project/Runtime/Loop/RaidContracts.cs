@@ -194,7 +194,8 @@ namespace WorldBuilder.Gameplay.Loop
             IReadOnlyList<StorageEntry> discoveredEntries,
             int enemiesDefeated,
             int weaponOneExperience,
-            int weaponTwoExperience)
+            int weaponTwoExperience,
+            IReadOnlyList<string> protectedEntryIds = null)
         {
             RaidResult result = new RaidResult
             {
@@ -217,8 +218,18 @@ namespace WorldBuilder.Gameplay.Loop
             }
             else if (reason == RaidCompletionReason.PlayerDied)
             {
-                result.lostStorageEntryIds =
-                    new List<string>(request.CarriedStorageEntryIds);
+                result.lostStorageEntryIds = new List<string>();
+                for (int index = 0;
+                     index < request.CarriedStorageEntryIds.Count;
+                     index++)
+                {
+                    string entryId = request.CarriedStorageEntryIds[index];
+                    if (protectedEntryIds == null ||
+                        !protectedEntryIds.Contains(entryId))
+                    {
+                        result.lostStorageEntryIds.Add(entryId);
+                    }
+                }
             }
 
             result.Normalize();
@@ -355,7 +366,8 @@ namespace WorldBuilder.Gameplay.Loop
                     ? profile.FindStorageEntry(
                         launchRequest.CarriedStorageEntryIds[index])
                     : null;
-                if (entry != null)
+                if (entry != null &&
+                    profile.IsInInventory(entry.EntryId))
                 {
                     entries.Add(entry);
                 }
@@ -409,6 +421,7 @@ namespace WorldBuilder.Gameplay.Loop
                 StorageEntry profileEntry =
                     profile.FindStorageEntry(entryId);
                 if (profileEntry != null &&
+                    profile.IsInInventory(entryId) &&
                     launchRequest.CarriedStorageEntryIds.Contains(entryId))
                 {
                     int amount = Math.Min(quantity, profileEntry.Quantity);
@@ -661,6 +674,7 @@ namespace WorldBuilder.Gameplay.Loop
                     StorageEntry entry = profile.FindStorageEntry(
                         launchRequest.CarriedStorageEntryIds[index]);
                     if (entry != null &&
+                        profile.IsInInventory(entry.EntryId) &&
                         string.Equals(
                             entry.DefinitionId,
                             definitionId,
@@ -714,6 +728,7 @@ namespace WorldBuilder.Gameplay.Loop
                     StorageEntry entry = profile.FindStorageEntry(
                         launchRequest.CarriedStorageEntryIds[index]);
                     if (entry == null ||
+                        !profile.IsInInventory(entry.EntryId) ||
                         !string.Equals(
                             entry.DefinitionId,
                             definitionId,
@@ -780,6 +795,13 @@ namespace WorldBuilder.Gameplay.Loop
 
         public RaidResult Complete(RaidCompletionReason reason)
         {
+            return Complete(reason, null);
+        }
+
+        public RaidResult Complete(
+            RaidCompletionReason reason,
+            PlayerProfile profile)
+        {
             EnsureActive();
             state = RaidSessionState.Completed;
             return RaidResult.Create(
@@ -788,7 +810,8 @@ namespace WorldBuilder.Gameplay.Loop
                 collectedStorageEntries,
                 enemiesDefeated,
                 weaponOneExperience,
-                weaponTwoExperience);
+                weaponTwoExperience,
+                profile?.SecureEntryIds);
         }
 
         internal void ReopenAfterFailedCompletion()

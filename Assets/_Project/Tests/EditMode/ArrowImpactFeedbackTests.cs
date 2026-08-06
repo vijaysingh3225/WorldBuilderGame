@@ -26,6 +26,10 @@ namespace WorldBuilder.Tests
                     AssetDatabase.LoadAssetAtPath<AudioClip>(
                         "Assets/_Project/Audio/SFX/" +
                         "Arrow Impact.wav");
+                AudioClip release =
+                    AssetDatabase.LoadAssetAtPath<AudioClip>(
+                        "Assets/_Project/Audio/SFX/" +
+                        "Bow Release.wav");
                 AudioClip enemyHit =
                     AssetDatabase.LoadAssetAtPath<AudioClip>(
                         "Assets/_Project/Audio/SFX/" +
@@ -42,9 +46,16 @@ namespace WorldBuilder.Tests
                     pullback,
                     impact,
                     enemyHit,
-                    headshot);
+                    headshot,
+                    null,
+                    release);
 
                 Assert.That(bow.AudioConfigured, Is.True);
+                Assert.That(bow.ReleaseClip, Is.SameAs(release));
+                Assert.That(
+                    release.length,
+                    Is.InRange(0.22f, 0.25f),
+                    "The release clip must stay trimmed so its transient starts with the projectile launch.");
                 Assert.That(
                     bow.EnemyHitFeedbackClip.name,
                     Is.EqualTo("ArrowHit"));
@@ -92,6 +103,70 @@ namespace WorldBuilder.Tests
             finally
             {
                 Object.DestroyImmediate(bowObject);
+            }
+        }
+
+        [Test]
+        public void PlayerAndEnemyReleaseInputPlaysAudioOnBowSource()
+        {
+            GameObject player = new GameObject("Release Audio Player");
+            GameObject enemy = new GameObject("Release Audio Enemy");
+            BowWeapon playerBow = null;
+            BowWeapon enemyBow = null;
+            try
+            {
+                player.tag = "Player";
+                playerBow = CreateReleaseTestBow(player.transform);
+                enemyBow = CreateReleaseTestBow(enemy.transform);
+                MethodInfo queueRelease = typeof(BowWeapon).GetMethod(
+                    "QueueRelease",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo heldDuration = typeof(BowWeapon).GetField(
+                    "heldDuration",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo drawHeldLastFrame = typeof(BowWeapon).GetField(
+                    "drawHeldLastFrame",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(queueRelease, Is.Not.Null);
+                Assert.That(heldDuration, Is.Not.Null);
+                Assert.That(drawHeldLastFrame, Is.Not.Null);
+
+                playerBow.SetWeaponEquipped(true);
+                enemyBow.SetWeaponEquipped(true);
+                heldDuration.SetValue(
+                    playerBow,
+                    playerBow.FullDrawDuration);
+                heldDuration.SetValue(
+                    enemyBow,
+                    enemyBow.FullDrawDuration);
+                drawHeldLastFrame.SetValue(playerBow, true);
+                drawHeldLastFrame.SetValue(enemyBow, true);
+                queueRelease.Invoke(playerBow, null);
+                queueRelease.Invoke(enemyBow, null);
+
+                Assert.That(playerBow.ReleasePlaybackCount, Is.EqualTo(1));
+                Assert.That(playerBow.LastReleaseAudioSource, Is.Not.Null);
+                Assert.That(
+                    playerBow.LastReleaseAudioSource.clip,
+                    Is.SameAs(playerBow.ReleaseClip));
+                Assert.That(
+                    playerBow.LastReleaseAudioSource.spatialBlend,
+                    Is.Zero);
+                Assert.That(enemyBow.ReleasePlaybackCount, Is.EqualTo(1));
+                Assert.That(enemyBow.LastReleaseAudioSource, Is.Not.Null);
+                Assert.That(
+                    enemyBow.LastReleaseAudioSource.clip,
+                    Is.SameAs(enemyBow.ReleaseClip));
+                Assert.That(
+                    enemyBow.LastReleaseAudioSource.spatialBlend,
+                    Is.EqualTo(1f));
+                Assert.That(playerBow.ReleaseClip, Is.Not.Null);
+                Assert.That(enemyBow.ReleaseClip, Is.SameAs(playerBow.ReleaseClip));
+            }
+            finally
+            {
+                Object.DestroyImmediate(enemy);
+                Object.DestroyImmediate(player);
             }
         }
 
@@ -225,6 +300,132 @@ namespace WorldBuilder.Tests
             }
         }
 
+        [Test]
+        public void ImpactSegmentDoesNotStartFlybyAudio()
+        {
+            GameObject player = new GameObject("Player");
+            GameObject enemy = new GameObject("Enemy");
+            GameObject arrowObject = new GameObject("Impacting Arrow");
+            GameObject surface = new GameObject("Impact Surface");
+            try
+            {
+                player.tag = "Player";
+                arrowObject.transform.position =
+                    new Vector3(0f, 0.595f, -5f);
+                surface.transform.position =
+                    new Vector3(0f, 0.595f, 0f);
+                surface.AddComponent<BoxCollider>().size =
+                    new Vector3(2f, 2f, 0.2f);
+                AudioClip flyby =
+                    AssetDatabase.LoadAssetAtPath<AudioClip>(
+                        "Assets/_Project/Audio/SFX/" +
+                        "Arrow Flyby.mp3");
+                BowArrowProjectile arrow =
+                    arrowObject.AddComponent<BowArrowProjectile>();
+                arrow.Launch(
+                    enemy,
+                    Vector3.forward * 80f,
+                    10f,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    flyby);
+
+                InvokeProjectileMethod(
+                    arrow,
+                    "AdvanceFlight",
+                    0.10f);
+
+                Assert.That(arrow.IsStuck, Is.True);
+                Assert.That(
+                    arrow.FlybyPlayed,
+                    Is.False,
+                    "A segment that ends in a hit must not start a flyby cue first.");
+                Assert.That(
+                    GameObject.Find("Arrow Flyby Audio"),
+                    Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(surface);
+                Object.DestroyImmediate(arrowObject);
+                Object.DestroyImmediate(enemy);
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
+        public void ExistingFlybyAudioStopsImmediatelyOnImpact()
+        {
+            GameObject player = new GameObject("Player");
+            GameObject enemy = new GameObject("Enemy");
+            GameObject arrowObject = new GameObject("Flyby Then Hit Arrow");
+            GameObject surface = new GameObject("Later Impact Surface");
+            try
+            {
+                player.tag = "Player";
+                arrowObject.transform.position =
+                    new Vector3(0f, 0.595f, -5f);
+                BoxCollider collider =
+                    surface.AddComponent<BoxCollider>();
+                AudioClip flyby =
+                    AssetDatabase.LoadAssetAtPath<AudioClip>(
+                        "Assets/_Project/Audio/SFX/" +
+                        "Arrow Flyby.mp3");
+                BowArrowProjectile arrow =
+                    arrowObject.AddComponent<BowArrowProjectile>();
+                arrow.Launch(
+                    enemy,
+                    Vector3.forward * 80f,
+                    10f,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    flyby);
+                InvokeProjectileMethod(
+                    arrow,
+                    "AdvanceFlight",
+                    0.10f);
+                Assert.That(arrow.ActiveFlybyAudioSource, Is.Not.Null);
+
+                InvokeProjectileMethod(
+                    arrow,
+                    "ResolveImpact",
+                    collider,
+                    surface.transform.position);
+
+                Assert.That(arrow.FlybyStoppedByImpact, Is.True);
+                Assert.That(arrow.ActiveFlybyAudioSource, Is.Null);
+                Assert.That(
+                    GameObject.Find("Arrow Flyby Audio"),
+                    Is.Null,
+                    "Impact must remove the active flyby emitter immediately.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(surface);
+                Object.DestroyImmediate(arrowObject);
+                Object.DestroyImmediate(enemy);
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        private static void InvokeProjectileMethod(
+            BowArrowProjectile arrow,
+            string methodName,
+            params object[] arguments)
+        {
+            MethodInfo method = typeof(BowArrowProjectile).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null);
+            method.Invoke(arrow, arguments);
+        }
+
         private static void AssertAudibleSamples(
             AudioClip clip)
         {
@@ -249,6 +450,21 @@ namespace WorldBuilder.Tests
                 peak,
                 Is.GreaterThan(0.01f),
                 $"{clip.name} must contain audible waveform data.");
+        }
+
+        private static BowWeapon CreateReleaseTestBow(Transform owner)
+        {
+            GameObject bowObject = new GameObject("Release Test Bow");
+            bowObject.transform.SetParent(owner, false);
+            GameObject arrowObject = new GameObject("Nocked Arrow");
+            arrowObject.transform.SetParent(bowObject.transform, false);
+            BowWeapon bow = bowObject.AddComponent<BowWeapon>();
+            bow.Configure(
+                null,
+                owner,
+                bowObject.transform,
+                arrowObject.transform);
+            return bow;
         }
 
         [Test]
@@ -350,18 +566,32 @@ namespace WorldBuilder.Tests
                     AssetDatabase.LoadAssetAtPath<AudioClip>(
                         "Assets/_Project/Audio/SFX/" +
                         "Bow Pullback.wav");
+                AudioClip release =
+                    AssetDatabase.LoadAssetAtPath<AudioClip>(
+                        "Assets/_Project/Audio/SFX/" +
+                        "Bow Release.wav");
                 playerBow.Configure(
                     playerInput,
                     player.transform,
                     playerBowObject.transform,
                     playerArrow.transform,
-                    pullback);
+                    pullback,
+                    null,
+                    null,
+                    null,
+                    null,
+                    release);
                 enemyBow.Configure(
                     enemyInput,
                     enemy.transform,
                     enemyBowObject.transform,
                     enemyArrow.transform,
-                    pullback);
+                    pullback,
+                    null,
+                    null,
+                    null,
+                    null,
+                    release);
 
                 Assert.That(
                     playerBow.PullbackVolume,
@@ -369,6 +599,14 @@ namespace WorldBuilder.Tests
                 Assert.That(
                     playerBow.PullbackSpatialBlend,
                     Is.Zero);
+                Assert.That(playerBow.ReleaseClip, Is.SameAs(release));
+                Assert.That(
+                    playerBow.ReleaseVolume,
+                    Is.EqualTo(0.30f).Within(0.001f));
+                Assert.That(playerBow.ReleaseSpatialBlend, Is.Zero);
+                Assert.That(
+                    playerBow.ReleaseAudioHost,
+                    Is.SameAs(player));
                 Assert.That(
                     playerBow.HitFeedbackSpatialBlend,
                     Is.Zero);
@@ -392,6 +630,16 @@ namespace WorldBuilder.Tests
                 Assert.That(
                     enemyBow.PullbackSpatialBlend,
                     Is.EqualTo(1f));
+                Assert.That(enemyBow.ReleaseClip, Is.SameAs(release));
+                Assert.That(
+                    enemyBow.ReleaseVolume,
+                    Is.EqualTo(0.30f).Within(0.001f));
+                Assert.That(
+                    enemyBow.ReleaseSpatialBlend,
+                    Is.EqualTo(1f));
+                Assert.That(
+                    enemyBow.ReleaseAudioHost,
+                    Is.SameAs(enemy));
                 Assert.That(
                     enemyBow.PullbackMaxDistance,
                     Is.EqualTo(20f).Within(0.001f));

@@ -1,5 +1,8 @@
+using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
+using WorldBuilder.Gameplay.Characters;
+using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Diagnostics;
 using WorldBuilder.Gameplay.Input;
@@ -8,6 +11,74 @@ namespace WorldBuilder.Tests.EditMode
 {
     public sealed class DiagnosticSeamTests
     {
+        [Test]
+        public void SteepTerrainForcesDownhillMotion()
+        {
+            Vector3 steepNormal = Quaternion.AngleAxis(
+                62f,
+                Vector3.forward) * Vector3.up;
+            Vector3 motion = ThirdPersonMotor.ApplySteepSlopeSlide(
+                Vector3.left * 3f + Vector3.down * 2f,
+                steepNormal,
+                45f,
+                ThirdPersonMotor.DefaultSteepSlopeSlideSpeed);
+            Vector3 downhill = Vector3.ProjectOnPlane(
+                Vector3.down,
+                steepNormal).normalized;
+
+            Assert.That(
+                ThirdPersonMotor.IsSteepSlope(steepNormal, 45f),
+                Is.True);
+            Assert.That(
+                Vector3.Dot(motion, downhill),
+                Is.GreaterThan(0.5f),
+                "Movement on an unwalkable ramp must carry the player downhill instead of holding a jump pose in place.");
+            Assert.That(
+                ThirdPersonMotor.IsSteepSlope(Vector3.up, 45f),
+                Is.False);
+        }
+
+        [Test]
+        public void CorpseCollidersRemainRaycastableButDoNotBlockPlayer()
+        {
+            GameObject player = new GameObject("Traversal Test Player");
+            GameObject corpse = new GameObject("Traversal Test Corpse");
+            try
+            {
+                CharacterController controller =
+                    player.AddComponent<CharacterController>();
+                BoxCollider corpseCollider =
+                    corpse.AddComponent<BoxCollider>();
+
+                HumanoidRagdoll.IgnoreControllerCollision(
+                    controller,
+                    new[] { corpseCollider });
+
+                Assert.That(corpseCollider.enabled, Is.True);
+                Assert.That(corpseCollider.isTrigger, Is.False);
+                Assert.That(
+                    Physics.GetIgnoreCollision(
+                        controller,
+                        corpseCollider),
+                    Is.True,
+                    "A corpse must stay targetable for looting without snagging the player controller.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(corpse);
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
+        public void GameplayInteractionDefaultsToF()
+        {
+            Assert.That(
+                PlayerControlBindings.DefaultKeyName(
+                    PlayerControl.Interact),
+                Is.EqualTo("F"));
+        }
+
         [Test]
         public void DiagnosticIntentOverrideFeedsTheProductionInputBoundary()
         {
@@ -23,6 +94,7 @@ namespace WorldBuilder.Tests.EditMode
                     true,
                     false,
                     true,
+                    true,
                     true);
 
                 input.SetDiagnosticOverride(expected);
@@ -32,12 +104,238 @@ namespace WorldBuilder.Tests.EditMode
                 Assert.That(input.CurrentIntent.SprintHeld, Is.True);
                 Assert.That(input.CurrentIntent.JumpPressed, Is.True);
                 Assert.That(input.CurrentIntent.AttackPressed, Is.True);
+                Assert.That(input.CurrentIntent.AttackHeld, Is.True);
                 Assert.That(input.CurrentIntent.BlockHeld, Is.True);
             }
             finally
             {
                 Object.DestroyImmediate(owner);
             }
+        }
+
+        [Test]
+        public void PlayerBowDrawUsesHeldLeftClickNotRightClick()
+        {
+            GameObject player = new GameObject("left-click-bow-player");
+            try
+            {
+                player.tag = "Player";
+                PlayerInputSource input =
+                    player.AddComponent<PlayerInputSource>();
+                GameObject bowObject = new GameObject("left-click-bow");
+                bowObject.transform.SetParent(player.transform, false);
+                GameObject arrowObject = new GameObject("nocked-arrow");
+                arrowObject.transform.SetParent(bowObject.transform, false);
+                BowWeapon bow = bowObject.AddComponent<BowWeapon>();
+                bow.Configure(
+                    input,
+                    player.transform,
+                    bowObject.transform,
+                    arrowObject.transform);
+                bow.SetWeaponEquipped(true);
+
+                input.SetDiagnosticOverride(new PlayerIntent(
+                    Vector2.zero,
+                    Vector2.zero,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    false,
+                    true));
+                InvokeBowUpdate(bow);
+
+                Assert.That(bow.DrawInputHeld, Is.True);
+                Assert.That(bow.IsDrawing, Is.True);
+
+                input.SetDiagnosticOverride(new PlayerIntent(
+                    Vector2.zero,
+                    Vector2.zero,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    false));
+                InvokeBowUpdate(bow);
+
+                Assert.That(bow.DrawInputHeld, Is.False);
+                Assert.That(
+                    bow.IsDrawing,
+                    Is.False,
+                    "Right click must not begin or sustain a player bow draw.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
+        public void EnemyBowDrawStillUsesItsAiHoldSignal()
+        {
+            GameObject enemy = new GameObject("ai-bow-enemy");
+            try
+            {
+                PlayerInputSource input =
+                    enemy.AddComponent<PlayerInputSource>();
+                GameObject bowObject = new GameObject("ai-bow");
+                bowObject.transform.SetParent(enemy.transform, false);
+                GameObject arrowObject = new GameObject("nocked-arrow");
+                arrowObject.transform.SetParent(bowObject.transform, false);
+                BowWeapon bow = bowObject.AddComponent<BowWeapon>();
+                bow.Configure(
+                    input,
+                    enemy.transform,
+                    bowObject.transform,
+                    arrowObject.transform);
+                bow.SetWeaponEquipped(true);
+
+                input.SetDiagnosticOverride(new PlayerIntent(
+                    Vector2.zero,
+                    Vector2.zero,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true,
+                    false));
+                InvokeBowUpdate(bow);
+
+                Assert.That(bow.IsPlayerOwned, Is.False);
+                Assert.That(bow.DrawInputHeld, Is.True);
+                Assert.That(bow.IsDrawing, Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
+        public void PlayerBowWaitsForRenockBeforeAnotherDraw()
+        {
+            GameObject player = new GameObject("player-bow-recovery");
+            try
+            {
+                player.tag = "Player";
+                PlayerInputSource input =
+                    player.AddComponent<PlayerInputSource>();
+                GameObject bowObject = new GameObject("player-bow");
+                bowObject.transform.SetParent(player.transform, false);
+                GameObject arrowObject = new GameObject("nocked-arrow");
+                arrowObject.transform.SetParent(bowObject.transform, false);
+                BowWeapon bow = bowObject.AddComponent<BowWeapon>();
+                bow.Configure(
+                    input,
+                    player.transform,
+                    bowObject.transform,
+                    arrowObject.transform);
+                bow.SetWeaponEquipped(true);
+
+                MethodInfo fireArrow = typeof(BowWeapon).GetMethod(
+                    "FireArrow",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(fireArrow, Is.Not.Null);
+                fireArrow.Invoke(bow, new object[] { 1f });
+
+                Assert.That(bow.ArrowReady, Is.False);
+                Assert.That(
+                    bow.EffectiveReloadDuration,
+                    Is.EqualTo(0.65f).Within(0.001f));
+                Assert.That(
+                    bow.ReloadRemaining,
+                    Is.EqualTo(bow.EffectiveReloadDuration).Within(0.001f));
+
+                input.SetDiagnosticOverride(new PlayerIntent(
+                    Vector2.zero,
+                    Vector2.zero,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true));
+                InvokeBowUpdate(bow);
+
+                Assert.That(
+                    bow.IsDrawing,
+                    Is.False,
+                    "Holding left click during recovery must wait until the replacement arrow is nocked.");
+                Assert.That(bow.DrawInputHeld, Is.False);
+
+                if (bow.LastFiredProjectile != null)
+                {
+                    Object.DestroyImmediate(
+                        bow.LastFiredProjectile.gameObject);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
+        public void PlayerBowRecoveryPoseLastsForTheRenockWindow()
+        {
+            float heldFollowThrough = BowWeapon.CalculateReadyWeight(
+                1f,
+                false,
+                0.18f,
+                0.18f,
+                0.65f,
+                0.47f,
+                true);
+            float ordinaryReturnWeight =
+                BowWeapon.CalculateReadyWeight(
+                    1f,
+                    false,
+                    0.18f,
+                    0.18f,
+                    0.65f,
+                    0f,
+                    false);
+
+            Assert.That(
+                heldFollowThrough,
+                Is.EqualTo(1f).Within(0.001f),
+                "The released bow should stay raised through most of the reload.");
+            Assert.That(
+                ordinaryReturnWeight,
+                Is.Zero,
+                "Cancelled draws and NPC behavior should retain the ordinary quick return.");
+            Assert.That(
+                BowWeapon.CalculateReadyWeight(
+                    1f,
+                    false,
+                    0.65f,
+                    0.18f,
+                    0.65f,
+                    0f,
+                    true),
+                Is.Zero,
+                "The release pose should reach rest exactly when re-nocking completes.");
+            Assert.That(
+                BowWeapon.CalculatePostShotReadyWeight(
+                    0.09f,
+                    0.65f,
+                    0.18f),
+                Is.EqualTo(0.5f).Within(0.001f),
+                "The bow should complete a quick return during the final reload portion.");
+        }
+
+        private static void InvokeBowUpdate(BowWeapon bow)
+        {
+            MethodInfo update = typeof(BowWeapon).GetMethod(
+                "Update",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(update, Is.Not.Null);
+            update.Invoke(bow, null);
         }
 
         [Test]

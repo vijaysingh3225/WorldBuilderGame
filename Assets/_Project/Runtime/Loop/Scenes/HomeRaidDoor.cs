@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -29,8 +30,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             if (!launchRequested &&
                 PlayerInside &&
-                Keyboard.current != null &&
-                Keyboard.current.eKey.wasPressedThisFrame)
+                PlayerControlBindings.WasPressedThisFrame(
+                    Keyboard.current,
+                    PlayerControl.Interact))
             {
                 launchRequested =
                     homeBase != null &&
@@ -73,7 +75,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new Color(0.30f, 0.66f, 0.44f));
             GUI.Label(
                 prompt,
-                "[E]  ENTER RAID",
+                $"[{PlayerControlBindings.KeyName(PlayerControlBindings.GetKey(PlayerControl.Interact))}]  ENTER RAID",
                 LoopSceneGui.Centered);
         }
     }
