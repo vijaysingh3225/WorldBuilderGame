@@ -442,6 +442,15 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             return new List<ArtifactDefinitionData>
             {
                 new ArtifactDefinitionData(
+                    "artifact-power-shard",
+                    "Power Shard",
+                    new Color(0.96f, 0.64f, 0.18f),
+                    new[] { GridCoordinate.Root },
+                    new[]
+                    {
+                        new ArtifactStatModifier(ArtifactStat.Damage, 1f)
+                    }),
+                new ArtifactDefinitionData(
                     "keen-shard",
                     "Keen Shard",
                     new Color(0.93f, 0.38f, 0.19f),

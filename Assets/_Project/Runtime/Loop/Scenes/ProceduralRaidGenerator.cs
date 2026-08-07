@@ -53,10 +53,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public Vector3[] River;
             public Vector3 PlayerSpawn;
             public Vector3 ExtractionPoint;
+            public float[] CoastRadii;
+            public float MaximumCoastRadius;
 
             public Vector3 PlayerStart => PlayerSpawn;
 
             public Vector3 Extraction => ExtractionPoint;
+
+            public float CoastRadiusAtAngle(float angle)
+            {
+                return SampleIslandCoastRadius(
+                    CoastRadii,
+                    angle);
+            }
         }
 
         [Header("Scene References")]
@@ -146,6 +155,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float GrassRoadInteriorLimit = -1.35f;
         private const float GrassRiverClearance = 0.78f;
         private const float RiverWaterBankOverlap = 1.15f;
+        private const int IslandCoastSampleCount = 256;
+        private const float CoastSandWidth = 8.5f;
+        private const float CoastPlacementInset = 3.2f;
+        private const float CoastBarrierInset = 0.65f;
+        private const float OceanDepthBelowShore = 0.72f;
+        private const float OceanVisualRadiusMultiplier = 5f;
+        private const float OceanShoreOverlap = 1.15f;
+        private const int CoastBarrierSegments = 128;
+        private const int IslandShapeSeedSalt = 0x35a91c7;
         private const float BridgeCrossSectionScale = 0.46f;
         private const float BridgeExtraWidthScale = 1.65f;
         private const float BridgeDeckLift = 0.35f;
@@ -182,6 +200,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float CampTrailMinimumDistance = 9f;
         private const float CampTrailMaximumDistance = 34f;
         private const float CampRiverClearance = 13f;
+        public const float FireflyMapChance = 0.14f;
+        private const int FireflySeedSalt = 0x51f17e;
+        private const int FireflyPlacementAttempts = 72;
+        private const float FireflyZoneRadius = 5.2f;
         private const float LevelTwoCampChance = 0.5f;
         private const float LevelTwoCampClearingRadius = 17.2f;
         private const float LevelTwoBenchTargetSize = 1.7625f;
@@ -717,6 +739,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private readonly List<Vector2>
             generatedFoliageAnchors =
                 new List<Vector2>();
+        private readonly List<Vector2>
+            generatedFireflyZoneCenters =
+                new List<Vector2>();
         private readonly List<CampSite> campSites =
             new List<CampSite>();
         private readonly List<BridgeNavigationRoute>
@@ -777,13 +802,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private int generatedCampSwordGuardCount;
         private int generatedCampWoodenBoxCount;
         private int generatedBridgeCount;
+        private int generatedFireflyZoneCount;
         private int generatedRendererCount;
         private int generatedColliderCount;
         private Vector2 noiseOffsetA;
         private Vector2 noiseOffsetB;
+        private float oceanWaterLevel;
         private Vector2 elevationDirection;
         private HabitatSample[] habitatField = Array.Empty<HabitatSample>();
         private int habitatGridSize;
+        private float habitatFieldExtent;
         private float[] dominantHabitatPercentages = new float[5];
         private float[] groundFloraSelectionWeights =
             Array.Empty<float>();
@@ -1099,6 +1127,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         }
         public int GeneratedBridgeCount =>
             generatedBridgeCount;
+        public int GeneratedFireflyZoneCount =>
+            generatedFireflyZoneCount;
+        public IReadOnlyList<Vector2> FireflyZoneCenters =>
+            generatedFireflyZoneCenters;
         public int GeneratedRendererCount =>
             generatedRendererCount;
         public int GeneratedColliderCount =>
@@ -1116,6 +1148,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             forestFloorDebugMode;
         public IReadOnlyList<Vector2> ObeliskPositions =>
             obeliskPositions;
+
+        public static bool ShouldGenerateFireflies(int seed)
+        {
+            var random = new System.Random(
+                unchecked(seed ^ FireflySeedSalt));
+            return random.NextDouble() < FireflyMapChance;
+        }
 
         public float DominantHabitatPercentage(
             ForestHabitat habitat)
@@ -1323,6 +1362,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             elevationDirection = new Vector2(
                 Mathf.Cos(elevationAngle),
                 Mathf.Sin(elevationAngle));
+            oceanWaterLevel = RawLandHeight(0f, 0f) - 5.2f;
 
             mainRoadSamples.Clear();
             forkRoadSamples.Clear();
@@ -1441,11 +1481,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     RiverWaterBankOverlap,
                 waterRuntime,
                 false);
+            CreateOcean(waterRuntime);
             CreateBridges();
-            CreateArenaHorizonBoundary();
+            CreateIslandShoreBoundary();
             CreateForestCamps(
                 new System.Random(
                     unchecked(seed ^ (int)0x43f17a2d)));
+            CreateRareFireflyZone(seed);
             RecordGenerationStage(
                 "river-bridges-and-camps",
                 generationTimer,
@@ -1489,6 +1531,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 $"campGuards={generatedCampGuardCount}; " +
                 $"campBows={generatedCampBowGuardCount}; " +
                 $"campSwords={generatedCampSwordGuardCount}; " +
+                $"fireflyZones={generatedFireflyZoneCount}; " +
                 $"fork={layout.HasRoadFork}; " +
                 $"crossing={layout.RiverCrossesRoad}; " +
                 $"generationMs={lastGenerationMilliseconds:0.0}; " +
@@ -1632,6 +1675,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int seed,
             float radius)
         {
+            float[] coastRadii = CreateIslandCoastRadii(
+                seed,
+                radius);
             var random = new System.Random(seed);
             float mainAngle =
                 Mathf.Lerp(
@@ -1769,6 +1815,43 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 oppositeAngle,
                 ExtractionOppositeArc);
 
+            WarpPolylineToIsland(road, radius, coastRadii);
+            WarpPolylineToIsland(fork, radius, coastRadii);
+            WarpPolylineToIsland(branchA, radius, coastRadii);
+            WarpPolylineToIsland(branchB, radius, coastRadii);
+            WarpPolylineToIsland(branchC, radius, coastRadii);
+            WarpPolylineToIsland(river, radius, coastRadii);
+            playerSpawn = WarpPointToIsland(
+                playerSpawn,
+                radius,
+                coastRadii);
+            extraction = WarpPointToIsland(
+                extraction,
+                radius,
+                coastRadii);
+            ExtendRiverMouthToOcean(
+                river,
+                coastRadii);
+            StraightenRiverCrossings(road, river);
+            StraightenRiverCrossings(fork, river);
+            StraightenRiverCrossings(branchA, river);
+            StraightenRiverCrossings(branchB, river);
+            StraightenRiverCrossings(branchC, river);
+            SnapBranchStartToRoute(branchA, road);
+            SnapBranchStartToRoute(
+                branchB,
+                fork.Length > 0 ? fork : road);
+
+            float maximumCoastRadius = 0f;
+            for (int index = 0;
+                 index < coastRadii.Length;
+                 index++)
+            {
+                maximumCoastRadius = Mathf.Max(
+                    maximumCoastRadius,
+                    coastRadii[index]);
+            }
+
             return new RaidLayout
             {
                 Seed = seed,
@@ -1781,9 +1864,195 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 BranchRoadC = branchC,
                 River = river,
                 PlayerSpawn = playerSpawn,
-                ExtractionPoint = extraction
+                ExtractionPoint = extraction,
+                CoastRadii = coastRadii,
+                MaximumCoastRadius = maximumCoastRadius
             };
         }
+
+        public static float[] CreateIslandCoastRadii(
+            int seed,
+            float equalAreaRadius)
+        {
+            var random = new System.Random(
+                unchecked(seed ^ IslandShapeSeedSalt));
+            float phaseOne = RandomAngle(random);
+            float phaseTwo = RandomAngle(random);
+            float phaseThree = RandomAngle(random);
+            float phaseFour = RandomAngle(random);
+            float phaseFive = RandomAngle(random);
+            float amplitudeOne = Mathf.Lerp(
+                0.045f,
+                0.095f,
+                (float)random.NextDouble());
+            float amplitudeTwo = Mathf.Lerp(
+                0.075f,
+                0.135f,
+                (float)random.NextDouble());
+            float amplitudeThree = Mathf.Lerp(
+                0.045f,
+                0.09f,
+                (float)random.NextDouble());
+            float amplitudeFour = Mathf.Lerp(
+                0.018f,
+                0.052f,
+                (float)random.NextDouble());
+            float amplitudeFive = Mathf.Lerp(
+                0.01f,
+                0.032f,
+                (float)random.NextDouble());
+            var radii = new float[IslandCoastSampleCount];
+            float squaredTotal = 0f;
+            for (int index = 0;
+                 index < radii.Length;
+                 index++)
+            {
+                float angle = index * Mathf.PI * 2f /
+                    radii.Length;
+                float shape = 1f +
+                    Mathf.Sin(angle + phaseOne) * amplitudeOne +
+                    Mathf.Cos(angle * 2f + phaseTwo) * amplitudeTwo +
+                    Mathf.Sin(angle * 3f + phaseThree) * amplitudeThree +
+                    Mathf.Cos(angle * 4f + phaseFour) * amplitudeFour +
+                    Mathf.Sin(angle * 5f + phaseFive) * amplitudeFive;
+                radii[index] = Mathf.Clamp(shape, 0.72f, 1.30f);
+                squaredTotal += radii[index] * radii[index];
+            }
+
+            float areaNormalization = equalAreaRadius *
+                Mathf.Sqrt(radii.Length / squaredTotal);
+            for (int index = 0;
+                 index < radii.Length;
+                 index++)
+            {
+                radii[index] *= areaNormalization;
+            }
+            return radii;
+        }
+
+        public static float SampleIslandCoastRadius(
+            float[] coastRadii,
+            float angle)
+        {
+            if (coastRadii == null || coastRadii.Length == 0)
+            {
+                return 0f;
+            }
+            float normalized = Mathf.Repeat(
+                angle / (Mathf.PI * 2f),
+                1f) * coastRadii.Length;
+            int first = Mathf.FloorToInt(normalized) %
+                coastRadii.Length;
+            int second = (first + 1) % coastRadii.Length;
+            return Mathf.Lerp(
+                coastRadii[first],
+                coastRadii[second],
+                normalized - Mathf.Floor(normalized));
+        }
+
+        private static float RandomAngle(System.Random random)
+        {
+            return (float)random.NextDouble() * Mathf.PI * 2f;
+        }
+
+        private static Vector3 WarpPointToIsland(
+            Vector3 point,
+            float sourceRadius,
+            float[] coastRadii)
+        {
+            float distance = new Vector2(point.x, point.z).magnitude;
+            if (distance <= 0.0001f)
+            {
+                return point;
+            }
+            float angle = Mathf.Atan2(point.z, point.x);
+            float coastRadius = SampleIslandCoastRadius(
+                coastRadii,
+                angle);
+            float warpedDistance = distance /
+                Mathf.Max(0.001f, sourceRadius) * coastRadius;
+            return new Vector3(
+                Mathf.Cos(angle) * warpedDistance,
+                point.y,
+                Mathf.Sin(angle) * warpedDistance);
+        }
+
+        private static void WarpPolylineToIsland(
+            Vector3[] points,
+            float sourceRadius,
+            float[] coastRadii)
+        {
+            if (points == null)
+            {
+                return;
+            }
+            for (int index = 0; index < points.Length; index++)
+            {
+                points[index] = WarpPointToIsland(
+                    points[index],
+                    sourceRadius,
+                    coastRadii);
+            }
+        }
+
+        private static void ExtendRiverMouthToOcean(
+            Vector3[] river,
+            float[] coastRadii)
+        {
+            if (river == null || river.Length < 2)
+            {
+                return;
+            }
+            int[] endpoints = { 0, river.Length - 1 };
+            for (int endpointIndex = 0;
+                 endpointIndex < endpoints.Length;
+                 endpointIndex++)
+            {
+                int index = endpoints[endpointIndex];
+                Vector3 point = river[index];
+                float angle = Mathf.Atan2(point.z, point.x);
+                float radius = SampleIslandCoastRadius(
+                    coastRadii,
+                    angle) + 2.5f;
+                river[index] = new Vector3(
+                    Mathf.Cos(angle) * radius,
+                    point.y,
+                    Mathf.Sin(angle) * radius);
+            }
+        }
+
+        private static void SnapBranchStartToRoute(
+            Vector3[] branch,
+            Vector3[] route)
+        {
+            if (branch == null || branch.Length == 0 ||
+                route == null || route.Length < 2)
+            {
+                return;
+            }
+            Vector3 point = branch[0];
+            Vector3 closest = route[0];
+            float closestSquared = float.PositiveInfinity;
+            for (int index = 0; index < route.Length - 1; index++)
+            {
+                Vector3 segment = route[index + 1] - route[index];
+                float progress = segment.sqrMagnitude > 0.000001f
+                    ? Mathf.Clamp01(
+                        Vector3.Dot(point - route[index], segment) /
+                        segment.sqrMagnitude)
+                    : 0f;
+                Vector3 candidate = route[index] + segment * progress;
+                float distanceSquared =
+                    (point - candidate).sqrMagnitude;
+                if (distanceSquared < closestSquared)
+                {
+                    closestSquared = distanceSquared;
+                    closest = candidate;
+                }
+            }
+            branch[0] = closest;
+        }
+
 
         private static Vector3 FindOuterSpawnPoint(
             System.Random random,
@@ -2629,16 +2898,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new Vector2[vertices.Length];
             var roadField =
                 new float[vertices.Length];
-            float diameter = mapRadius * 2f;
+            float terrainExtent = IslandGenerationExtent;
+            float diameter = terrainExtent * 2f;
             for (int z = 0; z < width; z++)
             {
                 for (int x = 0; x < width; x++)
                 {
                     float worldX =
-                        -mapRadius +
+                        -terrainExtent +
                         diameter * x / terrainResolution;
                     float worldZ =
-                        -mapRadius +
+                        -terrainExtent +
                         diameter * z / terrainResolution;
                     int index = z * width + x;
                     vertices[index] =
@@ -2685,18 +2955,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                      x++)
                 {
                     float centerX =
-                        -mapRadius +
+                        -terrainExtent +
                         diameter *
                         (x + 0.5f) /
                         terrainResolution;
                     float centerZ =
-                        -mapRadius +
+                        -terrainExtent +
                         diameter *
                         (z + 0.5f) /
                         terrainResolution;
-                    if (centerX * centerX +
-                        centerZ * centerZ >
-                        mapRadius * mapRadius)
+                    if (!IsInsideIsland(
+                            new Vector2(centerX, centerZ),
+                            0f))
                     {
                         continue;
                     }
@@ -2734,7 +3004,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             Mesh mesh = TrackRuntimeResource(new Mesh
             {
-                name = "Procedural Raid Disc"
+                name = "Procedural Raid Island"
             });
             mesh.indexFormat = IndexFormat.UInt32;
             mesh.SetVertices(meshVertices);
@@ -2804,7 +3074,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 ref previousTerrainStageEnd);
 
             GameObject terrain =
-                new GameObject("Terrain Disc");
+                new GameObject("Terrain Island");
             terrain.transform.SetParent(
                 generatedRoot,
                 false);
@@ -3385,117 +3655,147 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 });
         }
 
-        private void CreateArenaHorizonBoundary()
+        private void CreateOcean(Material waterRuntime)
         {
-            Transform root = new GameObject(
-                "Arena Horizon Fog and Boundary").transform;
-            root.SetParent(generatedRoot, false);
-
-            const int visualSegments = 128;
-            const int heightBands = 4;
-            float visualRadius = mapRadius - 1.4f;
-            var vertices = new List<Vector3>(
-                (visualSegments + 1) * heightBands);
-            var colors = new List<Color>(vertices.Capacity);
-            var triangles = new List<int>(
-                visualSegments * (heightBands - 1) * 6);
-            float[] heightOffsets = { -4f, 4.5f, 11f, 21f };
-            float[] alpha = { 0.98f, 0.94f, 0.48f, 0f };
-            for (int segment = 0;
-                 segment <= visualSegments;
-                 segment++)
+            float extent = Mathf.Max(
+                mapRadius * OceanVisualRadiusMultiplier,
+                IslandGenerationExtent + mapRadius * 3f);
+            int ringCount = IslandCoastSampleCount;
+            var vertices = new Vector3[ringCount * 2];
+            var uv = new Vector2[vertices.Length];
+            var triangles = new int[ringCount * 6];
+            for (int index = 0; index < ringCount; index++)
             {
-                float angle = segment * Mathf.PI * 2f /
-                    visualSegments;
-                float x = Mathf.Cos(angle) * visualRadius;
-                float z = Mathf.Sin(angle) * visualRadius;
-                float ground = TerrainHeight(x, z);
-                for (int band = 0; band < heightBands; band++)
-                {
-                    vertices.Add(new Vector3(
-                        x,
-                        ground + heightOffsets[band],
-                        z));
-                    colors.Add(new Color(1f, 1f, 1f, alpha[band]));
-                }
-            }
-            for (int segment = 0;
-                 segment < visualSegments;
-                 segment++)
-            {
-                int start = segment * heightBands;
-                int next = (segment + 1) * heightBands;
-                for (int band = 0;
-                     band < heightBands - 1;
-                     band++)
-                {
-                    triangles.Add(start + band);
-                    triangles.Add(start + band + 1);
-                    triangles.Add(next + band + 1);
-                    triangles.Add(start + band);
-                    triangles.Add(next + band + 1);
-                    triangles.Add(next + band);
-                }
-            }
+                float angle = index * Mathf.PI * 2f / ringCount;
+                float cosine = Mathf.Cos(angle);
+                float sine = Mathf.Sin(angle);
+                float coastRadius = Mathf.Max(
+                    1f,
+                    layout.CoastRadiusAtAngle(angle) -
+                        OceanShoreOverlap);
+                float squareRadius = extent / Mathf.Max(
+                    0.001f,
+                    Mathf.Max(
+                        Mathf.Abs(cosine),
+                        Mathf.Abs(sine)));
+                vertices[index] = new Vector3(
+                    cosine * coastRadius,
+                    oceanWaterLevel,
+                    sine * coastRadius);
+                vertices[ringCount + index] = new Vector3(
+                    cosine * squareRadius,
+                    oceanWaterLevel,
+                    sine * squareRadius);
+                uv[index] = new Vector2(
+                    vertices[index].x / 8f,
+                    vertices[index].z / 8f);
+                uv[ringCount + index] = new Vector2(
+                    vertices[ringCount + index].x / 8f,
+                    vertices[ringCount + index].z / 8f);
 
+                int next = (index + 1) % ringCount;
+                int triangle = index * 6;
+                triangles[triangle] = index;
+                triangles[triangle + 1] = next;
+                triangles[triangle + 2] = ringCount + next;
+                triangles[triangle + 3] = index;
+                triangles[triangle + 4] = ringCount + next;
+                triangles[triangle + 5] = ringCount + index;
+            }
             Mesh mesh = TrackRuntimeResource(new Mesh
             {
-                name = "Low Horizon Fog Ring"
+                name = "Endless Ocean Surface"
             });
-            mesh.indexFormat = IndexFormat.UInt32;
-            mesh.SetVertices(vertices);
-            mesh.SetColors(colors);
-            mesh.SetTriangles(triangles, 0);
+            mesh.vertices = vertices;
+            mesh.uv = uv;
+            mesh.triangles = triangles;
+            mesh.RecalculateNormals();
             mesh.RecalculateBounds();
-            GameObject fog = new GameObject("Low Horizon Fog");
-            fog.transform.SetParent(root, false);
-            fog.AddComponent<MeshFilter>().sharedMesh = mesh;
-            MeshRenderer renderer = fog.AddComponent<MeshRenderer>();
-            Shader shader = Shader.Find("WorldBuilder/Low Horizon Fog");
-            if (shader != null)
-            {
-                Material material = TrackRuntimeResource(
-                    new Material(shader)
-                    {
-                        name = "Generated Low Horizon Fog"
-                    });
-                material.SetColor(
-                    "_BaseColor",
-                    new Color(0.15f, 0.28f, 0.26f, 1f));
-                renderer.sharedMaterial = material;
-            }
-            renderer.shadowCastingMode = ShadowCastingMode.Off;
-            renderer.receiveShadows = false;
 
-            const int colliderSegments = 48;
-            float barrierRadius = mapRadius - 0.65f;
-            float segmentLength =
-                2f * Mathf.PI * barrierRadius /
-                colliderSegments + 1.1f;
+            GameObject ocean = new GameObject("Endless Ocean");
+            ocean.transform.SetParent(generatedRoot, false);
+            ocean.AddComponent<MeshFilter>().sharedMesh = mesh;
+            MeshRenderer renderer = ocean.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = CreateOceanMaterial(
+                waterRuntime);
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = true;
+        }
+
+        private Material CreateOceanMaterial(Material source)
+        {
+            Material material = TrackRuntimeResource(
+                source != null
+                    ? new Material(source)
+                    : new Material(
+                        Shader.Find(
+                            "Universal Render Pipeline/Lit")));
+            material.name = "Procedural Deep Ocean";
+            Color deepBlue = new Color(
+                0.024f,
+                0.098f,
+                0.212f,
+                1f);
+            Color blueCurrent = new Color(
+                0.043f,
+                0.216f,
+                0.40f,
+                1f);
+            if (material.HasProperty("_DeepColor"))
+            {
+                material.SetColor("_DeepColor", deepBlue);
+            }
+            if (material.HasProperty("_CurrentColor"))
+            {
+                material.SetColor(
+                    "_CurrentColor",
+                    blueCurrent);
+            }
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", deepBlue);
+            }
+            return material;
+        }
+
+        private void CreateIslandShoreBoundary()
+        {
+            Transform root = new GameObject(
+                "Island Shoreline Boundary").transform;
+            root.SetParent(generatedRoot, false);
             for (int segment = 0;
-                 segment < colliderSegments;
+                 segment < CoastBarrierSegments;
                  segment++)
             {
-                float angle = (segment + 0.5f) *
-                    Mathf.PI * 2f / colliderSegments;
-                Vector3 radial = new Vector3(
-                    Mathf.Cos(angle),
-                    0f,
-                    Mathf.Sin(angle));
-                Vector3 center = radial * barrierRadius;
-                center.y = TerrainHeight(center.x, center.z) + 7f;
+                float startAngle = segment * Mathf.PI * 2f /
+                    CoastBarrierSegments;
+                float endAngle = (segment + 1f) * Mathf.PI * 2f /
+                    CoastBarrierSegments;
+                Vector3 start = CoastPoint(
+                    startAngle,
+                    CoastBarrierInset);
+                Vector3 end = CoastPoint(
+                    endAngle,
+                    CoastBarrierInset);
+                Vector3 center = (start + end) * 0.5f;
+                Vector3 tangent = Vector3.ProjectOnPlane(
+                    end - start,
+                    Vector3.up).normalized;
+                center.y = Mathf.Max(
+                    oceanWaterLevel,
+                    TerrainHeight(center.x, center.z)) + 5f;
                 GameObject section = new GameObject(
-                    $"Boundary Collider {segment + 1:00}");
+                    $"Shore Collider {segment + 1:000}");
                 section.transform.SetParent(root, false);
                 section.transform.position = center;
-                section.transform.rotation = Quaternion.LookRotation(
-                    radial,
-                    Vector3.up);
+                section.transform.rotation = Quaternion.FromToRotation(
+                    Vector3.right,
+                    tangent);
                 BoxCollider collider = section.AddComponent<BoxCollider>();
                 collider.size = new Vector3(
-                    segmentLength,
-                    28f,
-                    1.8f);
+                    Vector3.Distance(start, end) + 0.8f,
+                    18f,
+                    1.1f);
             }
         }
 
@@ -3753,7 +4053,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     float trailDistance = DistanceToRoad(point);
                     Vector3 groundNormal =
                         TerrainNormalAt(point.x, point.y);
-                    if (trailDistance < CampTrailMinimumDistance ||
+                    if (!IsInsideIsland(
+                            point,
+                            footprintRadius + 2f) ||
+                        trailDistance < CampTrailMinimumDistance ||
                         trailDistance > CampTrailMaximumDistance ||
                         DistanceToRiverExact(point) <
                             CampRiverClearance ||
@@ -4792,6 +5095,194 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return texture;
         }
 
+        private void CreateRareFireflyZone(int seed)
+        {
+            generatedFireflyZoneCount = 0;
+            generatedFireflyZoneCenters.Clear();
+            var random = new System.Random(
+                unchecked(seed ^ FireflySeedSalt));
+            if (random.NextDouble() >= FireflyMapChance)
+            {
+                return;
+            }
+
+            for (int attempt = 0;
+                 attempt < FireflyPlacementAttempts;
+                 attempt++)
+            {
+                float angle = (float)random.NextDouble() *
+                    Mathf.PI * 2f;
+                float radius = Mathf.Sqrt(
+                    Mathf.Lerp(
+                        0.03f,
+                        0.61f,
+                        (float)random.NextDouble())) *
+                    mapRadius;
+                var point = new Vector2(
+                    Mathf.Cos(angle) * radius,
+                    Mathf.Sin(angle) * radius);
+                HabitatSample habitat = ForestHabitatAt(point);
+                if (habitat.CanopyInfluence < 0.28f ||
+                    habitat.MoistureTendency < 0.46f ||
+                    DistanceToRoad(point) < 7.5f ||
+                    IsInsideCampClearing(point, 3f) ||
+                    IsInsideSpawnSolidClearance(point) ||
+                    IsInsideObeliskClearance(point, 11f))
+                {
+                    continue;
+                }
+
+                CreateFireflyParticles(point, seed);
+                generatedFireflyZoneCenters.Add(point);
+                generatedFireflyZoneCount = 1;
+                return;
+            }
+        }
+
+        private void CreateFireflyParticles(
+            Vector2 point,
+            int seed)
+        {
+            GameObject effect = new GameObject(
+                "Rare Firefly Pocket");
+            effect.transform.SetParent(generatedRoot, false);
+            effect.transform.position = SurfacePoint(
+                new Vector3(point.x, 0f, point.y),
+                0.75f);
+
+            ParticleSystem particles =
+                effect.AddComponent<ParticleSystem>();
+            particles.useAutoRandomSeed = false;
+            particles.randomSeed = unchecked((uint)seed ^ 0x91e10da5u);
+            ParticleSystem.MainModule main = particles.main;
+            main.loop = true;
+            main.prewarm = true;
+            main.duration = 9f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(
+                6.5f,
+                10.5f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(
+                0.035f,
+                0.12f);
+            main.startSize = new ParticleSystem.MinMaxCurve(
+                0.035f,
+                0.075f);
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 0.78f, 0.14f, 0.82f),
+                new Color(1f, 0.94f, 0.48f, 0.96f));
+            main.gravityModifier = -0.006f;
+            main.maxParticles = 22;
+            main.simulationSpace =
+                ParticleSystemSimulationSpace.Local;
+
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.rateOverTime = new ParticleSystem.MinMaxCurve(
+                1.35f,
+                1.9f);
+            ParticleSystem.ShapeModule shape = particles.shape;
+            shape.shapeType = ParticleSystemShapeType.Box;
+            shape.scale = new Vector3(
+                FireflyZoneRadius * 2f,
+                1.45f,
+                FireflyZoneRadius * 2f);
+            shape.randomDirectionAmount = 1f;
+
+            ParticleSystem.NoiseModule noise = particles.noise;
+            noise.enabled = true;
+            noise.separateAxes = true;
+            noise.strengthX = 0.24f;
+            noise.strengthY = 0.12f;
+            noise.strengthZ = 0.24f;
+            noise.frequency = 0.24f;
+            noise.scrollSpeed = 0.09f;
+            noise.damping = true;
+
+            ParticleSystem.ColorOverLifetimeModule colors =
+                particles.colorOverLifetime;
+            colors.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(
+                        new Color(1f, 0.76f, 0.10f), 0f),
+                    new GradientColorKey(
+                        new Color(1f, 0.94f, 0.42f), 0.5f),
+                    new GradientColorKey(
+                        new Color(1f, 0.72f, 0.08f), 1f)
+                },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.92f, 0.12f),
+                    new GradientAlphaKey(0.08f, 0.34f),
+                    new GradientAlphaKey(0.78f, 0.56f),
+                    new GradientAlphaKey(0.04f, 0.77f),
+                    new GradientAlphaKey(0.68f, 0.91f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            colors.color = gradient;
+
+            Shader shader = Shader.Find(
+                "Universal Render Pipeline/Particles/Unlit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Particles/Standard Unlit");
+            }
+            if (shader != null)
+            {
+                Material material = TrackRuntimeResource(
+                    new Material(shader)
+                    {
+                        name = "Generated Firefly Glow"
+                    });
+                Texture2D glowTexture = TrackRuntimeResource(
+                    CreateSoftCampfireParticleTexture());
+                glowTexture.name = "Generated Soft Firefly Glow";
+                if (material.HasProperty("_BaseMap"))
+                {
+                    material.SetTexture("_BaseMap", glowTexture);
+                }
+                if (material.HasProperty("_MainTex"))
+                {
+                    material.SetTexture("_MainTex", glowTexture);
+                }
+                material.SetOverrideTag("RenderType", "Transparent");
+                if (material.HasProperty("_Surface"))
+                {
+                    material.SetFloat("_Surface", 1f);
+                }
+                if (material.HasProperty("_SrcBlend"))
+                {
+                    material.SetFloat(
+                        "_SrcBlend",
+                        (float)BlendMode.SrcAlpha);
+                }
+                if (material.HasProperty("_DstBlend"))
+                {
+                    material.SetFloat(
+                        "_DstBlend",
+                        (float)BlendMode.One);
+                }
+                if (material.HasProperty("_ZWrite"))
+                {
+                    material.SetFloat("_ZWrite", 0f);
+                }
+                material.EnableKeyword(
+                    "_SURFACE_TYPE_TRANSPARENT");
+                material.renderQueue = (int)RenderQueue.Transparent;
+                ParticleSystemRenderer renderer =
+                    particles.GetComponent<ParticleSystemRenderer>();
+                renderer.sharedMaterial = material;
+                renderer.renderMode =
+                    ParticleSystemRenderMode.Billboard;
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+
+            particles.Play();
+        }
+
         private static Vector2 DirectionFromAngle(float degrees)
         {
             float radians = degrees * Mathf.Deg2Rad;
@@ -4839,18 +5330,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                  generatedTreeCount < treeCount;
                  attempt++)
             {
-                float angle =
-                    (float)random.NextDouble() *
-                    Mathf.PI *
-                    2f;
-                float radius =
-                    Mathf.Sqrt(
-                        (float)random.NextDouble()) *
-                    (mapRadius - 3f);
-                Vector2 point =
-                    new Vector2(
-                        Mathf.Cos(angle) * radius,
-                        Mathf.Sin(angle) * radius);
+                Vector2 point = RandomDiscPoint(
+                    random,
+                    CoastPlacementInset);
                 if (DistanceToRoadWithin(
                         point,
                         treeClearance) <
@@ -5123,6 +5605,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int placementsInBatch = 0;
             int generatedBaseGrassCount = 0;
             float usableRadius = mapRadius - 2.5f;
+            float gridExtent = IslandGenerationExtent - 2.5f;
             float cellSpacing =
                 Mathf.Sqrt(
                     Mathf.PI * usableRadius *
@@ -5131,11 +5614,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         GrassCoverageMultiplier));
             int cellsAcross =
                 Mathf.CeilToInt(
-                    usableRadius * 2f /
+                    gridExtent * 2f /
                     cellSpacing);
             float gridStart =
-                -usableRadius + cellSpacing * 0.5f;
-            // Evaluate the complete forest disc. Stopping when a global
+                -gridExtent + cellSpacing * 0.5f;
+            // Evaluate the complete island. Stopping when a global
             // placement target was reached produced a visible straight
             // cutoff in whichever rows happened to be visited last.
             for (int row = 0;
@@ -5164,8 +5647,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                             gridStart +
                             row * cellSpacing) +
                         jitter;
-                    if (point.sqrMagnitude >
-                        usableRadius * usableRadius)
+                    if (!IsInsideIsland(
+                            point,
+                            CoastPlacementInset))
                     {
                         continue;
                     }
@@ -5420,8 +5904,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                             Mathf.Cos(angle),
                             Mathf.Sin(angle)) *
                         distance;
-                    if (point.sqrMagnitude >
-                            usableRadius * usableRadius ||
+                    if (!IsInsideIsland(
+                            point,
+                            CoastPlacementInset) ||
                         SignedDistanceToRoad(point) <
                             GrassRoadInteriorLimit ||
                         DistanceToRiver(point) <
@@ -5593,8 +6078,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         Mathf.Cos(angle),
                         Mathf.Sin(angle)) *
                     distance;
-                if (point.sqrMagnitude >
-                        usableRadius * usableRadius ||
+                if (!IsInsideIsland(
+                        point,
+                        CoastPlacementInset) ||
                     SignedDistanceToRoad(point) <
                         GrassRoadInteriorLimit ||
                     DistanceToRiver(point) <
@@ -6776,9 +7262,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Vector2 point,
             float trailClearance)
         {
-            return point.sqrMagnitude <
-                    (mapRadius - 2.4f) *
-                    (mapRadius - 2.4f) &&
+            return IsInsideIsland(
+                    point,
+                    CoastPlacementInset) &&
                 SignedDistanceToRoad(point) >= trailClearance &&
                 DistanceToRiver(point) >=
                     riverHalfWidth + 0.52f &&
@@ -7881,17 +8367,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             System.Random random,
             float edgeMargin)
         {
-            float angle =
-                (float)random.NextDouble() *
-                Mathf.PI *
-                2f;
-            float radius =
-                Mathf.Sqrt(
-                    (float)random.NextDouble()) *
-                (mapRadius - edgeMargin);
-            return new Vector2(
-                Mathf.Cos(angle) * radius,
-                Mathf.Sin(angle) * radius);
+            float extent = IslandGenerationExtent;
+            for (int attempt = 0; attempt < 64; attempt++)
+            {
+                var point = new Vector2(
+                    Mathf.Lerp(
+                        -extent,
+                        extent,
+                        (float)random.NextDouble()),
+                    Mathf.Lerp(
+                        -extent,
+                        extent,
+                        (float)random.NextDouble()));
+                if (IsInsideIsland(point, edgeMargin))
+                {
+                    return point;
+                }
+            }
+            return Vector2.zero;
         }
 
         private static float UndergrowthHeight(
@@ -8191,7 +8684,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     int remaining = enemies.Length - enemyIndex;
                     bool pair =
                         remaining >= 2 &&
-                        ((generatedGuardPairCount == 0 &&
+                        (remaining > Mathf.Max(
+                             1,
+                             5 - generatedGuardGroupCount) ||
+                         (generatedGuardPairCount == 0 &&
                           generatedGuardGroupCount >= 1) ||
                          random.NextDouble() < 0.55);
                     int groupSize = pair ? 2 : 1;
@@ -8683,6 +9179,42 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        private float IslandGenerationExtent =>
+            layout != null && layout.MaximumCoastRadius > 0f
+                ? layout.MaximumCoastRadius + 2.5f
+                : mapRadius;
+
+        private float CoastRadiusAt(Vector2 point)
+        {
+            return layout != null
+                ? layout.CoastRadiusAtAngle(
+                    Mathf.Atan2(point.y, point.x))
+                : mapRadius;
+        }
+
+        private float DistanceInsideCoast(Vector2 point)
+        {
+            return CoastRadiusAt(point) - point.magnitude;
+        }
+
+        private bool IsInsideIsland(
+            Vector2 point,
+            float inset)
+        {
+            return DistanceInsideCoast(point) >= inset;
+        }
+
+        private Vector3 CoastPoint(float angle, float inset)
+        {
+            float radius = Mathf.Max(
+                1f,
+                layout.CoastRadiusAtAngle(angle) - inset);
+            return new Vector3(
+                Mathf.Cos(angle) * radius,
+                0f,
+                Mathf.Sin(angle) * radius);
+        }
+
         private float TerrainHeight(
             float x,
             float z)
@@ -8764,17 +9296,26 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new Vector2(x, z),
                 height);
 
-            float edge =
-                Mathf.Sqrt(x * x + z * z) /
-                mapRadius;
-            if (edge > 0.88f)
+            float coastDistance = DistanceInsideCoast(
+                new Vector2(x, z));
+            if (coastDistance < CoastSandWidth + 3.5f)
             {
-                height -=
-                    Mathf.InverseLerp(
-                        0.88f,
-                        1f,
-                        edge) *
-                    1.8f;
+                float coastBlend = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    1f - Mathf.InverseLerp(
+                        -1.5f,
+                        CoastSandWidth + 3.5f,
+                        coastDistance));
+                float shoreHeight = oceanWaterLevel +
+                    Mathf.Lerp(
+                        -OceanDepthBelowShore,
+                        0.16f,
+                        Mathf.Clamp01(coastDistance / 1.5f));
+                height = Mathf.Lerp(
+                    height,
+                    shoreHeight,
+                    coastBlend);
             }
             return height;
         }
@@ -8962,9 +9503,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float x,
             float z)
         {
-            return
-                RawLandHeight(x, z) -
-                1.55f;
+            float inlandHeight = RawLandHeight(x, z) - 1.55f;
+            float coastDistance = DistanceInsideCoast(
+                new Vector2(x, z));
+            float oceanBlend = 1f - Mathf.InverseLerp(
+                2f,
+                CoastSandWidth + 5f,
+                coastDistance);
+            return Mathf.Lerp(
+                inlandHeight,
+                oceanWaterLevel + 0.035f,
+                Mathf.SmoothStep(0f, 1f, oceanBlend));
         }
 
         private Vector3 SurfacePoint(
@@ -9812,6 +10361,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     meadowTint,
                     Color.white,
                     roadBlend * 0.92f);
+            float coastDistance = DistanceInsideCoast(
+                new Vector2(worldX, worldZ));
+            float sandBlend = 1f - Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    0.4f,
+                    CoastSandWidth,
+                    coastDistance));
+            Color sandTint = new Color(
+                0.79f,
+                0.67f,
+                0.45f,
+                1f);
+            blendedTint = Color.Lerp(
+                blendedTint,
+                sandTint,
+                sandBlend * (1f - roadBlend));
             blendedTint.a = roadBlend;
             return blendedTint;
         }
@@ -9828,24 +10395,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 dominantHabitatPercentages,
                 0,
                 dominantHabitatPercentages.Length);
-            float diameter = mapRadius * 2f;
+            habitatFieldExtent = IslandGenerationExtent;
+            float diameter = habitatFieldExtent * 2f;
             int sampleCount = 0;
             for (int z = 0; z < habitatGridSize; z++)
             {
                 for (int x = 0; x < habitatGridSize; x++)
                 {
                     Vector2 point = new Vector2(
-                        -mapRadius +
+                        -habitatFieldExtent +
                             diameter * x /
                             (habitatGridSize - 1f),
-                        -mapRadius +
+                        -habitatFieldExtent +
                             diameter * z /
                             (habitatGridSize - 1f));
                     HabitatSample sample =
                         EvaluateForestHabitat(point);
                     habitatField[z * habitatGridSize + x] = sample;
-                    if (point.sqrMagnitude <=
-                        mapRadius * mapRadius)
+                    if (IsInsideIsland(point, 0f))
                     {
                         dominantHabitatPercentages[
                             sample.DominantIndex]++;
@@ -10124,11 +10691,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     EvaluateForestHabitat(point),
                     CampGroundBlendAt(point));
             }
+            float fieldExtent = Mathf.Max(
+                1f,
+                habitatFieldExtent);
             float x = Mathf.Clamp01(
-                (point.x + mapRadius) / (mapRadius * 2f)) *
+                (point.x + fieldExtent) / (fieldExtent * 2f)) *
                 (habitatGridSize - 1);
             float z = Mathf.Clamp01(
-                (point.y + mapRadius) / (mapRadius * 2f)) *
+                (point.y + fieldExtent) / (fieldExtent * 2f)) *
                 (habitatGridSize - 1);
             int x0 = Mathf.FloorToInt(x);
             int z0 = Mathf.FloorToInt(z);

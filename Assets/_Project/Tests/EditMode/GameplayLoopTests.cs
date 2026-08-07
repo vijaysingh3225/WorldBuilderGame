@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
+using UnityEngine;
 using WorldBuilder.Gameplay.Loop;
 using WorldBuilder.Gameplay.Loop.Scenes;
 
@@ -143,6 +144,94 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(session.ProfileStore, Is.SameAs(store));
             Assert.That(session.ProfileStore.IsPersistent, Is.False);
             Assert.That(session.ActiveProfile, Is.Not.Null);
+            Assert.That(
+                session.ActiveProfile.InventoryEntryIds
+                    .Select(session.ActiveProfile.FindStorageEntry)
+                    .Single(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.Arrow)
+                    .Quantity,
+                Is.EqualTo(30));
+        }
+
+        [Test]
+        public void HomeRaidLaunchPreservesPreparedLoadoutExactly()
+        {
+            PlayerProfile prepared = PlayerProfile.CreateNew(
+                "prepared-home-loadout");
+            StorageEntry carried = StorageEntry.Create(
+                "artifact-prepared-pack",
+                3,
+                "{\"roll\":17}");
+            StorageEntry secured = StorageEntry.Create(
+                "artifact-prepared-secure");
+            prepared.AddToStorage(carried);
+            prepared.AddToStorage(secured);
+            Assert.That(
+                prepared.TryMoveToInventory(carried.EntryId, 7),
+                Is.True);
+            Assert.That(
+                prepared.TryMoveToSecureContainer(secured.EntryId, 2),
+                Is.True);
+            prepared.WeaponOne.SetGridStateJson(
+                "{\"prepared\":\"sword\"}");
+            prepared.WeaponTwo.SetGridStateJson(
+                "{\"prepared\":\"bow\"}");
+            var session = new GameSession(
+                GameLaunchContext.CreateHomeSandbox("exact-loadout"),
+                new MemoryPlayerProfileStore(),
+                prepared);
+            string beforeLaunch = JsonUtility.ToJson(
+                session.ActiveProfile);
+
+            RaidSession raid = session.BeginRaid(
+                carriedStorageEntryIds:
+                    session.ActiveProfile.InventoryEntryIds);
+
+            Assert.That(
+                JsonUtility.ToJson(session.ActiveProfile),
+                Is.EqualTo(beforeLaunch));
+            Assert.That(
+                raid.LaunchRequest.CarriedStorageEntryIds,
+                Is.EqualTo(new[] { carried.EntryId }));
+            Assert.That(
+                session.ActiveProfile.Storage,
+                Has.None.Matches<StorageEntry>(entry =>
+                    entry.DefinitionId == ItemDefinitionIds.Arrow));
+            Assert.That(
+                session.ActiveProfile.GetSecureEntryAtSlot(2)?.EntryId,
+                Is.EqualTo(secured.EntryId));
+            Assert.That(
+                session.ActiveProfile.WeaponOne.GridStateJson,
+                Is.EqualTo("{\"prepared\":\"sword\"}"));
+            Assert.That(
+                session.ActiveProfile.WeaponTwo.GridStateJson,
+                Is.EqualTo("{\"prepared\":\"bow\"}"));
+        }
+
+        [Test]
+        public void SeededRaidSandboxDoesNotModifyPreparedInventory()
+        {
+            PlayerProfile prepared = PlayerProfile.CreateNew(
+                "seeded-raid-loadout");
+            StorageEntry carried = StorageEntry.Create(
+                "artifact-only-item");
+            prepared.AddToStorage(carried);
+            Assert.That(
+                prepared.TryMoveToInventory(carried.EntryId, 0),
+                Is.True);
+
+            var session = new GameSession(
+                GameLaunchContext.CreateRaidSandbox("seeded-loadout"),
+                new MemoryPlayerProfileStore(),
+                prepared);
+
+            Assert.That(
+                session.ActiveProfile.InventoryEntryIds,
+                Is.EqualTo(new[] { carried.EntryId }));
+            Assert.That(
+                session.ActiveProfile.Storage,
+                Has.None.Matches<StorageEntry>(entry =>
+                    entry.DefinitionId == ItemDefinitionIds.Arrow));
         }
 
         [Test]
@@ -171,11 +260,17 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 continued.ActiveProfile.ProfileId,
                 Is.EqualTo(fresh.ActiveProfile.ProfileId));
-            Assert.That(continued.ActiveProfile.Storage, Has.Count.EqualTo(1));
+            Assert.That(continued.ActiveProfile.Storage, Has.Count.EqualTo(2));
             Assert.That(
-                continued.ActiveProfile.Storage[0].DefinitionId,
-                Is.EqualTo("artifact-health"));
-            Assert.That(continued.ActiveProfile.Storage[0].Quantity, Is.EqualTo(2));
+                continued.ActiveProfile.Storage.Single(entry =>
+                    entry.DefinitionId == "artifact-health").Quantity,
+                Is.EqualTo(2));
+            Assert.That(
+                continued.ActiveProfile.InventoryEntryIds
+                    .Select(continued.ActiveProfile.FindStorageEntry)
+                    .Single(entry => entry.DefinitionId == ItemDefinitionIds.Arrow)
+                    .Quantity,
+                Is.EqualTo(30));
             Assert.That(
                 continued.ActiveProfile.GetChestEntryIds(
                     PlayerProfile.DefaultChestId),
@@ -222,7 +317,14 @@ namespace WorldBuilder.Tests.EditMode
                 store,
                 allowProfileOverwrite: true);
 
-            Assert.That(replacement.ActiveProfile.Storage, Is.Empty);
+            Assert.That(
+                replacement.ActiveProfile.Storage,
+                Has.Count.EqualTo(1));
+            Assert.That(
+                replacement.ActiveProfile.InventoryEntryIds
+                    .Select(replacement.ActiveProfile.FindStorageEntry)
+                    .Single().DefinitionId,
+                Is.EqualTo(ItemDefinitionIds.Arrow));
             Assert.That(store.Exists(SlotId), Is.True);
         }
 
@@ -337,7 +439,7 @@ namespace WorldBuilder.Tests.EditMode
 
             Assert.That(result.PlayerDied, Is.True);
             Assert.That(result.ReturnedStorageEntries, Is.Empty);
-            Assert.That(receipt.ItemsRemoved, Is.EqualTo(2));
+            Assert.That(receipt.ItemsRemoved, Is.EqualTo(1));
             Assert.That(
                 session.ActiveProfile.Storage.Any(
                     entry => entry.EntryId == carriedArtifact.EntryId),
@@ -346,6 +448,11 @@ namespace WorldBuilder.Tests.EditMode
                 session.ActiveProfile.Storage.Any(
                     entry => entry.EntryId == safeArtifact.EntryId),
                 Is.True);
+            Assert.That(
+                session.ActiveProfile.Storage.Any(entry =>
+                    entry.DefinitionId == ItemDefinitionIds.Arrow),
+                Is.True,
+                "Items omitted from an explicit raid loadout must remain home-safe.");
         }
 
         [Test]

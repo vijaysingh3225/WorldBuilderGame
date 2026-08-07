@@ -23,6 +23,77 @@ namespace WorldBuilder.Gameplay.Presentation
         };
 
         private static Font uiFont;
+        private static Texture2D cellTexture;
+        private static Texture2D panelTexture;
+        private static Texture2D borderedCellTexture;
+        private static Texture2D borderedPanelTexture;
+        private static Texture2D weaponGridCellTexture;
+        private static Texture2D sectionTexture;
+        private static Texture2D scrollTrackTexture;
+        private static Texture2D scrollThumbTexture;
+        private static Texture2D scrollThumbHoverTexture;
+        private static Texture2D clearTexture;
+
+        public const float MinimalVerticalScrollbarWidth = 6f;
+
+        public static Color CellColor => new Color32(0x27, 0x29, 0x28, 0xff);
+        public static Color BorderColor => new Color32(0x82, 0x7b, 0x6c, 0xff);
+        public static Color InventoryBackgroundColor =>
+            new Color32(0x14, 0x19, 0x1b, 0xff);
+
+        public static Texture2D CellTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return cellTexture;
+            }
+        }
+
+        public static Texture2D PanelTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return panelTexture;
+            }
+        }
+
+        public static Texture2D BorderedCellTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return borderedCellTexture;
+            }
+        }
+
+        public static Texture2D BorderedPanelTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return borderedPanelTexture;
+            }
+        }
+
+        public static Texture2D WeaponGridCellTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return weaponGridCellTexture;
+            }
+        }
+
+        public static Texture2D SectionTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return sectionTexture;
+            }
+        }
 
         public static Font UiFont
         {
@@ -42,6 +113,8 @@ namespace WorldBuilder.Gameplay.Presentation
             if (GUI.skin != null)
             {
                 GUI.skin.font = UiFont;
+                EnsurePaletteTextures();
+                ApplyPaletteToSkin(GUI.skin);
             }
         }
 
@@ -50,6 +123,237 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             Font.textureRebuilt -= HandleFontTextureRebuilt;
             uiFont = null;
+            cellTexture = null;
+            panelTexture = null;
+            borderedCellTexture = null;
+            borderedPanelTexture = null;
+            weaponGridCellTexture = null;
+            sectionTexture = null;
+            scrollTrackTexture = null;
+            scrollThumbTexture = null;
+            scrollThumbHoverTexture = null;
+            clearTexture = null;
+        }
+
+        private static void ApplyPaletteToSkin(GUISkin skin)
+        {
+            skin.box.normal.background = cellTexture;
+            skin.window.normal.background = panelTexture;
+            skin.button.normal.background = borderedCellTexture;
+            skin.button.hover.background = borderedPanelTexture;
+            skin.button.active.background = borderedPanelTexture;
+            skin.button.focused.background = borderedCellTexture;
+            skin.button.border = new RectOffset(2, 2, 2, 2);
+            skin.textField.normal.background = borderedPanelTexture;
+            skin.textField.hover.background = borderedPanelTexture;
+            skin.textField.focused.background = borderedPanelTexture;
+            skin.textField.border = new RectOffset(2, 2, 2, 2);
+            skin.scrollView.normal.background = panelTexture;
+            ApplyScrollbarState(
+                skin.verticalScrollbar,
+                scrollTrackTexture);
+            skin.verticalScrollbar.fixedWidth =
+                MinimalVerticalScrollbarWidth;
+            skin.verticalScrollbar.border =
+                new RectOffset(0, 0, 0, 0);
+            ApplyScrollbarState(
+                skin.verticalScrollbarThumb,
+                scrollThumbTexture,
+                scrollThumbHoverTexture);
+            skin.verticalScrollbarThumb.fixedWidth = 4f;
+            skin.verticalScrollbarThumb.margin =
+                new RectOffset(1, 1, 2, 2);
+            HideScrollbarButton(skin.verticalScrollbarUpButton);
+            HideScrollbarButton(skin.verticalScrollbarDownButton);
+            ApplyScrollbarState(
+                skin.horizontalScrollbar,
+                clearTexture);
+            ApplyScrollbarState(
+                skin.horizontalScrollbarThumb,
+                clearTexture);
+            HideScrollbarButton(skin.horizontalScrollbarLeftButton);
+            HideScrollbarButton(skin.horizontalScrollbarRightButton);
+        }
+
+        private static void ApplyScrollbarState(
+            GUIStyle style,
+            Texture2D normal,
+            Texture2D hover = null)
+        {
+            Texture2D emphasized = hover != null ? hover : normal;
+            style.normal.background = normal;
+            style.hover.background = emphasized;
+            style.active.background = emphasized;
+            style.focused.background = normal;
+        }
+
+        private static void HideScrollbarButton(GUIStyle style)
+        {
+            ApplyScrollbarState(style, clearTexture);
+            style.fixedWidth = 0f;
+            style.fixedHeight = 0f;
+            style.margin = new RectOffset(0, 0, 0, 0);
+            style.padding = new RectOffset(0, 0, 0, 0);
+        }
+
+        private static void EnsurePaletteTextures()
+        {
+            if (cellTexture != null)
+            {
+                return;
+            }
+
+            cellTexture = CreateSolidTexture("UI Cell 272928", CellColor);
+            panelTexture = CreateSolidTexture(
+                "UI Inventory Background 14191B",
+                InventoryBackgroundColor);
+            borderedCellTexture = CreateBorderedTexture(
+                "UI Button 272928 827B6C",
+                CellColor);
+            borderedPanelTexture = CreateBorderedTexture(
+                "UI Field 14191B 827B6C",
+                InventoryBackgroundColor);
+            weaponGridCellTexture = CreateChamferedTexture(
+                "UI Weapon Cell Chamfer",
+                CellColor);
+            sectionTexture = CreateChamferedTexture(
+                "UI Section Chamfer",
+                InventoryBackgroundColor);
+            scrollTrackTexture = CreateSolidTexture(
+                "UI Minimal Scroll Track",
+                new Color(
+                    BorderColor.r,
+                    BorderColor.g,
+                    BorderColor.b,
+                    0.10f));
+            scrollThumbTexture = CreateSolidTexture(
+                "UI Minimal Scroll Thumb",
+                new Color(
+                    BorderColor.r,
+                    BorderColor.g,
+                    BorderColor.b,
+                    0.46f));
+            scrollThumbHoverTexture = CreateSolidTexture(
+                "UI Minimal Scroll Thumb Hover",
+                new Color(
+                    BorderColor.r,
+                    BorderColor.g,
+                    BorderColor.b,
+                    0.68f));
+            clearTexture = CreateSolidTexture(
+                "UI Clear Scroll Surface",
+                new Color(0f, 0f, 0f, 0f));
+        }
+
+        private static Texture2D CreateSolidTexture(
+            string name,
+            Color color)
+        {
+            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            texture.SetPixel(0, 0, color);
+            texture.Apply(false, false);
+            return texture;
+        }
+
+        private static Texture2D CreateBorderedTexture(
+            string name,
+            Color fill)
+        {
+            const int size = 5;
+            var texture = new Texture2D(
+                size,
+                size,
+                TextureFormat.RGBA32,
+                false)
+            {
+                name = name,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    bool border = x == 0 || y == 0 ||
+                        x == size - 1 || y == size - 1;
+                    texture.SetPixel(x, y, border ? BorderColor : fill);
+                }
+            }
+            texture.Apply(false, false);
+            return texture;
+        }
+
+        private static Texture2D CreateChamferedTexture(
+            string name,
+            Color fill)
+        {
+            const int size = 13;
+            const int cut = 4;
+            const int border = 2;
+            var texture = new Texture2D(
+                size,
+                size,
+                TextureFormat.RGBA32,
+                false)
+            {
+                name = name,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            Color clear = new Color(0f, 0f, 0f, 0f);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    bool insideOuter = IsInsideChamfer(
+                        x,
+                        y,
+                        size,
+                        cut);
+                    bool insideInner = IsInsideChamfer(
+                        x - border,
+                        y - border,
+                        size - border * 2,
+                        cut - border);
+                    texture.SetPixel(
+                        x,
+                        y,
+                        !insideOuter
+                            ? clear
+                            : insideInner
+                                ? fill
+                                : BorderColor);
+                }
+            }
+            texture.Apply(false, false);
+            return texture;
+        }
+
+        private static bool IsInsideChamfer(
+            int x,
+            int y,
+            int size,
+            int cut)
+        {
+            if (x < 0 || y < 0 || x >= size || y >= size)
+            {
+                return false;
+            }
+
+            int farX = size - 1 - x;
+            int farY = size - 1 - y;
+            return x + y >= cut &&
+                farX + y >= cut &&
+                x + farY >= cut &&
+                farX + farY >= cut;
         }
 
         private static Font CreateUiFont()

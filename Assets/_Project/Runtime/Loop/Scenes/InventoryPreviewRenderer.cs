@@ -696,7 +696,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 RenderTextureFormat.ARGB32)
             {
                 name = textureName,
-                antiAliasing = 2,
+                // URP's off-screen Camera.Render path cannot resolve the
+                // bind-MS targets used here on every renderer backend. A
+                // single-sample target keeps inventory previews reliable.
+                antiAliasing = 1,
+                useMipMap = false,
+                autoGenerateMips = false,
+                filterMode = FilterMode.Bilinear,
                 hideFlags = HideFlags.HideAndDontSave
             };
             texture.Create();

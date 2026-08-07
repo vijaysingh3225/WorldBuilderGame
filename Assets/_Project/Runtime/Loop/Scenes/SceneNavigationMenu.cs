@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Presentation;
 using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
@@ -214,10 +215,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float contentHeight =
                 PlayerControlBindings.AllControls.Length * 38f +
                 176f;
-            controlsScroll = GUI.BeginScrollView(
+            controlsScroll = LoopSceneGui.BeginVerticalScrollView(
                 viewport,
                 controlsScroll,
-                new Rect(0f, 0f, width - 18f, contentHeight));
+                new Rect(
+                    0f,
+                    0f,
+                    width -
+                        GameTypography.MinimalVerticalScrollbarWidth - 2f,
+                    contentHeight),
+                contentHeight > viewport.height);
             float rowY = 0f;
             for (int index = 0;
                  index < PlayerControlBindings.AllControls.Length;

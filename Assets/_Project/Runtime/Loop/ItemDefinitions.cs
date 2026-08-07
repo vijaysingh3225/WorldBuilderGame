@@ -4,12 +4,27 @@ using UnityEngine;
 
 namespace WorldBuilder.Gameplay.Loop
 {
+    public enum ItemCategory
+    {
+        Unknown = 0,
+        Ammunition = 1,
+        Consumable = 2,
+        Material = 3,
+        Artifact = 4
+    }
+
     public static class ItemDefinitionIds
     {
         public const string Arrow = "arrow";
         public const string HealthPack = "health-pack";
         public const string IronIngot = "iron-ingot";
         public const string Coal = "coal";
+        public const string ArtifactPowerShard = "artifact-power-shard";
+        public const string KeenShard = "keen-shard";
+        public const string IronBond = "iron-bond";
+        public const string WindStep = "wind-step";
+        public const string RazorLine = "razor-line";
+        public const string WayfarerKnot = "wayfarer-knot";
     }
 
     public static class ItemDefinitionCatalog
@@ -27,10 +42,39 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.HealthPack => "Health Pack",
                 ItemDefinitionIds.IronIngot => "Iron Ingot",
                 ItemDefinitionIds.Coal => "Coal",
+                ItemDefinitionIds.ArtifactPowerShard => "Power Shard",
+                ItemDefinitionIds.KeenShard => "Keen Shard",
+                ItemDefinitionIds.IronBond => "Iron Bond",
+                ItemDefinitionIds.WindStep => "Wind Step",
+                ItemDefinitionIds.RazorLine => "Razor Line",
+                ItemDefinitionIds.WayfarerKnot => "Wayfarer Knot",
                 _ => string.IsNullOrWhiteSpace(definitionId)
                     ? "Unknown Item"
                     : definitionId.Trim()
             };
+        }
+
+        public static ItemCategory Category(string definitionId)
+        {
+            return definitionId switch
+            {
+                ItemDefinitionIds.Arrow => ItemCategory.Ammunition,
+                ItemDefinitionIds.HealthPack => ItemCategory.Consumable,
+                ItemDefinitionIds.IronIngot => ItemCategory.Material,
+                ItemDefinitionIds.Coal => ItemCategory.Material,
+                ItemDefinitionIds.ArtifactPowerShard => ItemCategory.Artifact,
+                ItemDefinitionIds.KeenShard => ItemCategory.Artifact,
+                ItemDefinitionIds.IronBond => ItemCategory.Artifact,
+                ItemDefinitionIds.WindStep => ItemCategory.Artifact,
+                ItemDefinitionIds.RazorLine => ItemCategory.Artifact,
+                ItemDefinitionIds.WayfarerKnot => ItemCategory.Artifact,
+                _ => ItemCategory.Unknown
+            };
+        }
+
+        public static bool IsArtifact(string definitionId)
+        {
+            return Category(definitionId) == ItemCategory.Artifact;
         }
 
         public static bool IsStackable(string definitionId)

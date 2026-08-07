@@ -92,13 +92,6 @@ namespace WorldBuilder.Gameplay.Loop
             int? seedOverride = null,
             IEnumerable<string> carriedStorageEntryIds = null)
         {
-            if (!ActiveProfile.TrySetInventoryStack(
-                    ItemDefinitionIds.Arrow,
-                    20))
-            {
-                throw new InvalidOperationException(
-                    "A raid requires one open backpack slot for the arrow stack.");
-            }
             var carriedIds = new List<string>();
             if (carriedStorageEntryIds != null)
             {
@@ -114,23 +107,6 @@ namespace WorldBuilder.Gameplay.Loop
             else
             {
                 carriedIds.AddRange(ActiveProfile.InventoryEntryIds);
-            }
-
-            for (int index = 0;
-                 index < ActiveProfile.InventoryEntryIds.Count;
-                 index++)
-            {
-                string entryId = ActiveProfile.InventoryEntryIds[index];
-                StorageEntry entry = ActiveProfile.FindStorageEntry(entryId);
-                if (entry != null &&
-                    string.Equals(
-                        entry.DefinitionId,
-                        ItemDefinitionIds.Arrow,
-                        StringComparison.Ordinal) &&
-                    !carriedIds.Contains(entryId))
-                {
-                    carriedIds.Add(entryId);
-                }
             }
             return BeginRaid(
                 CreateRaidLaunchRequest(seedOverride, carriedIds));
@@ -199,6 +175,7 @@ namespace WorldBuilder.Gameplay.Loop
 
                     PlayerProfile profile = PlayerProfile.CreateNew(
                         LaunchContext.ProfileSlotId);
+                    ProvisionDeveloperArrows(profile, 30);
                     profileStore.Save(LaunchContext.ProfileSlotId, profile);
                     return profile;
                 }
@@ -216,11 +193,30 @@ namespace WorldBuilder.Gameplay.Loop
                     return profile;
                 }
                 case GameLaunchMode.HomeSandbox:
-                case GameLaunchMode.RaidSandbox:
                 case GameLaunchMode.CombatLab:
                 {
                     PlayerProfile profile = sandboxSeedProfile?.Clone() ??
                         PlayerProfile.CreateNew(LaunchContext.ProfileSlotId, "Developer");
+                    if (sandboxSeedProfile == null &&
+                        LaunchContext.Mode == GameLaunchMode.HomeSandbox)
+                    {
+                        ProvisionDeveloperArrows(profile, 30);
+                    }
+                    profileStore.Save(LaunchContext.ProfileSlotId, profile);
+                    return profile;
+                }
+                case GameLaunchMode.RaidSandbox:
+                {
+                    PlayerProfile profile = sandboxSeedProfile?.Clone() ??
+                        PlayerProfile.CreateNew(
+                            LaunchContext.ProfileSlotId,
+                            "Developer");
+                    if (sandboxSeedProfile == null &&
+                        !profile.TrySetInventoryStack(ItemDefinitionIds.Arrow, 30))
+                    {
+                        throw new InvalidOperationException(
+                            "The default Raid sandbox loadout could not be created.");
+                    }
                     profileStore.Save(LaunchContext.ProfileSlotId, profile);
                     return profile;
                 }
@@ -229,6 +225,18 @@ namespace WorldBuilder.Gameplay.Loop
                         nameof(LaunchContext.Mode),
                         LaunchContext.Mode,
                         "Unsupported launch mode.");
+            }
+        }
+
+        private static void ProvisionDeveloperArrows(
+            PlayerProfile profile,
+            int quantity)
+        {
+            if (profile == null ||
+                !profile.TrySetInventoryStack(ItemDefinitionIds.Arrow, quantity))
+            {
+                throw new InvalidOperationException(
+                    "The starting arrow stack could not be created.");
             }
         }
 

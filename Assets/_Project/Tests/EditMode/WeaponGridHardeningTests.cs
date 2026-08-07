@@ -91,13 +91,19 @@ namespace WorldBuilder.Tests.EditMode
                 toolkit = systems.AddComponent<WeaponGridSandboxToolkit>();
                 toolkit.SetToggleWithTab(false);
                 inventory = systems.AddComponent<HomeInventoryController>();
-                inventory.Configure(null, null, toolkit);
+                inventory.Configure(null, null, null);
 
                 inventory.OpenInventory();
                 InvokePrivate(inventory, "OpenWeaponGrid", 0);
 
                 Assert.That(inventory.IsOpen, Is.True);
                 Assert.That(toolkit.IsOpen, Is.True);
+                Assert.That(
+                    GetPrivateField<WeaponGridSandboxToolkit>(
+                        inventory,
+                        "gridToolkit"),
+                    Is.SameAs(toolkit),
+                    "Weapon cards must recover the colocated grid toolkit when their serialized reference is stale.");
 
                 toolkit.Close();
 
@@ -315,6 +321,17 @@ namespace WorldBuilder.Tests.EditMode
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null, $"Missing field {fieldName}.");
             field.SetValue(target, value);
+        }
+
+        private static T GetPrivateField<T>(
+            object target,
+            string fieldName)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null, $"Missing field {fieldName}.");
+            return (T)field.GetValue(target);
         }
 
         private static void InvokePrivate(

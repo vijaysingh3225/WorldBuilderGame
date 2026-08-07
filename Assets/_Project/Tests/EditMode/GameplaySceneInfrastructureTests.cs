@@ -20,6 +20,79 @@ namespace WorldBuilder.Tests.EditMode
 {
     public sealed class GameplaySceneInfrastructureTests
     {
+        [Test]
+        public void SharedUiPaletteUsesRequestedColorsAndChamferedGridCells()
+        {
+            Assert.That(
+                (Color32)GameTypography.CellColor,
+                Is.EqualTo(new Color32(0x27, 0x29, 0x28, 0xff)));
+            Assert.That(
+                (Color32)GameTypography.BorderColor,
+                Is.EqualTo(new Color32(0x82, 0x7b, 0x6c, 0xff)));
+            Assert.That(
+                (Color32)GameTypography.InventoryBackgroundColor,
+                Is.EqualTo(new Color32(0x14, 0x19, 0x1b, 0xff)));
+
+            Texture2D weaponCell = GameTypography.WeaponGridCellTexture;
+            Assert.That(weaponCell.GetPixel(0, 0).a, Is.EqualTo(0f));
+            Assert.That(
+                (Color32)weaponCell.GetPixel(4, 0),
+                Is.EqualTo((Color32)GameTypography.BorderColor));
+            Assert.That(
+                (Color32)weaponCell.GetPixel(6, 6),
+                Is.EqualTo((Color32)GameTypography.CellColor));
+            Assert.That(
+                (Color32)GameTypography.SectionTexture.GetPixel(6, 6),
+                Is.EqualTo(
+                    (Color32)GameTypography.InventoryBackgroundColor));
+            Assert.That(
+                HomeInventoryController.InventoryBackdropOpacity,
+                Is.EqualTo(0.72f));
+            Assert.That(
+                HomeInventoryController.InventoryBackdropOpacity,
+                Is.InRange(0.01f, 0.99f));
+            Assert.That(
+                GameTypography.MinimalVerticalScrollbarWidth,
+                Is.EqualTo(6f));
+        }
+
+        [Test]
+        public void EnemyBrainAppliesTheSharedLargerModelScale()
+        {
+            GameObject enemy = new GameObject("Enemy Scale Test");
+            try
+            {
+                EnemyBrain brain = enemy.AddComponent<EnemyBrain>();
+                GameObject visual = new GameObject("Enemy Visual");
+                visual.transform.SetParent(enemy.transform, false);
+                visual.transform.localScale = Vector3.one *
+                    EnemyBrain.BaseHumanoidModelScale;
+                visual.AddComponent<Animator>();
+
+                typeof(EnemyBrain).GetMethod(
+                        "ResolveReferences",
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.NonPublic)
+                    .Invoke(brain, null);
+                typeof(EnemyBrain).GetMethod(
+                        "ApplyEnemyModelScale",
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.NonPublic)
+                    .Invoke(brain, null);
+
+                Assert.That(enemy.transform.localScale, Is.EqualTo(Vector3.one));
+                Assert.That(
+                    visual.transform.localScale,
+                    Is.EqualTo(
+                        Vector3.one *
+                        EnemyBrain.TargetHumanoidModelScale));
+            }
+            finally
+            {
+                Object.DestroyImmediate(enemy);
+            }
+        }
+
         [UnityTest]
         public IEnumerator ShoulderSwitchMirrorsCameraAndWholeVisualSmoothly()
         {
@@ -407,7 +480,10 @@ namespace WorldBuilder.Tests.EditMode
                     FindObjectsInactive.Include);
             Assert.That(homeBase, Is.Not.Null);
             Assert.That(RenderSettings.skybox, Is.Not.Null);
-            Assert.That(RenderSettings.skybox.name, Is.EqualTo("RaidSky129"));
+            Assert.That(RenderSettings.skybox.name, Is.EqualTo("HomeSky90"));
+            Assert.That(
+                RenderSettings.skybox.GetTexture("_MainTex")?.name,
+                Is.EqualTo("sky_90_2k"));
             GameObject baseFloor = GameObject.Find("Base Floor");
             Assert.That(baseFloor, Is.Not.Null);
             BoxCollider baseFloorCollider =
@@ -420,7 +496,58 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(0f).Within(0.01f));
             Assert.That(
                 baseFloorCollider.bounds.size.y,
-                Is.EqualTo(0.5f).Within(0.01f));
+                Is.EqualTo(2.5f).Within(0.01f));
+            HomeBlockPlatform blockPlatform =
+                baseFloor.GetComponent<HomeBlockPlatform>();
+            Assert.That(blockPlatform, Is.Not.Null);
+            Assert.That(blockPlatform.Columns, Is.EqualTo(12));
+            Assert.That(blockPlatform.Rows, Is.EqualTo(10));
+            Assert.That(blockPlatform.BlockCount, Is.EqualTo(120));
+            Mesh platformMesh =
+                baseFloor.GetComponent<MeshFilter>().sharedMesh;
+            Assert.That(platformMesh, Is.Not.Null);
+            Assert.That(
+                platformMesh.vertexCount,
+                Is.EqualTo(blockPlatform.BlockCount * 24));
+            Vector3[] platformVertices = platformMesh.vertices;
+            Vector3[] platformNormals = platformMesh.normals;
+            int[] platformTriangles = platformMesh.triangles;
+            for (int triangle = 0;
+                 triangle < platformTriangles.Length;
+                 triangle += 3)
+            {
+                int a = platformTriangles[triangle];
+                int b = platformTriangles[triangle + 1];
+                int c = platformTriangles[triangle + 2];
+                Vector3 faceNormal = Vector3.Cross(
+                    platformVertices[b] - platformVertices[a],
+                    platformVertices[c] - platformVertices[a]);
+                Assert.That(
+                    Vector3.Dot(faceNormal, platformNormals[a]),
+                    Is.GreaterThan(0f),
+                    "Every generated platform face must wind outward.");
+            }
+            Renderer platformRenderer =
+                baseFloor.GetComponent<Renderer>();
+            Assert.That(platformRenderer, Is.Not.Null);
+            Assert.That(
+                platformRenderer.bounds.max.y,
+                Is.EqualTo(0f).Within(0.01f));
+            Assert.That(
+                platformRenderer.bounds.size.x,
+                Is.EqualTo(30f).Within(0.01f));
+            Assert.That(
+                platformRenderer.bounds.size.z,
+                Is.EqualTo(25f).Within(0.01f));
+            HomeGridOccupant foundationOccupant =
+                baseFloor.GetComponent<HomeGridOccupant>();
+            Assert.That(foundationOccupant, Is.Not.Null);
+            Assert.That(
+                foundationOccupant.Cell,
+                Is.EqualTo(new Vector3Int(-6, -1, -5)));
+            Assert.That(
+                foundationOccupant.Footprint,
+                Is.EqualTo(new Vector3Int(12, 1, 10)));
             SerializedObject serialized =
                 new SerializedObject(homeBase);
             Assert.That(
@@ -465,7 +592,7 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(anvilOccupant, Is.Not.Null);
             Assert.That(
                 anvilOccupant.Cell,
-                Is.EqualTo(new Vector2Int(-3, 3)));
+                Is.EqualTo(new Vector3Int(-3, 0, 3)));
             Renderer anvilRenderer =
                 anvil.GetComponentInChildren<Renderer>();
             Assert.That(anvilRenderer, Is.Not.Null);
@@ -478,6 +605,21 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 anvilRenderer.bounds.center.z,
                 Is.EqualTo(anvil.transform.position.z).Within(0.03f));
+            Bounds anvilCellBounds = placementGrid.GetWorldBounds(
+                anvilOccupant.Cell,
+                anvilOccupant.Footprint);
+            Assert.That(
+                anvilRenderer.bounds.min.x,
+                Is.GreaterThan(anvilCellBounds.min.x));
+            Assert.That(
+                anvilRenderer.bounds.max.x,
+                Is.LessThan(anvilCellBounds.max.x));
+            Assert.That(
+                anvilRenderer.bounds.min.z,
+                Is.GreaterThan(anvilCellBounds.min.z));
+            Assert.That(
+                anvilRenderer.bounds.max.z,
+                Is.LessThan(anvilCellBounds.max.z));
             Assert.That(
                 Mathf.Max(
                     anvilRenderer.bounds.size.x,
@@ -488,7 +630,17 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 anvil.GetComponent<BoxCollider>(),
                 Is.Null,
-                "The decorative anvil must not block Home movement.");
+                "The one-cell anvil must not block Home movement.");
+            HomeAnvil anvilInteraction =
+                anvil.GetComponentInChildren<HomeAnvil>(true);
+            Assert.That(anvilInteraction, Is.Not.Null);
+            Assert.That(
+                anvilInteraction.GetComponent<BoxCollider>().isTrigger,
+                Is.True);
+            Assert.That(
+                anvilInteraction.AdjacentChestId,
+                Is.EqualTo(PlayerProfile.DefaultChestId),
+                "Only a chest sharing a grid-cell face should feed the anvil UI.");
             HomeGridOccupant[] chestOccupants =
                 chests.Select(chest =>
                         chest.GetComponentInParent<
@@ -538,6 +690,23 @@ namespace WorldBuilder.Tests.EditMode
                 Assert.That(
                     renderer.bounds.center.z,
                     Is.EqualTo(chestRoot.position.z).Within(0.03f));
+                HomeGridOccupant chestOccupant =
+                    chestRoot.GetComponent<HomeGridOccupant>();
+                Bounds chestCellBounds = placementGrid.GetWorldBounds(
+                    chestOccupant.Cell,
+                    chestOccupant.Footprint);
+                Assert.That(
+                    renderer.bounds.min.x,
+                    Is.GreaterThan(chestCellBounds.min.x));
+                Assert.That(
+                    renderer.bounds.max.x,
+                    Is.LessThan(chestCellBounds.max.x));
+                Assert.That(
+                    renderer.bounds.min.z,
+                    Is.GreaterThan(chestCellBounds.min.z));
+                Assert.That(
+                    renderer.bounds.max.z,
+                    Is.LessThan(chestCellBounds.max.z));
                 GameObject source =
                     PrefabUtility
                         .GetCorrespondingObjectFromSource(
@@ -555,19 +724,26 @@ namespace WorldBuilder.Tests.EditMode
             HomeRaidDoor raidDoor =
                 Object.FindFirstObjectByType<HomeRaidDoor>(
                     FindObjectsInactive.Include);
+            Renderer raidMarkerRenderer = GameObject
+                .Find("Raid Launch Marker")
+                .GetComponent<Renderer>();
+            Assert.That(raidMarkerRenderer, Is.Not.Null);
+            Assert.That(
+                raidMarkerRenderer.bounds.min.y,
+                Is.EqualTo(0f).Within(0.001f));
             HomeGridOccupant gateOccupant =
                 raidDoor.GetComponentInParent<
                     HomeGridOccupant>();
             Assert.That(gateOccupant, Is.Not.Null);
             Assert.That(
                 gateOccupant.Footprint,
-                Is.EqualTo(new Vector2Int(3, 1)));
+                Is.EqualTo(new Vector3Int(3, 1, 1)));
             HomeGridOccupant[] allOccupants =
                 Object.FindObjectsByType<HomeGridOccupant>(
                     FindObjectsInactive.Exclude,
                     FindObjectsSortMode.None);
-            Assert.That(allOccupants, Has.Length.EqualTo(3));
-            Vector2Int[] occupiedCells =
+            Assert.That(allOccupants, Has.Length.EqualTo(4));
+            Vector3Int[] occupiedCells =
                 allOccupants
                     .SelectMany(occupant =>
                         occupant.OccupiedCells())
@@ -582,6 +758,52 @@ namespace WorldBuilder.Tests.EditMode
                 Is.Not.Null);
             AssertSharedGrid();
             AssertDirectMode(GameLaunchMode.HomeSandbox);
+        }
+
+        [UnityTest]
+        public IEnumerator HomeInventoryRendersPreviewsAndOpensWeaponGrid()
+        {
+            Open(GameplaySceneRegistry.HomeBaseScenePath);
+            yield return new EnterPlayMode();
+
+            HomeInventoryController inventory =
+                Object.FindFirstObjectByType<HomeInventoryController>();
+            WeaponGridSandboxToolkit toolkit =
+                Object.FindFirstObjectByType<WeaponGridSandboxToolkit>();
+            Assert.That(inventory, Is.Not.Null);
+            Assert.That(toolkit, Is.Not.Null);
+
+            inventory.OpenInventory();
+            yield return null;
+
+            InventoryPreviewRenderer preview =
+                inventory.GetComponent<InventoryPreviewRenderer>();
+            Assert.That(preview, Is.Not.Null);
+            Texture[] previews =
+            {
+                preview.CharacterTexture,
+                preview.PrimaryThumbnail,
+                preview.SecondaryThumbnail,
+                preview.WeaponTexture
+            };
+            Assert.That(
+                previews,
+                Has.All.Matches<Texture>(texture =>
+                    texture is RenderTexture target &&
+                    target.IsCreated() &&
+                    target.antiAliasing == 1));
+
+            typeof(HomeInventoryController).GetMethod(
+                    "OpenWeaponGrid",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic)
+                .Invoke(inventory, new object[] { 0 });
+            yield return null;
+
+            Assert.That(inventory.IsOpen, Is.True);
+            Assert.That(toolkit.IsOpen, Is.True);
+            toolkit.Close();
+            yield return new ExitPlayMode();
         }
 
         [Test]
@@ -857,6 +1079,13 @@ namespace WorldBuilder.Tests.EditMode
             {
                 Assert.That(enemy.enabled, Is.True);
                 Assert.That(enemy.IsActivated, Is.True);
+                Animator enemyAnimator =
+                    enemy.GetComponentInChildren<Animator>(true);
+                Assert.That(enemyAnimator, Is.Not.Null);
+                Assert.That(
+                    Mathf.Abs(enemyAnimator.transform.localScale.x),
+                    Is.EqualTo(EnemyBrain.TargetHumanoidModelScale)
+                        .Within(0.001f));
                 ThirdPersonMotor motor =
                     enemy.GetComponent<ThirdPersonMotor>();
                 Assert.That(motor, Is.Not.Null);
@@ -1013,6 +1242,17 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(player, Is.Not.Null);
             Assert.That(player.activeInHierarchy, Is.True);
             Assert.That(trainingTargets, Has.Length.EqualTo(6));
+            Assert.That(
+                trainingTargets.All(target =>
+                {
+                    Animator animator = target.GetComponentInChildren<
+                        Animator>(true);
+                    return animator != null &&
+                        Mathf.Abs(animator.transform.localScale.x -
+                            EnemyBrain.TargetHumanoidModelScale) < 0.001f;
+                }),
+                Is.True,
+                "Every active AI model should use the shared 1.25x enemy presentation scale.");
             Assert.That(
                 trainingTargets.All(target =>
                     !target.IsActivated &&

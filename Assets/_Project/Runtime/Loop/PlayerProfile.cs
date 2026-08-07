@@ -28,6 +28,23 @@ namespace WorldBuilder.Gameplay.Loop
             int quantity = 1,
             string customStateJson = "")
         {
+            return CreateWithId(
+                LoopDataUtility.CreateId(),
+                definitionId,
+                quantity,
+                customStateJson);
+        }
+
+        public static StorageEntry CreateWithId(
+            string entryId,
+            string definitionId,
+            int quantity = 1,
+            string customStateJson = "")
+        {
+            if (string.IsNullOrWhiteSpace(entryId))
+            {
+                throw new ArgumentException("A storage entry ID is required.", nameof(entryId));
+            }
             if (string.IsNullOrWhiteSpace(definitionId))
             {
                 throw new ArgumentException("A storage definition ID is required.", nameof(definitionId));
@@ -35,7 +52,7 @@ namespace WorldBuilder.Gameplay.Loop
 
             return new StorageEntry
             {
-                entryId = LoopDataUtility.CreateId(),
+                entryId = entryId.Trim(),
                 definitionId = definitionId.Trim(),
                 quantity = Math.Max(1, quantity),
                 slotIndex = -1,

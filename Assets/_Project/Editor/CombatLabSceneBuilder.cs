@@ -757,7 +757,8 @@ namespace WorldBuilder.Editor
                 secondaryMaterial,
                 bladeMaterial,
                 guardMaterial,
-                gripMaterial);
+                gripMaterial,
+                1f);
             Animator playerAnimator =
                 player.GetComponentInChildren<Animator>(true);
             HitReactionPresenter hitReaction =
@@ -780,7 +781,8 @@ namespace WorldBuilder.Editor
             Material secondaryMaterial,
             Material bladeMaterial,
             Material guardMaterial,
-            Material gripMaterial)
+            Material gripMaterial,
+            float modelScaleMultiplier)
         {
             if (HumanoidAnimationSetup.EnsureGeneratedAssets())
             {
@@ -793,7 +795,9 @@ namespace WorldBuilder.Editor
                     visual.name = "Humanoid Visual - Authored Locomotion V1";
                     visual.transform.localPosition = Vector3.down;
                     visual.transform.localRotation = Quaternion.identity;
-                    visual.transform.localScale = Vector3.one * 1.1f;
+                    visual.transform.localScale = Vector3.one *
+                        EnemyBrain.BaseHumanoidModelScale *
+                        modelScaleMultiplier;
                     SetLayerRecursively(visual.transform, 2);
 
                     Transform previewFloor = FindDescendant(visual.transform, "Cube");
@@ -1710,7 +1714,8 @@ namespace WorldBuilder.Editor
                 secondaryMaterial,
                 bladeMaterial,
                 guardMaterial,
-                gripMaterial);
+                gripMaterial,
+                EnemyBrain.ModelScaleMultiplier);
             Transform visual =
                 enemy.GetComponentInChildren<Animator>(true).transform;
             EnemyBrain brain = enemy.AddComponent<EnemyBrain>();

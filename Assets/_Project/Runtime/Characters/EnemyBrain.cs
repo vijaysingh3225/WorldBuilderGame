@@ -13,6 +13,11 @@ namespace WorldBuilder.Gameplay.Characters
     [RequireComponent(typeof(Health))]
     public sealed class EnemyBrain : MonoBehaviour
     {
+        public const float BaseHumanoidModelScale = 1.1f;
+        public const float ModelScaleMultiplier = 1.25f;
+        public const float TargetHumanoidModelScale =
+            BaseHumanoidModelScale * ModelScaleMultiplier;
+
         public enum WeaponLoadout
         {
             Adaptive,
@@ -75,6 +80,9 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0f)] private float passiveAwarenessDecay = 1.35f;
         [SerializeField, Min(0.1f)] private float runningHearingRange = 16f;
         [SerializeField, Min(0f)] private float runningHearingReactionDuration = 0.45f;
+        [Header("Alert Response")]
+        [SerializeField, Min(1f)] private float alertFacingTurnSpeed = 120f;
+        [SerializeField, Range(0f, 45f)] private float alertFacingReadyAngle = 6f;
         [SerializeField, Min(0f)] private float forestTrailClearance = 5f;
         [SerializeField, Min(0.1f)] private float investigationDuration = 9f;
         [SerializeField, Min(0.1f)]
@@ -148,6 +156,8 @@ namespace WorldBuilder.Gameplay.Characters
         private int patrolRouteDirection = 1;
         private WeaponLoadout weaponLoadout;
         private float alertReactionTimer;
+        private float alertFacingDelayTimer;
+        private bool alertFacingPending;
         private float impactLookTimer;
         private Vector3 alertFocusPoint;
         private Vector3 alertSourceDirection;
@@ -333,6 +343,7 @@ namespace WorldBuilder.Gameplay.Characters
         private void Awake()
         {
             ResolveReferences();
+            ApplyEnemyModelScale();
             navigationProgressOrigin = transform.position;
             hasNavigationProgressOrigin = true;
             EnsureDamageProfile();
@@ -342,6 +353,27 @@ namespace WorldBuilder.Gameplay.Characters
             {
                 ConfigureAsTrainingDummy();
             }
+        }
+
+        private void ApplyEnemyModelScale()
+        {
+            if (animator == null)
+            {
+                return;
+            }
+
+            Transform model = animator.transform;
+            Vector3 current = model.localScale;
+            model.localScale = new Vector3(
+                Mathf.Sign(Mathf.Approximately(current.x, 0f)
+                    ? 1f
+                    : current.x) * TargetHumanoidModelScale,
+                Mathf.Sign(Mathf.Approximately(current.y, 0f)
+                    ? 1f
+                    : current.y) * TargetHumanoidModelScale,
+                Mathf.Sign(Mathf.Approximately(current.z, 0f)
+                    ? 1f
+                    : current.z) * TargetHumanoidModelScale);
         }
 
         private void OnEnable()
@@ -448,6 +480,14 @@ namespace WorldBuilder.Gameplay.Characters
             if (alertReactionTimer > 0f)
             {
                 UpdateAlertReaction();
+                return;
+            }
+
+            if (alertFacingPending &&
+                !UpdateAlertFacing(ResolveAlertFacingPoint()))
+            {
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Alerted);
                 return;
             }
 
@@ -734,6 +774,7 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             bool hadVisualContact = hasVisualContact;
+            bool wasAlerted = alerted;
             bool targetVisible = TryResolveVisibleTargetPoint(
                 targetChest,
                 out Vector3 visiblePoint);
@@ -779,6 +820,10 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             alerted = true;
+            if (!wasAlerted)
+            {
+                BeginAlertFacing(0f);
+            }
             lastVisibleTargetPoint = visiblePoint;
             lastKnownPosition = target.position;
             Vector3 approachDirection =
@@ -886,6 +931,8 @@ namespace WorldBuilder.Gameplay.Characters
                     : -transform.forward;
             alertReactionTimer = runningHearingReactionDuration;
             impactLookTimer = runningHearingReactionDuration;
+            BeginAlertFacing(
+                runningHearingReactionDuration);
             AlertAt(sourcePosition, "player-running-heard");
         }
 
@@ -1614,7 +1661,8 @@ namespace WorldBuilder.Gameplay.Characters
                 if (current.name.StartsWith(
                         "Road Bridge",
                         StringComparison.Ordinal) ||
-                    current.name == "Terrain Disc")
+                    current.name == "Terrain Disc" ||
+                    current.name == "Terrain Island")
                 {
                     return true;
                 }
@@ -1757,6 +1805,7 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 believedSourcePosition,
             string reason)
         {
+            bool wasAlerted = alerted;
             bool preserveCommittedDraw =
                 alerted &&
                 drawingBow &&
@@ -1767,6 +1816,11 @@ namespace WorldBuilder.Gameplay.Characters
                 CancelBowAttackForInterruption();
             }
             alerted = true;
+            if (!wasAlerted && !alertFacingPending)
+            {
+                BeginAlertFacing(
+                    0.15f);
+            }
             hasVisualContact = false;
             lastKnownPosition = believedSourcePosition;
             Vector3 approachDirection =
@@ -1830,9 +1884,128 @@ namespace WorldBuilder.Gameplay.Characters
             impactLookTimer = Mathf.Max(
                 0f,
                 impactLookTimer - Time.deltaTime);
-            SetAim(focus + Vector3.up * 0.65f);
+            if (alertFacingDelayTimer > 0f)
+            {
+                alertFacingDelayTimer = Mathf.Max(
+                    0f,
+                    alertFacingDelayTimer - Time.deltaTime);
+                aimSource?.ClearOverride();
+            }
+            else
+            {
+                UpdateAlertFacing(focus + Vector3.up * 0.65f);
+            }
             SetIntent(Vector2.zero, false, false);
             ChangeState(EnemyState.Alerted);
+        }
+
+        private void BeginAlertFacing(float delay)
+        {
+            alertFacingPending = true;
+            alertFacingDelayTimer = Mathf.Max(0f, delay);
+        }
+
+        private Vector3 ResolveAlertFacingPoint()
+        {
+            if (hasVisualContact && target != null)
+            {
+                return ResolveTargetChestPoint();
+            }
+
+            return lastKnownPosition + Vector3.up * 0.65f;
+        }
+
+        private bool UpdateAlertFacing(Vector3 focusPoint)
+        {
+            if (!alertFacingPending)
+            {
+                return true;
+            }
+
+            if (alertFacingDelayTimer > 0f)
+            {
+                alertFacingDelayTimer = Mathf.Max(
+                    0f,
+                    alertFacingDelayTimer - Time.deltaTime);
+                aimSource?.ClearOverride();
+                return false;
+            }
+
+            Vector3 currentDirection = Vector3.ProjectOnPlane(
+                transform.forward,
+                Vector3.up);
+            Vector3 desiredDirection = Vector3.ProjectOnPlane(
+                focusPoint - transform.position,
+                Vector3.up);
+            if (desiredDirection.sqrMagnitude <= 0.001f)
+            {
+                alertFacingPending = false;
+                return true;
+            }
+
+            Vector3 limitedDirection = CalculateAlertFacingDirection(
+                currentDirection,
+                desiredDirection,
+                alertFacingTurnSpeed,
+                Time.deltaTime);
+            Vector3 origin = ResolveAimOrigin();
+            float horizontalDistance = Mathf.Max(
+                1f,
+                Vector3.ProjectOnPlane(
+                    focusPoint - origin,
+                    Vector3.up).magnitude);
+            Vector3 limitedPoint =
+                origin + limitedDirection * horizontalDistance;
+            limitedPoint.y = focusPoint.y;
+            SetAim(limitedPoint);
+
+            float remainingAngle = Vector3.Angle(
+                limitedDirection,
+                desiredDirection);
+            if (remainingAngle > alertFacingReadyAngle)
+            {
+                return false;
+            }
+
+            alertFacingPending = false;
+            return true;
+        }
+
+        public static Vector3 CalculateAlertFacingDirection(
+            Vector3 currentDirection,
+            Vector3 desiredDirection,
+            float degreesPerSecond,
+            float deltaTime)
+        {
+            Vector3 current = Vector3.ProjectOnPlane(
+                currentDirection,
+                Vector3.up);
+            Vector3 desired = Vector3.ProjectOnPlane(
+                desiredDirection,
+                Vector3.up);
+            if (desired.sqrMagnitude <= 0.001f)
+            {
+                return current.sqrMagnitude > 0.001f
+                    ? current.normalized
+                    : Vector3.forward;
+            }
+            if (current.sqrMagnitude <= 0.001f)
+            {
+                current = Vector3.forward;
+            }
+
+            Quaternion currentRotation = Quaternion.LookRotation(
+                current.normalized,
+                Vector3.up);
+            Quaternion desiredRotation = Quaternion.LookRotation(
+                desired.normalized,
+                Vector3.up);
+            Quaternion limitedRotation = Quaternion.RotateTowards(
+                currentRotation,
+                desiredRotation,
+                Mathf.Max(0f, degreesPerSecond) *
+                    Mathf.Max(0f, deltaTime));
+            return limitedRotation * Vector3.forward;
         }
 
         private Vector2 ResolveRangedStrafeIntent()
@@ -2098,9 +2271,16 @@ namespace WorldBuilder.Gameplay.Characters
             impactLookTimer = alreadyEngaged
                 ? 0f
                 : lookDuration;
-            AlertAt(
+            Vector3 believedSourcePosition =
                 transform.position -
-                    direction * investigationGuessDistance,
+                    direction * investigationGuessDistance;
+            if (!alreadyEngaged)
+            {
+                BeginAlertFacing(
+                    Mathf.Min(0.2f, reactionDuration));
+            }
+            AlertAt(
+                believedSourcePosition,
                 reason);
         }
 
@@ -2492,25 +2672,27 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void SetAim(Vector3 worldPoint)
         {
-            Vector3 origin;
-            if (bowWeapon != null &&
-                bowWeapon.WeaponEquipped)
-            {
-                origin = bowWeapon.PresentedArrowTip;
-            }
-            else
-            {
-                origin = animator != null &&
-                    animator.GetBoneTransform(
-                        HumanBodyBones.Head) != null
-                        ? animator.GetBoneTransform(
-                            HumanBodyBones.Head).position
-                        : transform.position +
-                            Vector3.up * 1.45f;
-            }
+            Vector3 origin = ResolveAimOrigin();
             aimSource?.SetOverride(
                 origin,
                 worldPoint - origin);
+        }
+
+        private Vector3 ResolveAimOrigin()
+        {
+            if (bowWeapon != null &&
+                bowWeapon.WeaponEquipped)
+            {
+                return bowWeapon.PresentedArrowTip;
+            }
+
+            Transform head = animator != null
+                ? animator.GetBoneTransform(
+                    HumanBodyBones.Head)
+                : null;
+            return head != null
+                ? head.position
+                : transform.position + Vector3.up * 1.45f;
         }
 
         private bool IsCommittedBowShotReady()
@@ -2846,6 +3028,8 @@ namespace WorldBuilder.Gameplay.Characters
         {
             alerted = false;
             hasVisualContact = false;
+            alertFacingPending = false;
+            alertFacingDelayTimer = 0f;
             drawingBow = false;
             bowWeapon?.AbortDraw();
             SetIntent(Vector2.zero, false, false);

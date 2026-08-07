@@ -4,47 +4,83 @@ using UnityEngine;
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
     [DisallowMultipleComponent]
-    public sealed class HomeGridOccupant : MonoBehaviour
+    public sealed class HomeGridOccupant :
+        MonoBehaviour,
+        ISerializationCallbackReceiver
     {
+        private const int CurrentSerializationVersion = 1;
+
         [SerializeField] private HomePlacementGrid grid;
-        [SerializeField] private Vector2Int cell;
-        [SerializeField] private Vector2Int footprint =
-            Vector2Int.one;
-        [SerializeField] private float elevation;
+        [SerializeField] private Vector3Int cell;
+        [SerializeField] private Vector3Int footprint = Vector3Int.one;
         [SerializeField, Range(0, 3)] private int yawQuarterTurns;
+        [SerializeField, HideInInspector] private int serializationVersion;
 
         public HomePlacementGrid Grid => grid;
-        public Vector2Int Cell => cell;
-        public Vector2Int Footprint => footprint;
+        public Vector3Int Cell => cell;
+        public Vector3Int Footprint => footprint;
+        public int YawQuarterTurns => yawQuarterTurns;
 
-        public void Configure(
+        public bool Configure(
             HomePlacementGrid placementGrid,
-            Vector2Int minimumCell,
-            Vector2Int occupiedFootprint,
-            float height = 0f,
+            Vector3Int minimumCell,
+            Vector3Int occupiedFootprint,
             int quarterTurns = 0)
         {
+            HomePlacementGrid previousGrid = grid;
+            Vector3Int previousCell = cell;
+            Vector3Int previousFootprint = footprint;
+            int previousQuarterTurns = yawQuarterTurns;
+
             grid = placementGrid;
             cell = minimumCell;
-            footprint =
-                new Vector2Int(
-                    Mathf.Max(1, occupiedFootprint.x),
-                    Mathf.Max(1, occupiedFootprint.y));
-            elevation = height;
-            yawQuarterTurns =
-                ((quarterTurns % 4) + 4) % 4;
-            ApplyPlacement();
+            footprint = HomePlacementGrid.SanitizeFootprint(
+                occupiedFootprint);
+            yawQuarterTurns = NormalizeQuarterTurns(quarterTurns);
+            serializationVersion = CurrentSerializationVersion;
+
+            if (TryClaimPlacement())
+            {
+                if (previousGrid != null && previousGrid != grid)
+                {
+                    previousGrid.Release(this);
+                }
+                ApplyTransform();
+                return true;
+            }
+
+            grid = previousGrid;
+            cell = previousCell;
+            footprint = previousFootprint;
+            yawQuarterTurns = previousQuarterTurns;
+            TryClaimPlacement();
+            ApplyTransform();
+            return false;
         }
 
-        public IEnumerable<Vector2Int> OccupiedCells()
+        public bool TryPlace(Vector3Int minimumCell)
         {
-            for (int y = 0; y < footprint.y; y++)
-            {
-                for (int x = 0; x < footprint.x; x++)
-                {
-                    yield return cell + new Vector2Int(x, y);
-                }
-            }
+            return Configure(
+                grid,
+                minimumCell,
+                footprint,
+                yawQuarterTurns);
+        }
+
+        public bool TryRotate(int quarterTurns)
+        {
+            return Configure(
+                grid,
+                cell,
+                footprint,
+                quarterTurns);
+        }
+
+        public IEnumerable<Vector3Int> OccupiedCells()
+        {
+            return HomePlacementGrid.EnumerateCells(
+                cell,
+                OrientedFootprint);
         }
 
         [ContextMenu("Snap To Home Grid")]
@@ -54,18 +90,88 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return;
             }
+            if (!TryClaimPlacement())
+            {
+                Debug.LogError(
+                    $"Cannot place {name}: Home grid cells are occupied.",
+                    this);
+                return;
+            }
+            ApplyTransform();
+        }
 
-            transform.position =
-                grid.GetCellCenter(
-                    cell,
-                    footprint,
-                    elevation);
-            transform.rotation =
-                grid.transform.rotation *
-                Quaternion.Euler(
-                    0f,
-                    yawQuarterTurns * 90f,
-                    0f);
+        private Vector3Int OrientedFootprint =>
+            (yawQuarterTurns & 1) == 0
+                ? footprint
+                : new Vector3Int(
+                    footprint.z,
+                    footprint.y,
+                    footprint.x);
+
+        private bool TryClaimPlacement()
+        {
+            return grid != null &&
+                grid.TryOccupy(this, cell, OrientedFootprint);
+        }
+
+        private void ApplyTransform()
+        {
+            if (grid == null)
+            {
+                return;
+            }
+            transform.position = grid.GetFootprintBaseCenter(
+                cell,
+                OrientedFootprint);
+            transform.rotation = grid.transform.rotation *
+                Quaternion.Euler(0f, yawQuarterTurns * 90f, 0f);
+        }
+
+        private void OnDisable()
+        {
+            grid?.Release(this);
+        }
+
+        private void OnEnable()
+        {
+            if (grid != null)
+            {
+                ApplyPlacement();
+            }
+        }
+
+        private void OnDestroy()
+        {
+            grid?.Release(this);
+        }
+
+        private static int NormalizeQuarterTurns(int quarterTurns)
+        {
+            return ((quarterTurns % 4) + 4) % 4;
+        }
+
+        public void OnBeforeSerialize()
+        {
+        }
+
+        public void OnAfterDeserialize()
+        {
+            if (serializationVersion >= CurrentSerializationVersion)
+            {
+                return;
+            }
+
+            int migratedZ = cell.z != 0 ? cell.z : cell.y;
+            int migratedDepth = footprint.z > 0
+                ? footprint.z
+                : footprint.y;
+            cell = new Vector3Int(cell.x, 0, migratedZ);
+            footprint = HomePlacementGrid.SanitizeFootprint(
+                new Vector3Int(
+                    footprint.x,
+                    1,
+                    migratedDepth));
+            serializationVersion = CurrentSerializationVersion;
         }
     }
 }

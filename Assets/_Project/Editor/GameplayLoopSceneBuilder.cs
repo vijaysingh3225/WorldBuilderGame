@@ -118,6 +118,10 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Art/Environment/Skybox/Sky129/sky_129_2k.png";
         private const string RaidSkyboxMaterialPath =
             "Assets/_Project/Art/Prototype/Materials/RaidSky129.mat";
+        private const string HomeSkyboxTexturePath =
+            "Assets/_Project/Art/Environment/Skybox/Sky90/sky_90_2k.png";
+        private const string HomeSkyboxMaterialPath =
+            "Assets/_Project/Art/Prototype/Materials/HomeSky90.mat";
         private const string RaidPathDiffusePath =
             "Assets/_Project/Art/Environment/RaidSurfaces/" +
             "RaidPath.png";
@@ -523,7 +527,7 @@ namespace WorldBuilder.Editor
                 NewSceneSetup.EmptyScene,
                 NewSceneMode.Single);
             CombatLabSceneBuilder.CreateStandardLighting();
-            Material homeSkybox = GetOrCreateRaidSkyboxMaterial();
+            Material homeSkybox = GetOrCreateHomeSkyboxMaterial();
             RenderSettings.skybox = homeSkybox;
             CreateSceneBootstrap(
                 GameLaunchMode.HomeSandbox,
@@ -551,13 +555,18 @@ namespace WorldBuilder.Editor
             HomePlacementGrid homeGrid =
                 gridObject.AddComponent<HomePlacementGrid>();
             homeGrid.Configure(2.5f);
-            GameObject baseFloor =
-                CombatLabSceneBuilder.CreateStandardBlock(
-                "Base Floor",
-                new Vector3(0f, -0.25f, 0f),
-                new Vector3(30f, 0.5f, 25f),
-                floor,
-                environment.transform);
+            GameObject baseFloor = new GameObject("Base Floor");
+            baseFloor.transform.SetParent(environment.transform, false);
+            HomeGridOccupant foundationOccupant =
+                baseFloor.AddComponent<HomeGridOccupant>();
+            foundationOccupant.Configure(
+                homeGrid,
+                new Vector3Int(-6, -1, -5),
+                new Vector3Int(12, 1, 10));
+            HomeBlockPlatform blockPlatform =
+                baseFloor.AddComponent<HomeBlockPlatform>();
+            blockPlatform.Configure(homeGrid, 12, 10, floor);
+            baseFloor.isStatic = true;
             GameObject fallCatch = new GameObject("Home Fall Catch");
             fallCatch.transform.SetParent(environment.transform, false);
             fallCatch.transform.position = new Vector3(0f, -1.5f, 0f);
@@ -573,7 +582,7 @@ namespace WorldBuilder.Editor
                     chestMaterial,
                     environment.transform)
             };
-            CreateHomeAnvil(
+            GameObject homeAnvil = CreateHomeAnvil(
                 homeGrid,
                 anvilMaterial,
                 environment.transform);
@@ -587,11 +596,11 @@ namespace WorldBuilder.Editor
                 raidGateAssembly.AddComponent<HomeGridOccupant>();
             raidGateOccupant.Configure(
                 homeGrid,
-                new Vector2Int(-1, 4),
-                new Vector2Int(3, 1));
+                new Vector3Int(-1, 0, 4),
+                new Vector3Int(3, 1, 1));
             CombatLabSceneBuilder.CreateStandardMarker(
                 "Raid Launch Marker",
-                new Vector3(0f, 0.03f, 9.4f),
+                new Vector3(0f, 0.04f, 9.4f),
                 new Vector3(3.2f, 0.04f, 2.2f),
                 gate,
                 raidGateAssembly.transform);
@@ -620,6 +629,13 @@ namespace WorldBuilder.Editor
             HomeInventoryController inventory =
                 systems.AddComponent<HomeInventoryController>();
             inventory.Configure(homeBase, input, toolkit);
+            HomeAnvil anvil =
+                homeAnvil.GetComponentInChildren<HomeAnvil>(true);
+            anvil?.Configure(
+                homeBase,
+                inventory,
+                input,
+                systems.GetComponent<WeaponGridRuntime>());
             AttachSceneNavigation(systems, input);
 
             for (int index = 0;
@@ -675,9 +691,8 @@ namespace WorldBuilder.Editor
                 chest.AddComponent<HomeGridOccupant>();
             occupant.Configure(
                 grid,
-                new Vector2Int(-4 + zeroBasedIndex, 3),
-                Vector2Int.one,
-                0f,
+                new Vector3Int(-4 + zeroBasedIndex, 0, 3),
+                Vector3Int.one,
                 2);
 
             GameObject scaleObject =
@@ -791,9 +806,8 @@ namespace WorldBuilder.Editor
                 root.AddComponent<HomeGridOccupant>();
             occupant.Configure(
                 grid,
-                new Vector2Int(-3, 3),
-                Vector2Int.one,
-                0f,
+                new Vector3Int(-3, 0, 3),
+                Vector3Int.one,
                 1);
 
             GameObject source =
@@ -806,6 +820,7 @@ namespace WorldBuilder.Editor
                 : null;
             if (model == null)
             {
+                AddHomeAnvilInteraction(root);
                 return root;
             }
             model.name = "Anvil Model";
@@ -839,7 +854,27 @@ namespace WorldBuilder.Editor
                     root.transform.position.y - bounds.min.y,
                     root.transform.position.z - bounds.center.z);
             }
+            AddHomeAnvilInteraction(root);
             return root;
+        }
+
+        private static HomeAnvil AddHomeAnvilInteraction(GameObject root)
+        {
+            Transform existing = root.transform.Find("Anvil Interaction");
+            GameObject interaction = existing != null
+                ? existing.gameObject
+                : new GameObject("Anvil Interaction");
+            interaction.transform.SetParent(root.transform, false);
+            interaction.transform.localPosition = new Vector3(0f, 0.65f, 0f);
+            BoxCollider trigger = interaction.GetComponent<BoxCollider>();
+            if (trigger == null)
+            {
+                trigger = interaction.AddComponent<BoxCollider>();
+            }
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(1.65f, 1.45f, 1.65f);
+            return interaction.GetComponent<HomeAnvil>() ??
+                interaction.AddComponent<HomeAnvil>();
         }
 
         private static void BuildRaidPrototype()
@@ -2075,9 +2110,28 @@ namespace WorldBuilder.Editor
 
         private static Material GetOrCreateRaidSkyboxMaterial()
         {
+            return GetOrCreatePanoramicSkyboxMaterial(
+                RaidSkyboxTexturePath,
+                RaidSkyboxMaterialPath,
+                "RaidSky129");
+        }
+
+        private static Material GetOrCreateHomeSkyboxMaterial()
+        {
+            return GetOrCreatePanoramicSkyboxMaterial(
+                HomeSkyboxTexturePath,
+                HomeSkyboxMaterialPath,
+                "HomeSky90");
+        }
+
+        private static Material GetOrCreatePanoramicSkyboxMaterial(
+            string texturePath,
+            string materialPath,
+            string materialName)
+        {
             TextureImporter importer =
                 AssetImporter.GetAtPath(
-                    RaidSkyboxTexturePath) as TextureImporter;
+                    texturePath) as TextureImporter;
             if (importer != null)
             {
                 bool requiresReimport =
@@ -2108,34 +2162,38 @@ namespace WorldBuilder.Editor
             }
             Texture2D panorama =
                 AssetDatabase.LoadAssetAtPath<Texture2D>(
-                    RaidSkyboxTexturePath);
+                    texturePath);
             if (panorama == null)
             {
                 throw new System.InvalidOperationException(
-                    $"Raid skybox texture is missing at {RaidSkyboxTexturePath}.");
+                    $"Panoramic skybox texture is missing at {texturePath}.");
             }
 
             Material material =
                 AssetDatabase.LoadAssetAtPath<Material>(
-                    RaidSkyboxMaterialPath);
+                    materialPath);
             if (material == null)
             {
                 material = new Material(shader)
                 {
-                    name = "Raid Sky 129"
+                    name = materialName
                 };
                 AssetDatabase.CreateAsset(
                     material,
-                    RaidSkyboxMaterialPath);
+                    materialPath);
             }
             else
             {
                 material.shader = shader;
+                material.name = materialName;
             }
             material.SetTexture("_MainTex", panorama);
             material.SetColor("_Tint", Color.white);
             material.SetFloat("_Exposure", 1f);
             material.SetFloat("_Rotation", 0f);
+            material.SetFloat("_Mapping", 1f);
+            material.SetFloat("_ImageType", 0f);
+            material.SetFloat("_Layout", 0f);
             EditorUtility.SetDirty(material);
             return material;
         }

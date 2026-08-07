@@ -225,6 +225,60 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void AlertFacingTurnIsRateLimitedWithoutLosingItsDestination()
+        {
+            Vector3 result = EnemyBrain.CalculateAlertFacingDirection(
+                Vector3.forward,
+                Vector3.back,
+                120f,
+                0.25f);
+
+            Assert.That(
+                Vector3.Angle(Vector3.forward, result),
+                Is.EqualTo(30f).Within(0.01f),
+                "A rear alert must not issue an instantaneous 180-degree facing change.");
+            Assert.That(
+                Vector3.Angle(result, Vector3.back),
+                Is.EqualTo(150f).Within(0.01f),
+                "The limited turn must continue toward the exact detected direction.");
+        }
+
+        [Test]
+        public void RunningAlertHesitationDoesNotIssueAnAimTurn()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, -10f));
+            ThirdPersonMotor playerMotor =
+                player.AddComponent<ThirdPersonMotor>();
+            enemy = CreateEnemy(Vector3.zero);
+            CharacterAimSource aimSource =
+                enemy.AddComponent<CharacterAimSource>();
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            InvokePrivate(brain, "ResolveReferences");
+            brain.Configure(player.transform);
+            SetPrivateField(
+                playerMotor,
+                "horizontalVelocity",
+                Vector3.forward * playerMotor.SprintSpeed);
+            SetPrivateField(
+                playerMotor,
+                "targetHorizontalSpeed",
+                playerMotor.SprintSpeed);
+
+            UpdatePerception(brain);
+            aimSource.SetOverride(
+                enemy.transform.position,
+                Vector3.back);
+            InvokePrivate(brain, "UpdateAlertReaction");
+
+            Assert.That(
+                aimSource.OverrideActive,
+                Is.False,
+                "The hearing reaction must pause before commanding the guard to turn toward a runner behind it.");
+        }
+
+        [Test]
         public void AnyExposedUpperBodyGlimpseRestoresVisualContact()
         {
             player = CreateTarget(
@@ -477,6 +531,36 @@ namespace WorldBuilder.Tests
                 Vector3.Angle(movement, Vector3.forward),
                 Is.LessThan(0.01f),
                 "Decorative bridge collision must not make an AI dodge sideways into the river.");
+        }
+
+        [Test]
+        public void IslandTerrainDoesNotTriggerObstacleDetours()
+        {
+            enemy = CreateEnemy(
+                new Vector3(500f, 0f, 500f));
+            obstruction = new GameObject("Terrain Island");
+            GameObject terrainCollider = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            terrainCollider.transform.SetParent(
+                obstruction.transform,
+                false);
+            terrainCollider.transform.position =
+                new Vector3(500f, -0.2f, 501f);
+            terrainCollider.transform.localScale =
+                new Vector3(20f, 0.4f, 20f);
+            Physics.SyncTransforms();
+
+            Vector3 movement = (Vector3)
+                ResolvePrivateMethod(
+                        "ResolveObstacleAwareDirection")
+                    .Invoke(
+                        enemy.GetComponent<EnemyBrain>(),
+                        new object[] { Vector3.forward });
+
+            Assert.That(
+                Vector3.Angle(movement, Vector3.forward),
+                Is.LessThan(0.01f),
+                "The island ground collider must be ignored by navigation just like the legacy arena terrain.");
         }
 
         [Test]

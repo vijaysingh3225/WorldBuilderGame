@@ -26,6 +26,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField, Min(0.5f)] private float interactionDistance =
             LootInteractionPresentation.DefaultDistance;
         private Transform player;
+        private HomeAnvil anvil;
         private float nextResolveAt;
 
         public bool PlayerInside => CanInteract;
@@ -79,9 +80,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void Update()
         {
             ResolvePlayer();
+            anvil ??= FindFirstObjectByType<HomeAnvil>();
             if (CanInteract &&
                 inventory != null &&
                 !inventory.IsOpen &&
+                (anvil == null || !anvil.IsOpen) &&
                 PlayerControlBindings.WasPressedThisFrame(
                     Keyboard.current,
                     PlayerControl.Interact))
@@ -97,7 +100,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (Event.current.type != EventType.Repaint ||
                 !CanInteract ||
                 inventory == null ||
-                inventory.IsOpen)
+                inventory.IsOpen ||
+                (anvil != null && anvil.IsOpen))
             {
                 return;
             }

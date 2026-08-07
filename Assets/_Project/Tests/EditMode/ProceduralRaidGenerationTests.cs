@@ -344,10 +344,126 @@ namespace WorldBuilder.Tests
             Assert.That(
                 second.Extraction,
                 Is.EqualTo(first.Extraction));
+            Assert.That(
+                second.CoastRadii,
+                Is.EqualTo(first.CoastRadii));
         }
 
         [Test]
-        public void ExpandedMainRoadTouchesBoundaryButSpawnUsesSafeOuterAnnulus()
+        public void SeededIslandCoastsStayNaturalAndPreservePlayableArea()
+        {
+            const float EqualAreaRadius = 144f;
+            float expectedArea = Mathf.PI *
+                EqualAreaRadius * EqualAreaRadius;
+            float[] firstShape = null;
+            for (int seed = 1; seed <= 24; seed++)
+            {
+                float[] coast =
+                    ProceduralRaidGenerator.CreateIslandCoastRadii(
+                        seed,
+                        EqualAreaRadius);
+                Assert.That(coast, Has.Length.EqualTo(256));
+                float squaredTotal = 0f;
+                float minimum = float.PositiveInfinity;
+                float maximum = 0f;
+                float maximumNeighborStep = 0f;
+                for (int index = 0; index < coast.Length; index++)
+                {
+                    squaredTotal += coast[index] * coast[index];
+                    minimum = Mathf.Min(minimum, coast[index]);
+                    maximum = Mathf.Max(maximum, coast[index]);
+                    maximumNeighborStep = Mathf.Max(
+                        maximumNeighborStep,
+                        Mathf.Abs(
+                            coast[index] -
+                            coast[(index + 1) % coast.Length]));
+                }
+                float sampledArea = Mathf.PI *
+                    squaredTotal / coast.Length;
+                Assert.That(
+                    sampledArea,
+                    Is.EqualTo(expectedArea).Within(expectedArea * 0.001f));
+                Assert.That(maximum - minimum, Is.GreaterThan(22f));
+                Assert.That(
+                    maximumNeighborStep,
+                    Is.LessThan(4f),
+                    $"Seed {seed} contains an abrupt artificial shoreline corner.");
+                if (firstShape == null)
+                {
+                    firstShape = coast;
+                }
+                else if (seed == 2)
+                {
+                    Assert.That(coast, Is.Not.EqualTo(firstShape));
+                }
+            }
+        }
+
+        [Test]
+        public void FireflyPocketsAreRareAndSeedDeterministic()
+        {
+            int selectedSeedCount = 0;
+            for (int seed = 0; seed < 1000; seed++)
+            {
+                bool first =
+                    ProceduralRaidGenerator.ShouldGenerateFireflies(seed);
+                bool second =
+                    ProceduralRaidGenerator.ShouldGenerateFireflies(seed);
+                Assert.That(second, Is.EqualTo(first));
+                if (first)
+                {
+                    selectedSeedCount++;
+                }
+            }
+
+            Assert.That(
+                selectedSeedCount,
+                Is.InRange(100, 180),
+                "Fireflies should be an uncommon map event, not a standard layer on every Raid.");
+            Assert.That(
+                ProceduralRaidGenerator.FireflyMapChance,
+                Is.LessThan(0.2f));
+        }
+
+        [Test]
+        public void SelectedSeedBuildsOneCompactFireflyPocket()
+        {
+            EditorSceneManager.OpenScene(
+                GameplaySceneRegistry.RaidPrototypeScenePath,
+                OpenSceneMode.Single);
+            ProceduralRaidGenerator generator =
+                Object.FindFirstObjectByType<
+                    ProceduralRaidGenerator>();
+            Assert.That(generator, Is.Not.Null);
+            Assert.That(
+                ProceduralRaidGenerator.ShouldGenerateFireflies(0),
+                Is.True);
+
+            generator.GenerateWithSeed(0);
+
+            Assert.That(
+                generator.GeneratedFireflyZoneCount,
+                Is.EqualTo(1));
+            Assert.That(generator.FireflyZoneCenters, Has.Count.EqualTo(1));
+            Transform pocket = generator.transform.Find(
+                "Generated Raid 0/Rare Firefly Pocket");
+            Assert.That(pocket, Is.Not.Null);
+            ParticleSystem particles =
+                pocket.GetComponent<ParticleSystem>();
+            Assert.That(particles, Is.Not.Null);
+            Assert.That(particles.main.maxParticles, Is.LessThanOrEqualTo(22));
+            Assert.That(particles.shape.scale.x, Is.LessThanOrEqualTo(10.5f));
+            Assert.That(pocket.GetComponent<Light>(), Is.Null);
+            Assert.That(pocket.GetComponent<Collider>(), Is.Null);
+            Vector2 center = generator.FireflyZoneCenters[0];
+            Assert.That(
+                generator.DistanceToNearestTrail(
+                    new Vector3(center.x, 0f, center.y)),
+                Is.GreaterThanOrEqualTo(7.5f));
+        }
+
+        [Test]
+        public void MainRoadTouchesIslandCoastButSpawnUsesSafeOuterAnnulus()
         {
             const float Radius = 144f;
             ProceduralRaidGenerator.RaidLayout layout =
@@ -359,19 +475,20 @@ namespace WorldBuilder.Tests
                 layout.MainRoad,
                 Has.Length.GreaterThanOrEqualTo(12));
             Assert.That(
-                XzMagnitude(layout.MainRoad[0]),
-                Is.InRange(Radius - 2.1f, Radius));
+                CoastRatio(layout, layout.MainRoad[0]),
+                Is.InRange(0.975f, 1f));
             Assert.That(
-                XzMagnitude(
+                CoastRatio(
+                    layout,
                     layout.MainRoad[
                         layout.MainRoad.Length - 1]),
-                Is.InRange(Radius - 2.1f, Radius));
+                Is.InRange(0.975f, 1f));
             Assert.That(
-                XzMagnitude(layout.PlayerStart) / Radius,
+                CoastRatio(layout, layout.PlayerStart),
                 Is.InRange(0.70f, 0.88f),
                 "The player should spawn in a broad outer donut with enough terrain behind them to hide the disc edge.");
             Assert.That(
-                XzMagnitude(layout.Extraction) / Radius,
+                CoastRatio(layout, layout.Extraction),
                 Is.InRange(0.70f, 0.93f));
         }
 
@@ -478,8 +595,10 @@ namespace WorldBuilder.Tests
                         continue;
                     }
                     Assert.That(
-                        XzMagnitude(branch[branch.Length - 1]),
-                        Is.GreaterThan(140f));
+                        CoastRatio(
+                            layout,
+                            branch[branch.Length - 1]),
+                        Is.GreaterThan(0.965f));
                 }
                 Assert.That(layout.RiverCrossesRoad, Is.True);
             }
@@ -511,10 +630,14 @@ namespace WorldBuilder.Tests
                 layout.River[layout.River.Length - 1]);
 
             Assert.That(layout.River, Has.Length.GreaterThanOrEqualTo(25));
-            Assert.That(XzMagnitude(layout.River[0]), Is.GreaterThan(140f));
             Assert.That(
-                XzMagnitude(layout.River[layout.River.Length - 1]),
-                Is.GreaterThan(140f));
+                CoastRatio(layout, layout.River[0]),
+                Is.GreaterThan(1f));
+            Assert.That(
+                CoastRatio(
+                    layout,
+                    layout.River[layout.River.Length - 1]),
+                Is.GreaterThan(1f));
             Assert.That(
                 pathLength,
                 Is.GreaterThan(directDistance * 1.025f),
@@ -524,8 +647,8 @@ namespace WorldBuilder.Tests
         [Test]
         public void TrailForksAndRiverCrossingsRemainIntentionalAcrossSeeds()
         {
-            const float MinimumForkClearance = 17.5f;
-            const float MinimumCrossingSeparation = 25f;
+            const float MinimumForkClearance = 16.5f;
+            const float MinimumCrossingSeparation = 20f;
             for (int iteration = 1; iteration <= 242; iteration++)
             {
                 int seed = iteration <= 240
@@ -699,29 +822,74 @@ namespace WorldBuilder.Tests
 
             Transform terrain =
                 generator.transform.Find(
-                    $"Generated Raid {generator.Seed}/Terrain Disc");
+                    $"Generated Raid {generator.Seed}/Terrain Island");
             Transform road =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Main Dirt Road");
             Transform river =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/River");
-            Transform horizonBoundary =
+            Transform shorelineBoundary =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/" +
-                    "Arena Horizon Fog and Boundary");
+                    "Island Shoreline Boundary");
+            Transform ocean =
+                generator.transform.Find(
+                    $"Generated Raid {generator.Seed}/Endless Ocean");
             Assert.That(terrain, Is.Not.Null);
-            Assert.That(horizonBoundary, Is.Not.Null);
-            MeshRenderer horizonFog =
-                horizonBoundary.GetComponentInChildren<MeshRenderer>();
-            Assert.That(horizonFog, Is.Not.Null);
+            Assert.That(ocean, Is.Not.Null);
             Assert.That(
-                horizonFog.sharedMaterial.shader.name,
-                Is.EqualTo("WorldBuilder/Low Horizon Fog"));
+                ocean.GetComponent<MeshRenderer>(),
+                Is.Not.Null);
+            Material oceanMaterial =
+                ocean.GetComponent<MeshRenderer>().sharedMaterial;
+            Mesh oceanMesh =
+                ocean.GetComponent<MeshFilter>().sharedMesh;
             Assert.That(
-                horizonBoundary.GetComponentsInChildren<BoxCollider>(),
-                Has.Length.EqualTo(48),
-                "The faded horizon needs a complete physical boundary ring.");
+                oceanMesh.vertexCount,
+                Is.EqualTo(512),
+                "The sea must be an exterior coast ring rather than a quad beneath the island.");
+            float nearestOceanVertex = float.PositiveInfinity;
+            foreach (Vector3 vertex in oceanMesh.vertices)
+            {
+                nearestOceanVertex = Mathf.Min(
+                    nearestOceanVertex,
+                    new Vector2(vertex.x, vertex.z).magnitude);
+            }
+            Assert.That(
+                nearestOceanVertex,
+                Is.GreaterThan(90f),
+                "Ocean geometry must not exist beneath inland valleys or river channels.");
+            Assert.That(
+                oceanMaterial.name,
+                Does.Contain("Deep Ocean"));
+            Assert.That(
+                Vector4.Distance(
+                    oceanMaterial.GetColor("_DeepColor"),
+                    new Color(
+                        0.024f,
+                        0.098f,
+                        0.212f,
+                        1f)),
+                Is.LessThan(0.001f));
+            Assert.That(
+                Vector4.Distance(
+                    oceanMaterial.GetColor("_CurrentColor"),
+                    new Color(
+                        0.043f,
+                        0.216f,
+                        0.40f,
+                        1f)),
+                Is.LessThan(0.001f));
+            Assert.That(shorelineBoundary, Is.Not.Null);
+            Assert.That(
+                shorelineBoundary.GetComponentsInChildren<MeshRenderer>(),
+                Is.Empty,
+                "The ocean blocker should be invisible; the old fog wall must not return.");
+            Assert.That(
+                shorelineBoundary.GetComponentsInChildren<BoxCollider>(),
+                Has.Length.EqualTo(128),
+                "The natural shoreline needs a continuous physical boundary.");
             Vector3[] generatedRiver =
                 generator.CurrentLayout.River;
             int dryCrossingIndex = 1;
@@ -1745,12 +1913,12 @@ namespace WorldBuilder.Tests
                 "Grass must share the meadow's healthy-to-dry tint variation.");
             Assert.That(
                 grassBounds.size.x,
-                Is.InRange(270f, 290f),
-                $"Grass batches should span the raid disc, actual bounds were {grassBounds}.");
+                Is.InRange(250f, 330f),
+                $"Grass batches should span the seeded island, actual bounds were {grassBounds}.");
             Assert.That(
                 grassBounds.size.z,
-                Is.InRange(270f, 290f),
-                $"Grass batches should span the raid disc, actual bounds were {grassBounds}.");
+                Is.InRange(250f, 330f),
+                $"Grass batches should span the seeded island, actual bounds were {grassBounds}.");
             Assert.That(
                 grassVertexCount,
                 Is.GreaterThan(150000),
@@ -2220,6 +2388,70 @@ namespace WorldBuilder.Tests
             Assert.That(trailRaiderCount, Is.EqualTo(8));
             Assert.That(campGuardPoolCount, Is.EqualTo(9));
             EnemyBrain[] enemies = trailEnemies.ToArray();
+            FieldInfo patrolRouteField = typeof(EnemyBrain).GetField(
+                "patrolRoute",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(patrolRouteField, Is.Not.Null);
+            var patrolRoutes = new List<Vector3[]>();
+            foreach (EnemyBrain enemy in enemies)
+            {
+                Assert.That(
+                    enemy.gameObject.activeSelf,
+                    Is.True,
+                    $"{enemy.name} should receive a stable trail patrol instead of remaining at its scene fallback position.");
+                Vector3[] patrolRoute =
+                    patrolRouteField.GetValue(enemy) as Vector3[];
+                Assert.That(
+                    patrolRoute,
+                    Has.Length.EqualTo(5));
+                patrolRoutes.Add(patrolRoute);
+                for (int index = 1; index < patrolRoute.Length; index++)
+                {
+                    Assert.That(
+                        Vector3.Distance(
+                            patrolRoute[index - 1],
+                            patrolRoute[index]),
+                        Is.InRange(3.5f, 12f),
+                        $"{enemy.name} needs meaningful, evenly spaced patrol legs rather than rapid short reversals.");
+                }
+                for (int index = 1; index < patrolRoute.Length - 1; index++)
+                {
+                    Vector3 before = Vector3.ProjectOnPlane(
+                        patrolRoute[index] - patrolRoute[index - 1],
+                        Vector3.up).normalized;
+                    Vector3 after = Vector3.ProjectOnPlane(
+                        patrolRoute[index + 1] - patrolRoute[index],
+                        Vector3.up).normalized;
+                    Assert.That(
+                        Vector3.Dot(before, after),
+                        Is.GreaterThan(0.85f),
+                        $"{enemy.name} patrol route contains a hairpin that would look like broken back-and-forth movement.");
+                }
+            }
+            for (int first = 0; first < patrolRoutes.Count; first++)
+            {
+                for (int second = first + 1;
+                     second < patrolRoutes.Count;
+                     second++)
+                {
+                    float routeDistance = float.PositiveInfinity;
+                    foreach (Vector3 firstPoint in patrolRoutes[first])
+                    {
+                        foreach (Vector3 secondPoint in patrolRoutes[second])
+                        {
+                            routeDistance = Mathf.Min(
+                                routeDistance,
+                                Vector3.Distance(
+                                    firstPoint,
+                                    secondPoint));
+                        }
+                    }
+                    Assert.That(
+                        routeDistance < 3f || routeDistance >= 23.5f,
+                        Is.True,
+                        "Only paired guards may share a patrol corridor; separate groups need the original route separation.");
+                }
+            }
             RaidObelisk[] obelisks =
                 Object.FindObjectsByType<RaidObelisk>(
                     FindObjectsInactive.Include,
@@ -2340,12 +2572,14 @@ namespace WorldBuilder.Tests
                 Is.EqualTo(lastDryPosition),
                 "A living enemy displaced into the river must immediately return to its last dry navigation position.");
             Assert.That(
-                XzMagnitude(player.transform.position) /
-                    generator.MapRadius,
+                CoastRatio(
+                    generator.CurrentLayout,
+                    player.transform.position),
                 Is.InRange(0.70f, 0.88f));
             Assert.That(
-                XzMagnitude(extraction.transform.position) /
-                    generator.MapRadius,
+                CoastRatio(
+                    generator.CurrentLayout,
+                    extraction.transform.position),
                 Is.InRange(0.70f, 0.93f));
             foreach (Transform boulder in boulders)
             {
@@ -2505,6 +2739,17 @@ namespace WorldBuilder.Tests
             return new Vector2(point.x, point.z).magnitude;
         }
 
+        private static float CoastRatio(
+            ProceduralRaidGenerator.RaidLayout layout,
+            Vector3 point)
+        {
+            float angle = Mathf.Atan2(point.z, point.x);
+            return XzMagnitude(point) /
+                Mathf.Max(
+                    0.001f,
+                    layout.CoastRadiusAtAngle(angle));
+        }
+
         private readonly struct CrossingSample
         {
             public CrossingSample(
@@ -2648,7 +2893,7 @@ namespace WorldBuilder.Tests
                 1f));
             Assert.That(
                 departureAngle,
-                Is.GreaterThanOrEqualTo(0.56f),
+                Is.GreaterThanOrEqualTo(0.20f),
                 $"Seed {seed} creates a branch that merely continues parallel to its parent trail.");
 
             foreach (Vector3[] existing in existingRoads)

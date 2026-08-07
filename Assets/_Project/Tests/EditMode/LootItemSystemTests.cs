@@ -63,7 +63,7 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
-        public void EveryRaidStartsWithOneTwentyArrowStack()
+        public void EveryDirectRaidSandboxStartsWithOneThirtyArrowStack()
         {
             GameSession session = CreateSession();
 
@@ -76,7 +76,7 @@ namespace WorldBuilder.Tests.EditMode
                     entry.DefinitionId == ItemDefinitionIds.Arrow)
                 .ToArray();
             Assert.That(arrows, Has.Length.EqualTo(1));
-            Assert.That(arrows[0].Quantity, Is.EqualTo(20));
+            Assert.That(arrows[0].Quantity, Is.EqualTo(30));
             Assert.That(
                 raid.LaunchRequest.CarriedStorageEntryIds,
                 Does.Contain(arrows[0].EntryId));
@@ -84,7 +84,7 @@ namespace WorldBuilder.Tests.EditMode
                 raid.GetItemQuantity(
                     ItemDefinitionIds.Arrow,
                     session.ActiveProfile),
-                Is.EqualTo(20));
+                Is.EqualTo(30));
         }
 
         [Test]
@@ -100,11 +100,11 @@ namespace WorldBuilder.Tests.EditMode
                 raid.GetItemQuantity(
                     ItemDefinitionIds.Arrow,
                     session.ActiveProfile),
-                Is.EqualTo(27));
+                Is.EqualTo(37));
             Assert.That(
                 raid.TryConsumeItem(
                     ItemDefinitionIds.Arrow,
-                    27,
+                    37,
                     session.ActiveProfile),
                 Is.True);
             Assert.That(
@@ -228,7 +228,7 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(64));
             Assert.That(
                 raid.GetCarriedEntryAtSlot(0, session.ActiveProfile).Quantity,
-                Is.EqualTo(20));
+                Is.EqualTo(30));
             Assert.That(
                 ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.Arrow),
                 Is.EqualTo(64));
@@ -298,7 +298,7 @@ namespace WorldBuilder.Tests.EditMode
                 .ToArray();
             Assert.That(arrows, Has.Length.EqualTo(2));
             Assert.That(arrows[0].Quantity, Is.EqualTo(64));
-            Assert.That(arrows[1].Quantity, Is.EqualTo(6));
+            Assert.That(arrows[1].Quantity, Is.EqualTo(16));
         }
 
         [Test]
@@ -327,7 +327,7 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(arrows, Has.Length.EqualTo(2));
             Assert.That(
                 session.ActiveProfile.GetInventoryEntryAtSlot(0)?.Quantity,
-                Is.EqualTo(20));
+                Is.EqualTo(30));
             Assert.That(
                 session.ActiveProfile.GetInventoryEntryAtSlot(15)?.Quantity,
                 Is.EqualTo(5));
@@ -359,7 +359,7 @@ namespace WorldBuilder.Tests.EditMode
                     entry.DefinitionId == ItemDefinitionIds.Arrow)
                 .ToArray();
             Assert.That(arrows, Has.Length.EqualTo(1));
-            Assert.That(arrows[0].Quantity, Is.EqualTo(23));
+            Assert.That(arrows[0].Quantity, Is.EqualTo(33));
         }
 
         [Test]
@@ -482,7 +482,7 @@ namespace WorldBuilder.Tests.EditMode
                     nockedArrow.transform);
                 bow.SetWeaponEquipped(true);
                 Assert.That(nockedArrow.activeSelf, Is.True);
-                for (int index = 0; index < 20; index++)
+                for (int index = 0; index < 30; index++)
                 {
                     Assert.That(controller.TryConsumePlayerArrow(), Is.True);
                 }
@@ -529,7 +529,7 @@ namespace WorldBuilder.Tests.EditMode
                 source.ConfigureChest("Camp Chest", 45);
                 StorageEntry arrows = source.Entries.Single(entry =>
                     entry.DefinitionId == ItemDefinitionIds.Arrow);
-                int expectedQuantity = 20 + arrows.Quantity;
+                int expectedQuantity = 30 + arrows.Quantity;
 
                 Assert.That(
                     controller.TryTransferLoot(

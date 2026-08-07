@@ -44,7 +44,6 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         private GUIStyle centeredStyle;
         private GUIStyle tabStyle;
         private GUIStyle selectedTabStyle;
-        private GUIStyle inventoryCellStyle;
         private Texture2D whiteTexture;
         private MeleeWeapon meleeWeapon;
         private BowWeapon bowWeapon;
@@ -442,7 +441,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                     out definition);
             }
 
-            DrawInventoryCellSurface(rect);
+            LoopSceneGui.DrawWeaponGridCell(rect);
             string label = definition != null
                 ? GetInitials(definition.DisplayName)
                 : string.Empty;
@@ -741,31 +740,23 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = Color.white }
             };
-            inventoryCellStyle ??= new GUIStyle(GUI.skin.box)
-            {
-                normal = { background = Texture2D.grayTexture }
-            };
         }
 
         private void DrawInventorySection(Rect area)
         {
-            Color previous = GUI.color;
-            GUI.color = new Color(0.24f, 0.25f, 0.27f, 0.98f);
-            GUI.DrawTexture(area, whiteTexture);
-            DrawBorder(area, new Color(0.56f, 0.59f, 0.61f, 1f), 2f);
-            GUI.color = previous;
+            LoopSceneGui.DrawSection(area);
         }
 
         private void DrawInventoryCellSurface(
             Rect area,
             bool highlighted = false)
         {
-            GUI.Box(area, GUIContent.none, inventoryCellStyle);
+            LoopSceneGui.DrawCell(area);
             if (highlighted)
             {
                 DrawBorder(
                     area,
-                    new Color(0.92f, 0.79f, 0.48f, 1f),
+                    GameTypography.BorderColor,
                     2f);
             }
         }

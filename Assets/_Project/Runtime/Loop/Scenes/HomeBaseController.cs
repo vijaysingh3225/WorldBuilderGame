@@ -62,6 +62,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 if (!session.HasActiveRaid)
                 {
+                    WeaponGridProfileBinding weaponBinding =
+                        FindFirstObjectByType<WeaponGridProfileBinding>();
+                    weaponBinding?.SyncNow();
                     session.BeginRaid(
                         carriedStorageEntryIds:
                             session.ActiveProfile.InventoryEntryIds);
@@ -141,6 +144,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private Material lineMaterial;
         private Texture2D reticleTexture;
         private HomeInventoryController inventory;
+        private HomeAnvil anvil;
         private BoxCollider basePlatform;
         private BoxCollider fallCatch;
         private Vector3 safePlayerPosition;
@@ -167,6 +171,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             CacheBlockSurfaces();
             KeepSingleCubeChest();
             EnsureHomeAnvil();
+        }
+
+        private void OnEnable()
+        {
+            if (grid != null)
+            {
+                EnsureSolidBasePlatform();
+                CacheBlockSurfaces();
+            }
         }
 
         private void Awake()
@@ -203,6 +216,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void Update()
         {
             inventory ??= FindFirstObjectByType<HomeInventoryController>();
+            anvil ??= FindFirstObjectByType<HomeAnvil>();
             if (player == null)
             {
                 GameObject playerObject =
@@ -245,13 +259,23 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             floor.gameObject.SetActive(true);
+            floor.localScale = Vector3.one;
             basePlatform = floor.GetComponent<BoxCollider>() ??
                 floor.gameObject.AddComponent<BoxCollider>();
-            basePlatform.enabled = true;
-            basePlatform.isTrigger = false;
-
-            basePlatform.center = Vector3.zero;
-            basePlatform.size = Vector3.one;
+            HomeBlockPlatform blockPlatform =
+                floor.GetComponent<HomeBlockPlatform>() ??
+                floor.gameObject.AddComponent<HomeBlockPlatform>();
+            Material floorMaterial =
+                floor.GetComponent<Renderer>()?.sharedMaterial;
+            HomeGridOccupant foundationOccupant =
+                floor.GetComponent<HomeGridOccupant>() ??
+                floor.gameObject.AddComponent<HomeGridOccupant>();
+            foundationOccupant.Configure(
+                grid,
+                new Vector3Int(-6, -1, -5),
+                new Vector3Int(12, 1, 10));
+            blockPlatform.Configure(grid, 12, 10, floorMaterial);
+            basePlatform = floor.GetComponent<BoxCollider>();
             EnsureFallCatch(floor);
 
             if (player == null)
@@ -394,7 +418,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return player != null &&
                 Time.timeScale > 0f &&
                 !SceneNavigationMenu.IsAnyOpen &&
-                (inventory == null || !inventory.IsOpen);
+                (inventory == null || !inventory.IsOpen) &&
+                (anvil == null || !anvil.IsOpen);
         }
 
         private void ResolveSelection()
@@ -690,6 +715,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void EnsureHomeAnvil()
         {
+            GameObject root = null;
             Transform[] transforms =
                 FindObjectsByType<Transform>(
                     FindObjectsInactive.Include,
@@ -701,8 +727,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         "Home Anvil",
                         StringComparison.Ordinal))
                 {
-                    return;
+                    root = transforms[index].gameObject;
+                    break;
                 }
+            }
+
+            if (root != null)
+            {
+                EnsureHomeAnvilInteraction(root);
+                return;
             }
 
             GameObject source =
@@ -712,16 +745,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
-            GameObject root = new GameObject("Home Anvil");
+            root = new GameObject("Home Anvil");
             Transform environment = grid.transform.parent;
             root.transform.SetParent(environment, false);
             HomeGridOccupant occupant =
                 root.AddComponent<HomeGridOccupant>();
             occupant.Configure(
                 grid,
-                new Vector2Int(-3, 3),
-                Vector2Int.one,
-                0f,
+                new Vector3Int(-3, 0, 3),
+                Vector3Int.one,
                 1);
 
             GameObject model = Instantiate(source, root.transform);
@@ -778,6 +810,28 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     root.transform.position.x - bounds.center.x,
                     root.transform.position.y - bounds.min.y,
                     root.transform.position.z - bounds.center.z);
+            }
+            EnsureHomeAnvilInteraction(root);
+        }
+
+        private static void EnsureHomeAnvilInteraction(GameObject root)
+        {
+            Transform existing = root.transform.Find("Anvil Interaction");
+            GameObject interaction = existing != null
+                ? existing.gameObject
+                : new GameObject("Anvil Interaction");
+            interaction.transform.SetParent(root.transform, false);
+            interaction.transform.localPosition = new Vector3(0f, 0.65f, 0f);
+            BoxCollider trigger = interaction.GetComponent<BoxCollider>();
+            if (trigger == null)
+            {
+                trigger = interaction.AddComponent<BoxCollider>();
+            }
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(1.65f, 1.45f, 1.65f);
+            if (interaction.GetComponent<HomeAnvil>() == null)
+            {
+                interaction.AddComponent<HomeAnvil>();
             }
         }
 

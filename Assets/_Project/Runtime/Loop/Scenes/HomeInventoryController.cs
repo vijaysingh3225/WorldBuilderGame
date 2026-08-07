@@ -22,6 +22,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float StorageCellGap = 2f;
         private const float PreviousStorageCellGap = 5f;
         public const float InventoryCellScale = 0.78f;
+        public const float InventoryBackdropOpacity = 0.72f;
 
         private enum InventoryGridKind
         {
@@ -89,6 +90,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private GUIStyle centeredTitleStyle;
         private GUIStyle slotLabelStyle;
         private GUIStyle quantityStyle;
+        private HomeAnvil anvil;
 
         public bool IsOpen => isOpen;
         public bool ChestOpen => chestOpen;
@@ -147,6 +149,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void Update()
         {
+            anvil ??= FindFirstObjectByType<HomeAnvil>();
+            if (anvil != null && anvil.IsOpen)
+            {
+                return;
+            }
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null)
             {
@@ -231,7 +238,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void DrawInventoryScreen(Rect panel)
         {
-            LoopSceneGui.DrawPanel(panel, new Color(0.43f, 0.52f, 0.48f));
+            LoopSceneGui.DrawTranslucentBackdrop(
+                panel,
+                InventoryBackdropOpacity);
 
             float sectionSpacing =
                 CalculateInventorySectionSpacing(panel.width);
@@ -411,7 +420,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             const float horizontalPadding = 32f;
             const float verticalPadding = 56f;
-            const float scrollBarAllowance = 14f;
+            const float scrollBarAllowance = 8f;
             float widthLimit =
                 (columnWidth - horizontalPadding - scrollBarAllowance -
                     PreviousStorageCellGap * (ChestColumns - 1)) /
@@ -564,11 +573,26 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void OpenWeaponGrid(int weaponIndex)
         {
-            if (gridToolkit == null)
+            WeaponGridSandboxToolkit toolkit = ResolveGridToolkit();
+            if (toolkit == null)
             {
+                statusMessage =
+                    "The weapon grid is unavailable. Reopen the inventory and try again.";
                 return;
             }
-            gridToolkit.OpenWeapon(weaponIndex);
+            toolkit.OpenWeapon(weaponIndex);
+        }
+
+        private WeaponGridSandboxToolkit ResolveGridToolkit()
+        {
+            if (gridToolkit != null)
+            {
+                return gridToolkit;
+            }
+            gridToolkit = GetComponent<WeaponGridSandboxToolkit>() ??
+                FindFirstObjectByType<WeaponGridSandboxToolkit>(
+                    FindObjectsInactive.Include);
+            return gridToolkit;
         }
 
         private void DrawPlayerStorageColumn(
@@ -600,17 +624,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             bool needsVerticalScroll = contentHeight > viewport.height;
             float viewWidth = Mathf.Max(
                 backpackWidth,
-                viewport.width - (needsVerticalScroll ? 14f : 0f));
+                viewport.width -
+                    (needsVerticalScroll
+                        ? GameTypography.MinimalVerticalScrollbarWidth + 2f
+                        : 0f));
             Rect scrollContent = new Rect(
                 0f,
                 0f,
                 viewWidth,
                 Mathf.Max(contentHeight, viewport.height));
-            playerStorageScrollPosition = GUI.BeginScrollView(
+            playerStorageScrollPosition =
+                LoopSceneGui.BeginVerticalScrollView(
                 viewport,
                 playerStorageScrollPosition,
                 scrollContent,
-                false,
                 needsVerticalScroll);
             DrawGrid(
                 (viewWidth - backpackWidth) * 0.5f,
@@ -673,17 +700,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 float viewWidth = Mathf.Max(
                     boardWidth,
                     viewport.width -
-                        (needsVerticalScroll ? 14f : 0f));
+                        (needsVerticalScroll
+                            ? GameTypography.MinimalVerticalScrollbarWidth + 2f
+                            : 0f));
                 Rect scrollContent = new Rect(
                     0f,
                     0f,
                     viewWidth,
                     Mathf.Max(boardHeight, viewport.height));
-                lootScrollPosition = GUI.BeginScrollView(
+                lootScrollPosition =
+                    LoopSceneGui.BeginVerticalScrollView(
                     viewport,
                     lootScrollPosition,
                     scrollContent,
-                    false,
                     needsVerticalScroll);
                 startX = (viewWidth - boardWidth) * 0.5f;
                 startY = 0f;
@@ -1489,33 +1518,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private static void DrawInventorySection(Rect area)
         {
-            Color previousColor = GUI.color;
-            GUI.color = new Color(0.24f, 0.25f, 0.27f, 0.98f);
-            GUI.DrawTexture(area, Texture2D.whiteTexture);
-
-            GUI.color = new Color(0.56f, 0.59f, 0.61f, 1f);
-            const float border = 2f;
-            GUI.DrawTexture(
-                new Rect(area.x, area.y, area.width, border),
-                Texture2D.whiteTexture);
-            GUI.DrawTexture(
-                new Rect(area.x, area.yMax - border, area.width, border),
-                Texture2D.whiteTexture);
-            GUI.DrawTexture(
-                new Rect(area.x, area.y, border, area.height),
-                Texture2D.whiteTexture);
-            GUI.DrawTexture(
-                new Rect(area.xMax - border, area.y, border, area.height),
-                Texture2D.whiteTexture);
-            GUI.color = previousColor;
+            LoopSceneGui.DrawSection(area);
         }
 
         private void DrawInventoryCellSurface(Rect rect)
         {
-            GUI.Box(
-                rect,
-                GUIContent.none,
-                emptyCellStyle);
+            LoopSceneGui.DrawCell(rect);
         }
 
         private List<StorageEntry> BuildPackEntries(PlayerProfile profile)
@@ -1775,7 +1783,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             };
             emptyCellStyle ??= new GUIStyle(GUI.skin.box)
             {
-                normal = { background = Texture2D.grayTexture }
+                normal = { background = GameTypography.CellTexture }
             };
             equipmentSlotStyle ??= new GUIStyle(GUI.skin.label)
             {

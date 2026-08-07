@@ -104,6 +104,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private static GUIStyle muted;
         private static GUIStyle button;
         private static GUIStyle centered;
+        private static GUIStyle cellSurface;
+        private static GUIStyle sectionSurface;
+        private static GUIStyle weaponGridCellSurface;
 
         public static GUIStyle Title
         {
@@ -161,17 +164,68 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         public static void DrawPanel(Rect rect, Color accent)
         {
+            DrawSection(rect);
+        }
+
+        public static void DrawTranslucentBackdrop(
+            Rect rect,
+            float opacity)
+        {
+            EnsureStyles();
             Color previous = GUI.color;
-            GUI.color = new Color(0.035f, 0.042f, 0.048f, 0.94f);
-            GUI.DrawTexture(rect, Texture2D.whiteTexture);
             GUI.color = new Color(
-                accent.r,
-                accent.g,
-                accent.b,
-                0.95f);
-            GUI.DrawTexture(
-                new Rect(rect.x, rect.y, 4f, rect.height),
-                Texture2D.whiteTexture);
+                1f,
+                1f,
+                1f,
+                Mathf.Clamp01(opacity));
+            GUI.DrawTexture(rect, GameTypography.PanelTexture);
+            GUI.color = previous;
+        }
+
+        public static Vector2 BeginVerticalScrollView(
+            Rect viewport,
+            Vector2 scrollPosition,
+            Rect content,
+            bool alwaysShowVertical)
+        {
+            EnsureStyles();
+            scrollPosition.x = 0f;
+            Vector2 result = GUI.BeginScrollView(
+                viewport,
+                scrollPosition,
+                content,
+                false,
+                alwaysShowVertical,
+                GUIStyle.none,
+                GUI.skin.verticalScrollbar);
+            result.x = 0f;
+            return result;
+        }
+
+        public static void DrawSection(Rect rect)
+        {
+            EnsureStyles();
+            Color previous = GUI.color;
+            GUI.color = Color.white;
+            GUI.Box(rect, GUIContent.none, sectionSurface);
+            GUI.color = previous;
+        }
+
+        public static void DrawCell(Rect rect)
+        {
+            EnsureStyles();
+            Color previous = GUI.color;
+            GUI.color = Color.white;
+            GUI.Box(rect, GUIContent.none, cellSurface);
+            GUI.color = previous;
+        }
+
+        public static void DrawWeaponGridCell(Rect rect)
+        {
+            EnsureStyles();
+            Color previous = GUI.color;
+            GUI.color = Color.white;
+            GUI.Box(rect, GUIContent.none, weaponGridCellSurface);
             GUI.color = previous;
         }
 
@@ -257,6 +311,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 14,
                 fontStyle = FontStyle.Normal
+            };
+            cellSurface = new GUIStyle(GUI.skin.box)
+            {
+                border = new RectOffset(0, 0, 0, 0),
+                normal = { background = GameTypography.CellTexture }
+            };
+            sectionSurface = new GUIStyle(GUI.skin.box)
+            {
+                border = new RectOffset(6, 6, 6, 6),
+                normal = { background = GameTypography.SectionTexture }
+            };
+            weaponGridCellSurface = new GUIStyle(GUI.skin.box)
+            {
+                border = new RectOffset(6, 6, 6, 6),
+                normal =
+                {
+                    background = GameTypography.WeaponGridCellTexture
+                }
             };
         }
     }

@@ -130,12 +130,28 @@ namespace WorldBuilder.Tests.EditMode
                         Vector3.forward),
                     Is.GreaterThan(0.75f),
                     "Only the subtle rim light should travel forward from behind the model.");
+                AssertSingleSamplePreview(preview.CharacterTexture);
+                AssertSingleSamplePreview(preview.PrimaryThumbnail);
+                AssertSingleSamplePreview(preview.SecondaryThumbnail);
+                AssertSingleSamplePreview(preview.WeaponTexture);
             }
             finally
             {
                 Object.DestroyImmediate(previewObject);
                 Object.DestroyImmediate(source);
             }
+        }
+
+        private static void AssertSingleSamplePreview(Texture texture)
+        {
+            Assert.That(texture, Is.TypeOf<RenderTexture>());
+            var renderTexture = (RenderTexture)texture;
+            Assert.That(renderTexture.IsCreated(), Is.True);
+            Assert.That(
+                renderTexture.antiAliasing,
+                Is.EqualTo(1),
+                "Inventory previews must avoid URP bind-MS resolve failures.");
+            Assert.That(renderTexture.useMipMap, Is.False);
         }
     }
 }
