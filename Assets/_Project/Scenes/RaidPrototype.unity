@@ -26,7 +26,7 @@ RenderSettings:
   m_AmbientIntensity: 1.02
   m_AmbientMode: 1
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
-  m_SkyboxMaterial: {fileID: 2100000, guid: ce93911b07082b14f9c7306fb706f4f1, type: 2}
+  m_SkyboxMaterial: {fileID: 2100000, guid: c4c5250ca17d43241ac898ddd85675ef, type: 2}
   m_HaloStrength: 0.5
   m_FlareStrength: 1
   m_FlareFadeSpeed: 3
@@ -53941,7 +53941,7 @@ MonoBehaviour:
   grassDetailMaterial: {fileID: 2100000, guid: ebac4928c3488b64aaaad87364e1ea73, type: 2}
   plantDetailMaterial: {fileID: 2100000, guid: fafce2a43cb0b4f429f17f1d39f98531, type: 2}
   rockMaterial: {fileID: 2100000, guid: a69ca5b8a5006e64a9ba2dec9b9988d3, type: 2}
-  skyboxMaterial: {fileID: 2100000, guid: ce93911b07082b14f9c7306fb706f4f1, type: 2}
+  skyboxMaterial: {fileID: 2100000, guid: c4c5250ca17d43241ac898ddd85675ef, type: 2}
   mossyLoamTexture: {fileID: 2800000, guid: 03b58b7a0d889d6489d7260c20b704d9, type: 3}
   canopyDuffTexture: {fileID: 2800000, guid: 7b18bea6fa843f642b6f7ba3b64b2420, type: 3}
   mossCarpetTexture: {fileID: 2800000, guid: 2d4501224d03eb14b9b0e815177e8a72, type: 3}

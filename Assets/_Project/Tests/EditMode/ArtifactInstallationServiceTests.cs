@@ -42,6 +42,24 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void ForgeGivesTheWeaponWorkspaceMostOfTheWidth()
+        {
+            const float contentWidth = 1200f;
+
+            float libraryWidth = HomeAnvil.CalculateArtifactLibraryWidth(
+                contentWidth);
+
+            Assert.That(
+                libraryWidth,
+                Is.EqualTo(contentWidth *
+                    HomeAnvil.ArtifactLibraryWidthFraction));
+            Assert.That(libraryWidth, Is.LessThan(contentWidth / 3f));
+            Assert.That(
+                HomeAnvil.CalculateArtifactLibraryWidth(400f),
+                Is.EqualTo(190f));
+        }
+
+        [Test]
         public void NewHomeSandboxStartsWithThirtyArrows()
         {
             var session = new GameSession(

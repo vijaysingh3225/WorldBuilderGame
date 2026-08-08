@@ -115,9 +115,9 @@ namespace WorldBuilder.Editor
         private const string BridgeTextureFolder =
             "Assets/_Project/Art/Environment/StylizedBridge/textures";
         private const string RaidSkyboxTexturePath =
-            "Assets/_Project/Art/Environment/Skybox/Sky129/sky_129_2k.png";
+            "Assets/_Project/Art/Environment/Skybox/Sky94/sky_94_2k.png";
         private const string RaidSkyboxMaterialPath =
-            "Assets/_Project/Art/Prototype/Materials/RaidSky129.mat";
+            "Assets/_Project/Art/Prototype/Materials/RaidSky94.mat";
         private const string HomeSkyboxTexturePath =
             "Assets/_Project/Art/Environment/Skybox/Sky90/sky_90_2k.png";
         private const string HomeSkyboxMaterialPath =
@@ -460,6 +460,7 @@ namespace WorldBuilder.Editor
         {
             EnsureSceneFolder();
             CombatLabSceneBuilder.Build();
+            ShortSwordGeneratorLabSceneBuilder.Build();
             BuildBootstrap();
             BuildHomeBase();
             BuildRaidPrototype();
@@ -471,7 +472,7 @@ namespace WorldBuilder.Editor
                 OpenSceneMode.Single);
             Debug.Log(
                 "WorldBuilder gameplay loop generated: Bootstrap, HomeBase, " +
-                "RaidPrototype, and CombatLab.");
+                "RaidPrototype, CombatLab, and ShortSwordGeneratorLab.");
         }
 
         private static void BuildBootstrap()
@@ -2113,7 +2114,7 @@ namespace WorldBuilder.Editor
             return GetOrCreatePanoramicSkyboxMaterial(
                 RaidSkyboxTexturePath,
                 RaidSkyboxMaterialPath,
-                "RaidSky129");
+                "RaidSky94");
         }
 
         private static Material GetOrCreateHomeSkyboxMaterial()

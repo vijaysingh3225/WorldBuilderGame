@@ -16,11 +16,20 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string Hit3StateName = "Sword Cycle Hit 3";
         public const string AttackStateName = Hit1StateName;
         public const float MinimumAttackTransitionDuration = 0.075f;
-        public const float MinimumAttackReturnDuration = 0.24f;
+        public const float MinimumAttackReturnDuration = 0.10f;
         public const float AttackEntryBlendDuration = 0.12f;
         public const float RunningRecoveryHandoffStart = 0.50f;
         public const float RunningFinisherHandoffStart = 0.58f;
         public const float RunningReturnGaitThreshold = 0.25f;
+        public const float HeavyChargeThreshold = 0.28f;
+        public const float HeavyMaximumChargeDuration = 1.35f;
+        public const float HeavyMinimumDamageMultiplier = 1.45f;
+        public const float HeavyMaximumDamageMultiplier = 2.80f;
+        public const float HeavyMinimumLungeDistance = 0f;
+        public const float HeavyMaximumLungeDistance = 1.80f;
+        public const float HeavyDashDuration = 0.12f;
+        public const float HeavyChargeStartNormalizedTime = 0.08f;
+        public const float HeavyChargeHoldNormalizedTime = 0.22f;
 
         private static readonly int[] HitStateHashes =
         {
@@ -44,6 +53,7 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private ThirdPersonMotor motor;
         [SerializeField] private MeleeWeapon weapon;
         [SerializeField] private Transform swordRoot;
+        [SerializeField] private ShortSwordSwingTrail swingTrail;
         [SerializeField] private AudioClip swordSwingClip;
         [SerializeField] private AudioSource swordAudioSource;
         [SerializeField, Range(0f, 1f)] private float swordSwingVolume = 0.36f;
@@ -53,6 +63,19 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField, Range(0.3f, 0.9f)] private float comboChainPoint = 0.68f;
         [SerializeField, Min(0f)] private float transitionDuration = 0.035f;
         [SerializeField, Min(0.01f)] private float finalReturnBlendDuration = 0.12f;
+        [Header("Heavy Opening Attack")]
+        [SerializeField, Min(0.05f)] private float heavyChargeThreshold =
+            HeavyChargeThreshold;
+        [SerializeField, Min(0.1f)] private float heavyMaximumChargeDuration =
+            HeavyMaximumChargeDuration;
+        [SerializeField, Range(0.02f, 1f)] private float heavyChargeAnimationSpeed =
+            0.48f;
+        [SerializeField, Range(0.05f, 0.9f)] private float heavyChargeHoldNormalizedTime =
+            HeavyChargeHoldNormalizedTime;
+        [SerializeField, Min(1f)] private float heavyMinimumDamageMultiplier =
+            HeavyMinimumDamageMultiplier;
+        [SerializeField, Min(1f)] private float heavyMaximumDamageMultiplier =
+            HeavyMaximumDamageMultiplier;
 
         private int attackLayerIndex = -1;
         private int currentHit;
@@ -69,8 +92,23 @@ namespace WorldBuilder.Gameplay.Presentation
         private float entryBlendStartedAt;
         private float presentationWeight;
         private bool weaponEquipped = true;
+        private bool heavyChargeActive;
+        private float heavyChargeStartedAt;
+        private float heavyChargeAnimationPosition;
+        private bool heavyAttackActive;
+        private float heavyChargeNormalized;
+        private bool heavyLungeApplied;
+        private bool heavyHoldGraceQueued;
 
-        public bool IsAttacking => attackActive;
+        public bool IsAttacking => attackActive || heavyChargeActive;
+        public bool IsHeavyCharging => heavyChargeActive;
+        public float HeavyChargeNormalized => heavyChargeNormalized;
+        public float HeavyChargePoseNormalized => Mathf.InverseLerp(
+            HeavyChargeStartNormalizedTime,
+            Mathf.Max(
+                HeavyChargeStartNormalizedTime + 0.01f,
+                heavyChargeHoldNormalizedTime),
+            heavyChargeAnimationPosition);
         public float PresentationWeight => presentationWeight;
         public bool WeaponEquipped => weaponEquipped;
         public int CurrentComboHit => attackActive ? currentHit + 1 : 0;
@@ -96,9 +134,13 @@ namespace WorldBuilder.Gameplay.Presentation
             if (weapon != null && swordRoot != null)
             {
                 weapon.ConfigureBlade(swordRoot.Find("Pointed Blade"));
+                weapon.SetOpeningHoldEnabled(true);
             }
+            EnsureSwingTrail();
+            swingTrail?.Configure(weapon);
             ConfigureAudio();
             ResolveAnimatorState();
+            EnsureChargePosePresenter();
             Subscribe();
         }
 
@@ -117,8 +159,12 @@ namespace WorldBuilder.Gameplay.Presentation
             weapon ??= GetComponentInParent<MeleeWeapon>();
             motor ??= GetComponentInParent<ThirdPersonMotor>();
             playerRoot ??= weapon != null ? weapon.transform : transform.root;
+            weapon?.SetOpeningHoldEnabled(true);
+            EnsureSwingTrail();
+            swingTrail?.Configure(weapon);
             ConfigureAudio();
             ResolveAnimatorState();
+            EnsureChargePosePresenter();
         }
 
         private void OnEnable()
@@ -134,6 +180,12 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void Update()
         {
+            if (heavyChargeActive)
+            {
+                UpdateHeavyCharge();
+                return;
+            }
+
             if (!attackActive || animator == null || attackLayerIndex < 0)
             {
                 return;
@@ -193,7 +245,9 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
-            if (!recovering && currentHit < RecoveryStateHashes.Length)
+            if (!recovering &&
+                !heavyAttackActive &&
+                currentHit < RecoveryStateHashes.Length)
             {
                 recovering = true;
                 animator.CrossFadeInFixedTime(
@@ -212,6 +266,22 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             BeginReturnBlend();
+        }
+
+        private void LateUpdate()
+        {
+            if (!heavyChargeActive || animator == null || attackLayerIndex < 0)
+            {
+                return;
+            }
+
+            // Sample only the sword layer after normal locomotion animation
+            // has updated. The legs therefore keep their regular walk/run
+            // cadence while the upper-body strike pose remains held.
+            animator.Play(
+                HitStateHashes[0],
+                attackLayerIndex,
+                heavyChargeAnimationPosition);
         }
 
         private void OnAttackRequested()
@@ -240,8 +310,119 @@ namespace WorldBuilder.Gameplay.Presentation
             StartHit(0, false);
         }
 
-        private void StartHit(int hitIndex, bool chained)
+        private void OnAttackHoldStarted()
         {
+            if (!weaponEquipped || animator == null || weapon == null)
+            {
+                return;
+            }
+
+            if (attackActive)
+            {
+                heavyHoldGraceQueued = true;
+                return;
+            }
+
+            if (attackLayerIndex < 0)
+            {
+                ResolveAnimatorState();
+            }
+            if (attackLayerIndex < 0)
+            {
+                return;
+            }
+
+            BeginHeavyCharge();
+        }
+
+        private void BeginHeavyCharge()
+        {
+            heavyChargeActive = true;
+            heavyChargeStartedAt = Time.time;
+            heavyChargeNormalized = 0f;
+            heavyAttackActive = false;
+            heavyLungeApplied = false;
+            heavyChargeAnimationPosition = Mathf.Clamp01(
+                HeavyChargeStartNormalizedTime);
+            animator.Play(
+                HitStateHashes[0],
+                attackLayerIndex,
+                heavyChargeAnimationPosition);
+            SetAttackLayerWeight(1f);
+        }
+
+        private void OnAttackHoldReleased(float releasedAt)
+        {
+            if (!heavyChargeActive)
+            {
+                if (heavyHoldGraceQueued && attackActive)
+                {
+                    heavyHoldGraceQueued = false;
+                    QueueFollowUp();
+                }
+                return;
+            }
+
+            float chargeDuration = Mathf.Max(
+                0f,
+                releasedAt - heavyChargeStartedAt);
+            heavyChargeActive = false;
+            if (chargeDuration < heavyChargeThreshold)
+            {
+                SetAttackLayerWeight(0f);
+                StartHit(0, false);
+                return;
+            }
+
+            heavyChargeNormalized = CalculateHeavyChargeNormalized(
+                chargeDuration,
+                heavyChargeThreshold,
+                heavyMaximumChargeDuration);
+            heavyAttackActive = true;
+            heavyLungeApplied = false;
+            StartHit(
+                0,
+                false,
+                CalculateHeavyDamageMultiplier(
+                    heavyChargeNormalized,
+                    heavyMinimumDamageMultiplier,
+                    heavyMaximumDamageMultiplier),
+                heavyChargeAnimationPosition);
+        }
+
+        private void UpdateHeavyCharge()
+        {
+            float heldDuration = Time.time - heavyChargeStartedAt;
+            heavyChargeNormalized = CalculateHeavyChargeNormalized(
+                heldDuration,
+                heavyChargeThreshold,
+                heavyMaximumChargeDuration);
+            float holdPosition = Mathf.Max(
+                HeavyChargeStartNormalizedTime + 0.01f,
+                heavyChargeHoldNormalizedTime);
+            float approachRate = Mathf.Max(0.01f, heavyChargeAnimationSpeed) /
+                Mathf.Max(
+                    0.01f,
+                    holdPosition - HeavyChargeStartNormalizedTime);
+            heavyChargeAnimationPosition = CalculateHeavyChargeAnimationTime(
+                heldDuration,
+                HeavyChargeStartNormalizedTime,
+                holdPosition,
+                approachRate);
+        }
+
+        private void StartHit(
+            int hitIndex,
+            bool chained,
+            float damageMultiplier = 1f,
+            float resumeNormalizedTime = -1f)
+        {
+            if (chained)
+            {
+                heavyAttackActive = false;
+                heavyLungeApplied = false;
+                heavyChargeNormalized = 0f;
+            }
             currentHit = Mathf.Clamp(hitIndex, 0, HitStateHashes.Length - 1);
             recovering = false;
             returnBlending = false;
@@ -260,13 +441,20 @@ namespace WorldBuilder.Gameplay.Presentation
             }
             else
             {
-                animator.Play(HitStateHashes[currentHit], attackLayerIndex, 0f);
+                animator.Play(
+                    HitStateHashes[currentHit],
+                    attackLayerIndex,
+                    Mathf.Clamp01(
+                        resumeNormalizedTime < 0f
+                            ? 0f
+                            : resumeNormalizedTime));
                 entryBlending = true;
                 entryBlendStartedAt = Time.time;
                 SetAttackLayerWeight(0f);
             }
 
-            weapon.BeginSwing();
+            weapon.BeginSwing(damageMultiplier);
+            swingTrail?.EndSwing();
         }
 
         private void UpdateStrikeEvents(float normalizedTime)
@@ -275,14 +463,27 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 swingSoundPlayed = true;
                 PlaySwingSound();
+                if (heavyAttackActive && !heavyLungeApplied)
+                {
+                    heavyLungeApplied = true;
+                    motor?.ApplyPlanarDash(
+                        weapon.AttackDirection,
+                        CalculateHeavyLungeDistance(
+                            heavyChargeNormalized,
+                            HeavyMinimumLungeDistance,
+                            HeavyMaximumLungeDistance),
+                        HeavyDashDuration);
+                }
                 weapon.OpenBladeDamageWindow();
                 damageWindowOpened = true;
+                swingTrail?.BeginSlice();
             }
 
             if (damageWindowOpened && normalizedTime >= DamageWindowEndTimes[currentHit])
             {
                 damageWindowOpened = false;
                 weapon.CloseBladeDamageWindow();
+                swingTrail?.EndSwing();
             }
         }
 
@@ -297,7 +498,9 @@ namespace WorldBuilder.Gameplay.Presentation
             // rapid combo crisp. The slower finisher gets the same source at a
             // lower pitch to follow its longer acceleration.
             swordAudioSource.Stop();
-            swordAudioSource.pitch = SwingPitches[currentHit];
+            swordAudioSource.pitch = heavyAttackActive
+                ? SwingPitches[currentHit] * 0.78f
+                : SwingPitches[currentHit];
             swordAudioSource.PlayOneShot(swordSwingClip, swordSwingVolume);
         }
 
@@ -313,6 +516,23 @@ namespace WorldBuilder.Gameplay.Presentation
             swordAudioSource.loop = false;
             swordAudioSource.spatialBlend = 0.15f;
             swordAudioSource.dopplerLevel = 0f;
+        }
+
+        private void EnsureChargePosePresenter()
+        {
+            if (GetComponent<ShortSwordChargePosePresenter>() == null)
+            {
+                gameObject.AddComponent<ShortSwordChargePosePresenter>();
+            }
+        }
+
+        private void EnsureSwingTrail()
+        {
+            swingTrail ??= GetComponent<ShortSwordSwingTrail>();
+            if (swingTrail == null)
+            {
+                swingTrail = gameObject.AddComponent<ShortSwordSwingTrail>();
+            }
         }
 
         private void QueueFollowUp()
@@ -451,8 +671,67 @@ namespace WorldBuilder.Gameplay.Presentation
                     normalizedTime));
         }
 
+        public static float CalculateHeavyChargeNormalized(
+            float chargeDuration,
+            float threshold,
+            float maximumDuration)
+        {
+            return Mathf.Clamp01(Mathf.InverseLerp(
+                Mathf.Max(0f, threshold),
+                Mathf.Max(threshold + 0.01f, maximumDuration),
+                Mathf.Max(0f, chargeDuration)));
+        }
+
+        public static float CalculateHeavyChargeAnimationTime(
+            float heldDuration,
+            float startNormalizedTime,
+            float holdNormalizedTime,
+            float approachRate)
+        {
+            float start = Mathf.Clamp01(startNormalizedTime);
+            float hold = Mathf.Clamp(holdNormalizedTime, start, 1f);
+            float approach = 1f - Mathf.Exp(
+                -Mathf.Max(0f, heldDuration) * Mathf.Max(0.01f, approachRate));
+            return Mathf.Lerp(start, hold, approach);
+        }
+
+        public static float CalculateHeavyDamageMultiplier(
+            float chargeNormalized,
+            float minimumMultiplier,
+            float maximumMultiplier)
+        {
+            return Mathf.Lerp(
+                Mathf.Max(1f, minimumMultiplier),
+                Mathf.Max(minimumMultiplier, maximumMultiplier),
+                Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(chargeNormalized)));
+        }
+
+        public static float CalculateHeavyLungeDistance(
+            float chargeNormalized,
+            float minimumDistance,
+            float maximumDistance)
+        {
+            return Mathf.Lerp(
+                Mathf.Max(0f, minimumDistance),
+                Mathf.Max(minimumDistance, maximumDistance),
+                Mathf.Clamp01(chargeNormalized));
+        }
+
+        public static bool ShouldBeginQueuedHeavyCharge(
+            bool queuedHold,
+            bool inputHeld,
+            bool swordEquipped)
+        {
+            return queuedHold && inputHeld && swordEquipped;
+        }
+
         private void FinishCurrentAttack()
         {
+            bool beginQueuedHeavyCharge =
+                ShouldBeginQueuedHeavyCharge(
+                    heavyHoldGraceQueued,
+                    weapon != null && weapon.AttackInputHeld,
+                    weaponEquipped);
             attackActive = false;
             entryBlending = false;
             recovering = false;
@@ -462,7 +741,17 @@ namespace WorldBuilder.Gameplay.Presentation
             comboFollowUpQueued = false;
             swingSoundPlayed = false;
             damageWindowOpened = false;
+            heavyAttackActive = false;
+            heavyLungeApplied = false;
+            heavyHoldGraceQueued = false;
+            heavyChargeNormalized = 0f;
+            heavyChargeAnimationPosition = 0f;
             weapon.EndSwing();
+            swingTrail?.EndSwing();
+            if (beginQueuedHeavyCharge)
+            {
+                BeginHeavyCharge();
+            }
         }
 
         private void ResetPresentation()
@@ -475,7 +764,14 @@ namespace WorldBuilder.Gameplay.Presentation
             comboFollowUpQueued = false;
             swingSoundPlayed = false;
             damageWindowOpened = false;
+            heavyChargeActive = false;
+            heavyAttackActive = false;
+            heavyLungeApplied = false;
+            heavyHoldGraceQueued = false;
+            heavyChargeNormalized = 0f;
+            heavyChargeAnimationPosition = 0f;
             weapon?.EndSwing();
+            swingTrail?.EndSwing();
             if (swordAudioSource != null)
             {
                 swordAudioSource.Stop();
@@ -537,6 +833,8 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             weapon.AttackRequested += OnAttackRequested;
+            weapon.AttackHoldStarted += OnAttackHoldStarted;
+            weapon.AttackHoldReleased += OnAttackHoldReleased;
             subscribed = true;
         }
 
@@ -548,6 +846,9 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             weapon.AttackRequested -= OnAttackRequested;
+            weapon.AttackHoldStarted -= OnAttackHoldStarted;
+            weapon.AttackHoldReleased -= OnAttackHoldReleased;
+            weapon.SetOpeningHoldEnabled(false);
             subscribed = false;
         }
     }

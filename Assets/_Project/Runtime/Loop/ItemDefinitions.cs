@@ -10,7 +10,9 @@ namespace WorldBuilder.Gameplay.Loop
         Ammunition = 1,
         Consumable = 2,
         Material = 3,
-        Artifact = 4
+        Artifact = 4,
+        Currency = 5,
+        Weapon = 6
     }
 
     public static class ItemDefinitionIds
@@ -19,6 +21,10 @@ namespace WorldBuilder.Gameplay.Loop
         public const string HealthPack = "health-pack";
         public const string IronIngot = "iron-ingot";
         public const string Coal = "coal";
+        public const string CopperCoin = "copper-coin";
+        public const string OwlEyeSeal = "owl-eye-seal";
+        public const string LootShortSword = "loot-short-sword";
+        public const string LootHuntingBow = "loot-hunting-bow";
         public const string ArtifactPowerShard = "artifact-power-shard";
         public const string KeenShard = "keen-shard";
         public const string IronBond = "iron-bond";
@@ -33,6 +39,8 @@ namespace WorldBuilder.Gameplay.Loop
         private static Texture2D healthPackIcon;
         private static Texture2D ironIngotIcon;
         private static Texture2D coalIcon;
+        private static Texture2D copperCoinIcon;
+        private static Texture2D owlEyeSealIcon;
 
         public static string DisplayName(string definitionId)
         {
@@ -42,6 +50,10 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.HealthPack => "Health Pack",
                 ItemDefinitionIds.IronIngot => "Iron Ingot",
                 ItemDefinitionIds.Coal => "Coal",
+                ItemDefinitionIds.CopperCoin => "Copper Coin",
+                ItemDefinitionIds.OwlEyeSeal => "Owl Eye Seal",
+                ItemDefinitionIds.LootShortSword => "Raider Short Sword",
+                ItemDefinitionIds.LootHuntingBow => "Raider Hunting Bow",
                 ItemDefinitionIds.ArtifactPowerShard => "Power Shard",
                 ItemDefinitionIds.KeenShard => "Keen Shard",
                 ItemDefinitionIds.IronBond => "Iron Bond",
@@ -62,6 +74,10 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.HealthPack => ItemCategory.Consumable,
                 ItemDefinitionIds.IronIngot => ItemCategory.Material,
                 ItemDefinitionIds.Coal => ItemCategory.Material,
+                ItemDefinitionIds.CopperCoin => ItemCategory.Currency,
+                ItemDefinitionIds.OwlEyeSeal => ItemCategory.Artifact,
+                ItemDefinitionIds.LootShortSword => ItemCategory.Weapon,
+                ItemDefinitionIds.LootHuntingBow => ItemCategory.Weapon,
                 ItemDefinitionIds.ArtifactPowerShard => ItemCategory.Artifact,
                 ItemDefinitionIds.KeenShard => ItemCategory.Artifact,
                 ItemDefinitionIds.IronBond => ItemCategory.Artifact,
@@ -77,6 +93,11 @@ namespace WorldBuilder.Gameplay.Loop
             return Category(definitionId) == ItemCategory.Artifact;
         }
 
+        public static bool IsWeapon(string definitionId)
+        {
+            return Category(definitionId) == ItemCategory.Weapon;
+        }
+
         public static bool IsStackable(string definitionId)
         {
             return string.Equals(
@@ -90,6 +111,10 @@ namespace WorldBuilder.Gameplay.Loop
                 string.Equals(
                     definitionId,
                     ItemDefinitionIds.Coal,
+                    StringComparison.Ordinal) ||
+                string.Equals(
+                    definitionId,
+                    ItemDefinitionIds.CopperCoin,
                     StringComparison.Ordinal);
         }
 
@@ -100,6 +125,7 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.Arrow => 64,
                 ItemDefinitionIds.HealthPack => 64,
                 ItemDefinitionIds.Coal => 10,
+                ItemDefinitionIds.CopperCoin => 100,
                 _ => 1
             };
         }
@@ -108,6 +134,29 @@ namespace WorldBuilder.Gameplay.Loop
             string definitionId,
             int quarterTurns)
         {
+            if (definitionId == ItemDefinitionIds.LootShortSword)
+            {
+                return RotateFootprint(
+                    new[]
+                    {
+                        new Vector2Int(0, 0),
+                        new Vector2Int(0, 1),
+                        new Vector2Int(0, 2)
+                    },
+                    quarterTurns);
+            }
+            if (definitionId == ItemDefinitionIds.LootHuntingBow)
+            {
+                return RotateFootprint(
+                    new[]
+                    {
+                        new Vector2Int(0, 0), new Vector2Int(1, 0),
+                        new Vector2Int(0, 1), new Vector2Int(1, 1),
+                        new Vector2Int(0, 2), new Vector2Int(1, 2)
+                    },
+                    quarterTurns);
+            }
+
             // Current prototype items are one cell. New item definitions can
             // return any normalized tile set here, including concave shapes.
             return RotateFootprint(
@@ -200,6 +249,14 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.Coal =>
                     coalIcon ??= Resources.Load<Texture2D>(
                         "Inventory Icons/Coal Icon"),
+                ItemDefinitionIds.CopperCoin =>
+                    copperCoinIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Copper Tree Coin Icon"),
+                ItemDefinitionIds.OwlEyeSeal =>
+                    owlEyeSealIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Owl I Seal Icon") ??
+                    Resources.Load<Texture2D>(
+                        "Inventory Icons/Owl Eye Seal Icon"),
                 _ => null
             };
         }

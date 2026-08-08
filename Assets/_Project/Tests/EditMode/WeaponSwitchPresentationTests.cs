@@ -272,6 +272,28 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void SwordGuardLowerBodyFollowsTravelWhileUpperBodyRemainsAimed()
+        {
+            Assert.That(
+                AimStanceLocomotionPresenter.CalculateGuardTravelYaw(
+                    Vector3.forward),
+                Is.EqualTo(0f).Within(0.001f));
+            Assert.That(
+                AimStanceLocomotionPresenter.CalculateGuardTravelYaw(
+                    Vector3.right),
+                Is.EqualTo(90f).Within(0.001f));
+            Assert.That(
+                AimStanceLocomotionPresenter.CalculateGuardTravelYaw(
+                    Vector3.left),
+                Is.EqualTo(-90f).Within(0.001f));
+            Assert.That(
+                Mathf.Abs(
+                    AimStanceLocomotionPresenter.CalculateGuardTravelYaw(
+                        Vector3.back)),
+                Is.EqualTo(180f).Within(0.001f));
+        }
+
+        [Test]
         public void SwordRunIntensityLeavesWalkUntouchedAndReachesFullSprintPose()
         {
             Assert.That(
@@ -324,7 +346,7 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 ShortSwordAttackPresenter.
                     MinimumAttackReturnDuration,
-                Is.GreaterThanOrEqualTo(0.2f));
+                Is.GreaterThanOrEqualTo(0.08f));
             Assert.That(
                 HumanoidAnimatorPresenter.
                     MinimumLocomotionDampTime,

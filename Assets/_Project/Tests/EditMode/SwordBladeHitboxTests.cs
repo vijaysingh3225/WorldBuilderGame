@@ -133,6 +133,112 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(20f).Within(0.001f));
         }
 
+        [Test]
+        public void HeavyOpeningAttackScalesDamageAndLungeWithHoldDuration()
+        {
+            float threshold =
+                ShortSwordAttackPresenter.HeavyChargeThreshold;
+            float maximum =
+                ShortSwordAttackPresenter.HeavyMaximumChargeDuration;
+            float minimumCharge =
+                ShortSwordAttackPresenter.CalculateHeavyChargeNormalized(
+                    threshold,
+                    threshold,
+                    maximum);
+            float fullCharge =
+                ShortSwordAttackPresenter.CalculateHeavyChargeNormalized(
+                    maximum,
+                    threshold,
+                    maximum);
+
+            Assert.That(minimumCharge, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(fullCharge, Is.EqualTo(1f).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.HeavyMinimumLungeDistance,
+                Is.EqualTo(0f).Within(0.0001f));
+            Assert.That(
+                ShortSwordAttackPresenter.HeavyMaximumLungeDistance,
+                Is.EqualTo(1.80f).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyChargeAnimationTime(
+                    0f,
+                    ShortSwordAttackPresenter.HeavyChargeStartNormalizedTime,
+                    ShortSwordAttackPresenter.HeavyChargeHoldNormalizedTime,
+                    1.4f),
+                Is.EqualTo(ShortSwordAttackPresenter.
+                    HeavyChargeStartNormalizedTime).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyChargeAnimationTime(
+                    10f,
+                    ShortSwordAttackPresenter.HeavyChargeStartNormalizedTime,
+                    ShortSwordAttackPresenter.HeavyChargeHoldNormalizedTime,
+                    1.4f),
+                Is.EqualTo(ShortSwordAttackPresenter.
+                    HeavyChargeHoldNormalizedTime).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyDamageMultiplier(
+                    fullCharge,
+                    ShortSwordAttackPresenter.
+                        HeavyMinimumDamageMultiplier,
+                    ShortSwordAttackPresenter.
+                        HeavyMaximumDamageMultiplier),
+                Is.EqualTo(ShortSwordAttackPresenter.
+                    HeavyMaximumDamageMultiplier).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyLungeDistance(
+                    0f,
+                    ShortSwordAttackPresenter.HeavyMinimumLungeDistance,
+                    ShortSwordAttackPresenter.HeavyMaximumLungeDistance),
+                Is.EqualTo(ShortSwordAttackPresenter.
+                    HeavyMinimumLungeDistance).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyLungeDistance(
+                    0.1f,
+                    ShortSwordAttackPresenter.HeavyMinimumLungeDistance,
+                    ShortSwordAttackPresenter.HeavyMaximumLungeDistance),
+                Is.EqualTo(
+                    ShortSwordAttackPresenter.HeavyMaximumLungeDistance *
+                    0.1f).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyLungeDistance(
+                    0.5f,
+                    ShortSwordAttackPresenter.HeavyMinimumLungeDistance,
+                    ShortSwordAttackPresenter.HeavyMaximumLungeDistance),
+                Is.EqualTo(
+                    ShortSwordAttackPresenter.HeavyMaximumLungeDistance *
+                    0.5f).Within(0.001f));
+            Assert.That(
+                ShortSwordAttackPresenter.CalculateHeavyLungeDistance(
+                    fullCharge,
+                    ShortSwordAttackPresenter.HeavyMinimumLungeDistance,
+                    ShortSwordAttackPresenter.HeavyMaximumLungeDistance),
+                Is.EqualTo(ShortSwordAttackPresenter.
+                    HeavyMaximumLungeDistance).Within(0.001f));
+        }
+
+        [Test]
+        public void HeldGraceStartsAHeavyOnlyWhenInputRemainsHeld()
+        {
+            Assert.That(
+                ShortSwordAttackPresenter.ShouldBeginQueuedHeavyCharge(
+                    true,
+                    true,
+                    true),
+                Is.True);
+            Assert.That(
+                ShortSwordAttackPresenter.ShouldBeginQueuedHeavyCharge(
+                    true,
+                    false,
+                    true),
+                Is.False);
+            Assert.That(
+                ShortSwordAttackPresenter.ShouldBeginQueuedHeavyCharge(
+                    false,
+                    true,
+                    true),
+                Is.False);
+        }
+
         private static void ConfigureZone(
             GameObject zoneObject,
             Transform parent,

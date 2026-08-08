@@ -10,6 +10,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public const string HomeBase = "HomeBase";
         public const string RaidPrototype = "RaidPrototype";
         public const string CombatLab = "CombatLab";
+        public const string ShortSwordGeneratorLab =
+            "ShortSwordGeneratorLab";
     }
 
     internal static class GameplaySceneRuntime

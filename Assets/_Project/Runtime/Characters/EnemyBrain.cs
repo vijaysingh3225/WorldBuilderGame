@@ -66,6 +66,12 @@ namespace WorldBuilder.Gameplay.Characters
         private float maximumRangedStrafePause = 2f;
         [SerializeField, Range(0f, 1f)]
         private float rangedStrafeStrength = 0.38f;
+        [SerializeField, Min(1f)]
+        private float rangedRetreatStartDistance = 6.25f;
+        [SerializeField, Min(0.5f)]
+        private float rangedEmergencyDistance = 2.5f;
+        [SerializeField, Range(0f, 1f)]
+        private float rangedRetreatStrength = 0.96f;
         [Header("Perception")]
         [SerializeField, Min(1f)] private float passiveSightRange = 32f;
         [SerializeField, Min(1f)] private float alertedSightRange = 100f;
@@ -81,7 +87,7 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.1f)] private float runningHearingRange = 16f;
         [SerializeField, Min(0f)] private float runningHearingReactionDuration = 0.45f;
         [Header("Alert Response")]
-        [SerializeField, Min(1f)] private float alertFacingTurnSpeed = 120f;
+        [SerializeField, Min(1f)] private float alertFacingTurnSpeed = 240f;
         [SerializeField, Range(0f, 45f)] private float alertFacingReadyAngle = 6f;
         [SerializeField, Min(0f)] private float forestTrailClearance = 5f;
         [SerializeField, Min(0.1f)] private float investigationDuration = 9f;
@@ -101,8 +107,8 @@ namespace WorldBuilder.Gameplay.Characters
         [Header("Patrol")]
         [SerializeField, Min(0.5f)] private float patrolRadius = 5f;
         [SerializeField, Min(0.1f)] private float patrolStopDistance = 0.65f;
-        [SerializeField, Min(0f)] private float minimumPatrolWait = 3.2f;
-        [SerializeField, Min(0f)] private float maximumPatrolWait = 6.4f;
+        [SerializeField, Min(0f)] private float minimumPatrolWait = 5.5f;
+        [SerializeField, Min(0f)] private float maximumPatrolWait = 8.5f;
 
         private CharacterController controller;
         private Health health;
@@ -166,6 +172,10 @@ namespace WorldBuilder.Gameplay.Characters
         private bool rangedStrafeActive;
         private bool rangedStrafeInitialized;
         private Vector3 patrolLookDirection;
+        private EnemyBrain patrolConversationPartner;
+        private float patrolConversationScanCooldown;
+        private float patrolConversationScanRemaining;
+        private Vector3 patrolConversationScanDirection;
         private int lastHeardArrowId;
         private float passiveAwareness;
         private ThirdPersonMotor targetMotor;
@@ -194,6 +204,7 @@ namespace WorldBuilder.Gameplay.Characters
         private const float NavigationMinimumProgress = 0.20f;
         private const float RangedNearbyBridgeEntryDistance = 4.5f;
         private const float RangedBridgeMinimumForwardDot = 0.25f;
+        private const float EngagedAwarenessAngle = 360f;
         private static readonly float[] NavigationFanAngles =
         {
             30f,
@@ -297,6 +308,14 @@ namespace WorldBuilder.Gameplay.Characters
             }
             hasPatrolDestination = true;
             patrolWhenIdle = true;
+        }
+
+        public void ConfigurePatrolConversationPartner(
+            EnemyBrain partner)
+        {
+            patrolConversationPartner = partner != this
+                ? partner
+                : null;
         }
 
         public void ConfigureAsTrainingDummy(
@@ -470,6 +489,8 @@ namespace WorldBuilder.Gameplay.Characters
                 }
                 return;
             }
+
+            upperBodyAimPresenter?.ClearPresentationAimDirection();
 
             if (drawingBow)
             {
@@ -991,7 +1012,11 @@ namespace WorldBuilder.Gameplay.Characters
             float maximumDistance =
                 alerted ? alertedSightRange : passiveSightRange;
             float viewAngle =
-                alerted ? alertedViewAngle : passiveViewAngle;
+                alerted
+                    ? Mathf.Max(
+                        alertedViewAngle,
+                        EngagedAwarenessAngle)
+                    : passiveViewAngle;
             Vector3 headPoint = ResolveTargetHeadPoint();
             Vector3 targetRight = target.right;
             Vector3 firstPoint = aimingForHeadshot
@@ -1192,7 +1217,8 @@ namespace WorldBuilder.Gameplay.Characters
                 SetIntent(
                     WorldDirectionToInput(movement),
                     false,
-                    false);
+                    false,
+                    isSwordPursuit);
                 ChangeState(
                     isSwordPursuit
                         ? EnemyState.Pursuing
@@ -1229,17 +1255,13 @@ namespace WorldBuilder.Gameplay.Characters
                 patrolWaitTimer -= Time.deltaTime;
                 SetIntent(Vector2.zero, false, false);
                 ChangeState(EnemyState.Idle);
-                if (patrolLookDirection.sqrMagnitude > 0.001f)
-                {
-                    SetAim(
-                        transform.position +
-                        patrolLookDirection * 6f +
-                        Vector3.up * 0.65f);
-                }
+                UpdatePatrolPausePresentation();
                 if (patrolWaitTimer > 0f)
                 {
                     return;
                 }
+
+                upperBodyAimPresenter?.ClearPresentationAimDirection();
 
                 if (patrolRoute != null &&
                     patrolRoute.Length > 0)
@@ -1258,6 +1280,8 @@ namespace WorldBuilder.Gameplay.Characters
                         new Vector3(offset.x, 0f, offset.y);
                 }
                 hasPatrolDestination = true;
+                patrolConversationScanRemaining = 0f;
+                patrolConversationScanCooldown = 0f;
             }
 
             Vector3 toDestination = Vector3.ProjectOnPlane(
@@ -1268,14 +1292,19 @@ namespace WorldBuilder.Gameplay.Characters
                 hasPatrolDestination = false;
                 patrolWaitTimer =
                     ResolvePatrolPauseDuration();
-                float lookYaw = UnityEngine.Random.Range(-100f, 100f);
                 patrolLookDirection =
-                    Quaternion.AngleAxis(lookYaw, Vector3.up) *
-                    transform.forward;
+                    toDestination.sqrMagnitude > 0.001f
+                        ? toDestination.normalized
+                        : transform.forward;
+                patrolConversationScanRemaining = 0f;
+                patrolConversationScanCooldown =
+                    UnityEngine.Random.Range(1.8f, 3.2f);
                 SetIntent(Vector2.zero, false, false);
                 ChangeState(EnemyState.Idle);
                 return;
             }
+
+            upperBodyAimPresenter?.ClearPresentationAimDirection();
 
             Vector3 direction =
                 toDestination.sqrMagnitude > 0.001f
@@ -1290,6 +1319,82 @@ namespace WorldBuilder.Gameplay.Characters
                 false,
                 false);
             ChangeState(EnemyState.Patrolling);
+        }
+
+        private void UpdatePatrolPausePresentation()
+        {
+            Vector3 baseDirection = ResolvePatrolPauseFacingDirection();
+            if (baseDirection.sqrMagnitude <= 0.001f)
+            {
+                aimSource?.ClearOverride();
+                upperBodyAimPresenter?.ClearPresentationAimDirection();
+                return;
+            }
+
+            if (Vector3.Angle(transform.forward, baseDirection) > 5f)
+            {
+                upperBodyAimPresenter?.ClearPresentationAimDirection();
+                SetAim(
+                    transform.position +
+                    baseDirection * 6f +
+                    Vector3.up * 0.65f);
+                return;
+            }
+
+            // The legs have reached the conversational facing. Keep that
+            // root orientation and only let the torso make rare side scans.
+            aimSource?.ClearOverride();
+            patrolConversationScanRemaining = Mathf.Max(
+                0f,
+                patrolConversationScanRemaining - Time.deltaTime);
+            patrolConversationScanCooldown = Mathf.Max(
+                0f,
+                patrolConversationScanCooldown - Time.deltaTime);
+            if (patrolConversationScanRemaining <= 0f &&
+                patrolConversationScanCooldown <= 0f)
+            {
+                float scanYaw = UnityEngine.Random.value < 0.5f
+                    ? UnityEngine.Random.Range(-54f, -28f)
+                    : UnityEngine.Random.Range(28f, 54f);
+                patrolConversationScanDirection =
+                    Quaternion.AngleAxis(scanYaw, Vector3.up) *
+                    baseDirection;
+                patrolConversationScanRemaining =
+                    UnityEngine.Random.Range(0.55f, 1.10f);
+                patrolConversationScanCooldown =
+                    UnityEngine.Random.Range(2.6f, 4.6f);
+            }
+
+            if (patrolConversationScanRemaining > 0f)
+            {
+                upperBodyAimPresenter?.SetPresentationAimDirection(
+                    patrolConversationScanDirection);
+            }
+            else
+            {
+                upperBodyAimPresenter?.ClearPresentationAimDirection();
+            }
+        }
+
+        private Vector3 ResolvePatrolPauseFacingDirection()
+        {
+            if (patrolConversationPartner != null &&
+                patrolConversationPartner.isActiveAndEnabled &&
+                !patrolConversationPartner.alerted)
+            {
+                Vector3 towardPartner = Vector3.ProjectOnPlane(
+                    patrolConversationPartner.transform.position -
+                    transform.position,
+                    Vector3.up);
+                if (towardPartner.sqrMagnitude > 1f)
+                {
+                    return towardPartner.normalized;
+                }
+            }
+
+            return patrolLookDirection.sqrMagnitude > 0.001f
+                ? patrolLookDirection.normalized
+                : transform.forward;
         }
 
         private void AdvancePatrolRoute()
@@ -1757,7 +1862,13 @@ namespace WorldBuilder.Gameplay.Characters
                     Vector3.up);
                 if (towardWaypoint.sqrMagnitude > 0.001f)
                 {
-                    return towardWaypoint.normalized;
+                    // A bridge waypoint is an authored safe route. Keep it
+                    // authoritative through the bridge rather than letting
+                    // local obstacle detours turn a melee pursuer around at
+                    // the near bank.
+                    return ConstrainImmediateRiverStep(
+                        towardWaypoint.normalized,
+                        allowRiverWaypoint: true);
                 }
             }
 
@@ -2045,20 +2156,14 @@ namespace WorldBuilder.Gameplay.Characters
                     target.position - transform.position,
                     Vector3.up)
                 : transform.forward;
-            float distance = toTarget.magnitude;
-            Vector3 direction = distance > 0.001f
-                ? toTarget / distance
-                : transform.forward;
-            Vector3 tangent =
-                Vector3.Cross(Vector3.up, direction) *
-                rangedStrafeDirection;
-            Vector3 movement = rangedStrafeActive
-                ? tangent * rangedStrafeStrength
-                : Vector3.zero;
-            if (distance < 4.5f)
-            {
-                movement -= direction * 0.34f;
-            }
+            Vector3 movement = CalculateRangedCombatMovement(
+                toTarget,
+                rangedStrafeDirection,
+                rangedStrafeActive,
+                rangedStrafeStrength,
+                rangedRetreatStartDistance,
+                rangedEmergencyDistance,
+                rangedRetreatStrength);
             float movementStrength = Mathf.Clamp01(
                 movement.magnitude);
 
@@ -2069,6 +2174,52 @@ namespace WorldBuilder.Gameplay.Characters
                 movementStrength;
 
             return WorldDirectionToInput(movement);
+        }
+
+        public static Vector3 CalculateRangedCombatMovement(
+            Vector3 toTarget,
+            float strafeDirection,
+            bool strafeActive,
+            float strafeStrength,
+            float retreatStartDistance,
+            float emergencyDistance,
+            float retreatStrength)
+        {
+            Vector3 planarTarget = Vector3.ProjectOnPlane(
+                toTarget,
+                Vector3.up);
+            float distance = planarTarget.magnitude;
+            Vector3 direction = distance > 0.001f
+                ? planarTarget / distance
+                : Vector3.forward;
+            float retreatRange = Mathf.Max(
+                0.01f,
+                retreatStartDistance - emergencyDistance);
+            float retreatWeight = Mathf.Clamp01(
+                (retreatStartDistance - distance) / retreatRange);
+            float tangentScale = Mathf.Lerp(
+                1f,
+                0.42f,
+                retreatWeight);
+            float side = Mathf.Approximately(strafeDirection, 0f)
+                ? 1f
+                : Mathf.Sign(strafeDirection);
+            Vector3 tangent = Vector3.Cross(
+                    Vector3.up,
+                    direction) *
+                side;
+            Vector3 movement = strafeActive
+                ? tangent * Mathf.Clamp01(strafeStrength) * tangentScale
+                : Vector3.zero;
+            if (distance < retreatStartDistance)
+            {
+                float retreat = Mathf.Lerp(
+                    0.38f,
+                    Mathf.Clamp01(retreatStrength),
+                    retreatWeight);
+                movement -= direction * retreat;
+            }
+            return Vector3.ClampMagnitude(movement, 1f);
         }
 
         private Vector3 ResolveRangedRiverMovement(
@@ -2120,7 +2271,19 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 reversed = -movement;
             Vector3 reversedStep = transform.position +
                 reversed * 1.15f;
-            if (raidEnvironment.IsEnemyNavigationPositionSafe(
+            Vector3 towardTarget = target != null
+                ? Vector3.ProjectOnPlane(
+                    target.position - transform.position,
+                    Vector3.up)
+                : Vector3.zero;
+            bool reverseWouldCloseRange =
+                towardTarget.sqrMagnitude > 0.001f &&
+                towardTarget.magnitude < rangedRetreatStartDistance &&
+                Vector3.Dot(
+                    reversed,
+                    towardTarget.normalized) > 0.05f;
+            if (!reverseWouldCloseRange &&
+                raidEnvironment.IsEnemyNavigationPositionSafe(
                     reversedStep,
                     padding))
             {

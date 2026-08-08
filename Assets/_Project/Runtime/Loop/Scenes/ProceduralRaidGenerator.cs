@@ -7,6 +7,7 @@ using UnityEngine.Rendering.Universal;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -176,7 +177,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float CrossingStraightHalfLength = 8f;
         private const float CrossingApproachHalfLength = 17f;
         public const float MinimumGuardPatrolSeparation = 26f;
-        private const float GuardPatrolHalfLength = 12f;
+        private const float GuardPatrolHalfLength = 18f;
         private const int GuardPlacementAttempts = 128;
         private const int GrassPlacementsPerBatch = 768;
         public const float GrassCoverageMultiplier = 2f;
@@ -192,8 +193,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float SpawnSolidSceneryClearance = 7.5f;
         private const float ExtractionOppositeArc = 0.70f;
         private const int OuterSpawnPlacementAttempts = 64;
-        private const int MinimumCampCount = 1;
-        private const int MaximumCampCount = 3;
+        private const int MinimumCampCount = 2;
+        private const int MaximumCampCount = 4;
         private const int MaximumCampGuardCount = 3;
         private const int CampPlacementAttempts = 320;
         private const float MinimumCampSeparation = 34f;
@@ -4710,7 +4711,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float yaw,
             string objectName)
         {
-            if (support == null || campSwordBladeMesh == null)
+            if (support == null)
             {
                 return;
             }
@@ -4727,8 +4728,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Transform sword = new GameObject(objectName).transform;
             sword.SetParent(camp, false);
             const float swordScale = 1.18f;
-            float bladeTipLocalHeight =
-                0.215f + campSwordBladeMesh.bounds.max.y;
+            float bladeTipLocalHeight = campSwordBladeMesh != null
+                ? 0.215f + campSwordBladeMesh.bounds.max.y
+                : RaidShortSwordPresentation.LegacyAverageLength;
             float swordLength = bladeTipLocalHeight * swordScale;
             Vector2 supportPoint = new Vector2(
                 supportBounds.center.x,
@@ -4766,36 +4768,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Quaternion.AngleAxis(yaw, Vector3.up);
             sword.localScale = Vector3.one * swordScale;
 
-            CreateCampSwordPrimitive(
-                "Leather Grip",
-                PrimitiveType.Cylinder,
+            RaidShortSwordPresentation.Replace(
                 sword,
-                new Vector3(0f, 0.09f, 0f),
-                new Vector3(0.032f, 0.09f, 0.032f),
+                unchecked(Seed * 486187739 +
+                    Mathf.RoundToInt(supportBounds.center.x * 100f) * 7919 +
+                    Mathf.RoundToInt(supportBounds.center.z * 100f)),
+                swordLength / swordScale,
+                campSwordBladeMaterial ?? campItemMaterial,
+                campSwordGuardMaterial ?? campItemMaterial,
                 campSwordGripMaterial ?? campItemMaterial);
-            CreateCampSwordPrimitive(
-                "Pommel",
-                PrimitiveType.Sphere,
-                sword,
-                new Vector3(0f, -0.015f, 0f),
-                new Vector3(0.075f, 0.055f, 0.055f),
-                campSwordGuardMaterial ?? campItemMaterial);
-            CreateCampSwordPrimitive(
-                "Crossguard",
-                PrimitiveType.Cube,
-                sword,
-                new Vector3(0f, 0.195f, 0f),
-                new Vector3(0.30f, 0.035f, 0.052f),
-                campSwordGuardMaterial ?? campItemMaterial);
-
-            GameObject blade = new GameObject("Pointed Blade");
-            blade.transform.SetParent(sword, false);
-            blade.transform.localPosition = new Vector3(0f, 0.215f, 0f);
-            MeshFilter filter = blade.AddComponent<MeshFilter>();
-            filter.sharedMesh = campSwordBladeMesh;
-            MeshRenderer renderer = blade.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial =
-                campSwordBladeMaterial ?? campItemMaterial;
         }
 
         private static void CreateCampSwordPrimitive(
@@ -8732,7 +8713,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                                 1f,
                                 PolylineLength(candidateRoad)),
                             0.04f,
-                            0.11f);
+                            0.16f);
                         Vector3[] candidateRoute =
                             BuildPatrolRoute(
                                 candidateRoad,
@@ -8742,7 +8723,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                                 Mathf.Min(
                                     0.96f,
                                     candidateT + candidateSpan),
-                                5);
+                                3);
                         if (!IsPatrolRouteSeparated(
                                 candidateRoute,
                                 occupiedPatrolRoutes,
@@ -8769,6 +8750,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Vector3 side = Vector3.Cross(
                         Vector3.up,
                         tangent).normalized;
+                    var groupMembers = new List<EnemyBrain>(groupSize);
                     for (int member = 0;
                          member < groupSize &&
                          enemyIndex < enemies.Length;
@@ -8790,6 +8772,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         }
                         damageProfile.Configure(
                             EnemyCombatVariant.RaidEnemy);
+                        EnemyBrain.WeaponLoadout patrolLoadout =
+                            random.NextDouble() < 0.5d
+                                ? EnemyBrain.WeaponLoadout.BowOnly
+                                : EnemyBrain.WeaponLoadout.SwordOnly;
+                        enemy.ConfigureCampGuardLoadout(patrolLoadout);
 
                         float lateral = groupSize == 2
                             ? member == 0 ? -0.72f : 0.72f
@@ -8808,6 +8795,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         enemy.ConfigurePatrolRoute(
                             memberRoute,
                             memberRoute.Length / 2);
+                        groupMembers.Add(enemy);
+                    }
+                    if (groupMembers.Count == 2)
+                    {
+                        groupMembers[0].ConfigurePatrolConversationPartner(
+                            groupMembers[1]);
+                        groupMembers[1].ConfigurePatrolConversationPartner(
+                            groupMembers[0]);
                     }
 
                     generatedGuardGroupCount++;

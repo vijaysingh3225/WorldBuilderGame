@@ -83,6 +83,10 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private ShortSwordBlockPresenter blockPresenter;
         [SerializeField, Min(0.1f)] private float transitionDuration = 0.55f;
         [SerializeField, Min(0.05f)] private float bowPoseBlendDuration = 0.22f;
+        [SerializeField, Min(0.01f)]
+        private float bowAimVisualSmoothTime = 0.12f;
+        [SerializeField, Min(30f)]
+        private float bowAimVisualMaximumSpeed = 420f;
         [SerializeField, Range(0.65f, 0.95f)]
         private float wristReleaseStart = 0.80f;
 
@@ -163,6 +167,8 @@ namespace WorldBuilder.Gameplay.Presentation
         private Vector3 canonicalVisualScale;
         private bool hasCanonicalVisualScale;
         private float visualShoulderSign = 1f;
+        private Vector3 stableVisualBowAimDirection;
+        private bool hasStableVisualBowAimDirection;
 
         public event Action<int> ActiveSlotChanged;
 
@@ -447,6 +453,10 @@ namespace WorldBuilder.Gameplay.Presentation
                 bowEquipped
                     ? 1f
                     : 0f;
+            if (bowTargetWeight <= 0f)
+            {
+                hasStableVisualBowAimDirection = false;
+            }
             bowPoseWeight = Mathf.MoveTowards(
                 bowPoseWeight,
                 bowTargetWeight,
@@ -542,10 +552,29 @@ namespace WorldBuilder.Gameplay.Presentation
                         : Camera.main != null
                             ? Camera.main.transform.forward
                             : rootForward;
-            Vector3 readyArrowDirection =
+            Vector3 rawReadyArrowDirection =
                 cameraAimDirection.sqrMagnitude > 0.0001f
                     ? cameraAimDirection.normalized
                     : rootForward;
+            if (!hasStableVisualBowAimDirection ||
+                readyWeight <= 0.001f)
+            {
+                stableVisualBowAimDirection =
+                    rawReadyArrowDirection;
+                hasStableVisualBowAimDirection = true;
+            }
+            else
+            {
+                stableVisualBowAimDirection =
+                    CalculateStableBowAimDirection(
+                        stableVisualBowAimDirection,
+                        rawReadyArrowDirection,
+                        Time.deltaTime,
+                        bowAimVisualSmoothTime,
+                        bowAimVisualMaximumSpeed);
+            }
+            Vector3 readyArrowDirection =
+                stableVisualBowAimDirection;
             Vector3 arrowDirection = Vector3.Slerp(
                 idleArrowDirection,
                 readyArrowDirection,
@@ -1565,6 +1594,42 @@ namespace WorldBuilder.Gameplay.Presentation
                 -BowBraceHeight -
                     BowMaximumDrawDistance *
                     Mathf.Clamp01(drawWeight));
+        }
+
+        public static Vector3 CalculateStableBowAimDirection(
+            Vector3 currentDirection,
+            Vector3 targetDirection,
+            float deltaTime,
+            float smoothTime,
+            float maximumDegreesPerSecond)
+        {
+            Vector3 target = targetDirection.sqrMagnitude > 0.000001f
+                ? targetDirection.normalized
+                : currentDirection.sqrMagnitude > 0.000001f
+                    ? currentDirection.normalized
+                    : Vector3.forward;
+            if (currentDirection.sqrMagnitude <= 0.000001f ||
+                deltaTime <= 0f)
+            {
+                return target;
+            }
+
+            Vector3 current = currentDirection.normalized;
+            float blend = 1f - Mathf.Exp(
+                -Mathf.Max(0f, deltaTime) /
+                Mathf.Max(0.01f, smoothTime));
+            Vector3 dampedTarget = Vector3.Slerp(
+                current,
+                target,
+                blend).normalized;
+            return Vector3.RotateTowards(
+                    current,
+                    dampedTarget,
+                    Mathf.Deg2Rad *
+                    Mathf.Max(30f, maximumDegreesPerSecond) *
+                    Mathf.Max(0f, deltaTime),
+                    0f)
+                .normalized;
         }
 
         private Vector3 GetPresentedNockPosition()

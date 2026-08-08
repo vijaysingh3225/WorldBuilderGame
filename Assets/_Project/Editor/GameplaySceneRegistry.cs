@@ -14,13 +14,16 @@ namespace WorldBuilder.Editor
             "Assets/_Project/Scenes/RaidPrototype.unity";
         public const string CombatLabScenePath =
             "Assets/_Project/Scenes/CombatLab.unity";
+        public const string ShortSwordGeneratorLabScenePath =
+            ShortSwordGeneratorLabSceneBuilder.ScenePath;
 
         private static readonly string[] OrderedKnownScenePaths =
         {
             BootstrapScenePath,
             HomeBaseScenePath,
             RaidPrototypeScenePath,
-            CombatLabScenePath
+            CombatLabScenePath,
+            ShortSwordGeneratorLabScenePath
         };
 
         public static void ApplyExistingScenesToBuildSettings()

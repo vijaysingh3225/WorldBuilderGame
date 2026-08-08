@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using WorldBuilder.Gameplay.Presentation;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -31,16 +32,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private GameObject characterProxy;
         private GameObject primaryProxy;
         private GameObject secondaryProxy;
+        private GameObject lootWeaponSource;
+        private GameObject lootWeaponProxy;
         private Camera previewCamera;
         private readonly List<Light> previewLights = new List<Light>();
         private RenderTexture characterTexture;
         private RenderTexture primaryThumbnail;
         private RenderTexture secondaryThumbnail;
         private RenderTexture weaponTexture;
+        private RenderTexture lootWeaponVerticalTexture;
+        private RenderTexture lootWeaponHorizontalTexture;
+        private RenderTexture lootBowVerticalTexture;
+        private RenderTexture lootBowHorizontalTexture;
+        private Material fallbackPreviewMaterial;
         private readonly List<Mesh> bakedMeshes = new List<Mesh>();
         private float characterYaw = DefaultCharacterYaw;
         private float weaponYaw = 24f;
         private int selectedWeapon;
+        private int renderedLootWeaponSeed = int.MinValue;
         private bool built;
         private bool renderRequested;
 
@@ -92,6 +101,70 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             weaponYaw = Mathf.Repeat(weaponYaw + delta, 360f);
             renderRequested = true;
+        }
+
+        /// <summary>
+        /// Renders the procedural sword belonging to a loot entry.  This is
+        /// intentionally separate from the equipped-weapon preview so an
+        /// inventory icon always matches the seed stored on that item.
+        /// </summary>
+        public Texture RenderLootShortSword(int seed, int rotationQuarterTurns = 0)
+        {
+            if (!built)
+            {
+                BuildPreview();
+            }
+            if (!built)
+            {
+                return null;
+            }
+
+            if (lootWeaponProxy == null || renderedLootWeaponSeed != seed)
+            {
+                RebuildLootShortSword(seed);
+            }
+            int rotation = ((rotationQuarterTurns % 4) + 4) % 4;
+            bool horizontal = rotation % 2 != 0;
+            RenderTexture target = horizontal
+                ? lootWeaponHorizontalTexture
+                : lootWeaponVerticalTexture;
+            RenderProxy(
+                lootWeaponProxy,
+                target,
+                0f,
+                1.06f,
+                rotation * 90f);
+            return target;
+        }
+
+        /// <summary>
+        /// Produces an orthographic side profile for the bow inventory item.
+        /// The texture aspect follows its 2x3 footprint, including rotation.
+        /// </summary>
+        public Texture RenderLootHuntingBow(int rotationQuarterTurns = 0)
+        {
+            if (!built)
+            {
+                BuildPreview();
+            }
+            if (!built || secondaryProxy == null)
+            {
+                return null;
+            }
+
+            int rotation = ((rotationQuarterTurns % 4) + 4) % 4;
+            bool horizontal = rotation % 2 != 0;
+            RenderTexture target = horizontal
+                ? lootBowHorizontalTexture
+                : lootBowVerticalTexture;
+            RenderProxy(
+                secondaryProxy,
+                target,
+                SecondaryThumbnailYaw,
+                1.04f,
+                SecondaryThumbnailRoll + rotation * 90f,
+                yawBeforeRoll: true);
+            return target;
         }
 
         private void LateUpdate()
@@ -207,6 +280,25 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             primaryThumbnail = CreateTexture(512, 192, "Primary Weapon Thumbnail");
             secondaryThumbnail = CreateTexture(512, 192, "Secondary Weapon Thumbnail");
             weaponTexture = CreateTexture(512, 700, "Weapon Grid Preview");
+            // Match the item's 1x3 footprint so a transparent render fills
+            // the full weapon area instead of being letterboxed to two cells.
+            lootWeaponVerticalTexture = CreateTexture(
+                256,
+                768,
+                "Loot Weapon Vertical Preview");
+            lootWeaponHorizontalTexture = CreateTexture(
+                768,
+                256,
+                "Loot Weapon Horizontal Preview");
+            lootBowVerticalTexture = CreateTexture(
+                512,
+                768,
+                "Loot Bow Vertical Preview");
+            lootBowHorizontalTexture = CreateTexture(
+                768,
+                512,
+                "Loot Bow Horizontal Preview");
+            fallbackPreviewMaterial = CreateFallbackPreviewMaterial();
             built = true;
             renderRequested = true;
         }
@@ -273,6 +365,89 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 poses[index].Restore(transforms[index]);
             }
             return proxy;
+        }
+
+        private void RebuildLootShortSword(int seed)
+        {
+            if (lootWeaponProxy != null)
+            {
+                Destroy(lootWeaponProxy);
+            }
+            if (lootWeaponSource != null)
+            {
+                Destroy(lootWeaponSource);
+            }
+
+            lootWeaponSource = new GameObject("Loot Short Sword Source")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = PreviewLayer
+            };
+            lootWeaponSource.transform.SetParent(stage.transform, false);
+            ProceduralShortSwordGenerator generator =
+                lootWeaponSource.AddComponent<ProceduralShortSwordGenerator>();
+            generator.ConfigureMaterials(
+                ResolveEquippedWeaponMaterial("blade") ?? fallbackPreviewMaterial,
+                ResolveEquippedWeaponMaterial("guard", "pommel") ?? fallbackPreviewMaterial,
+                ResolveEquippedWeaponMaterial("handle", "grip") ?? fallbackPreviewMaterial,
+                ResolveEquippedWeaponMaterial("hilt", "pommel", "guard") ?? fallbackPreviewMaterial);
+            generator.Generate(seed);
+            Renderer[] sourceRenderers =
+                lootWeaponSource.GetComponentsInChildren<Renderer>(true);
+            for (int index = 0; index < sourceRenderers.Length; index++)
+            {
+                sourceRenderers[index].gameObject.layer = PreviewLayer;
+            }
+            lootWeaponProxy = CreateProxy(
+                "Loot Short Sword Preview",
+                lootWeaponSource.transform,
+                sourceRenderers);
+            // The source owns the generated meshes.  Keep it alive but out
+            // of the preview camera; the proxy is the only rendered copy.
+            lootWeaponSource.SetActive(false);
+            renderedLootWeaponSeed = seed;
+        }
+
+        private Material ResolveEquippedWeaponMaterial(params string[] nameTerms)
+        {
+            Transform[] roots =
+            {
+                weaponPresenter != null ? weaponPresenter.PrimaryWeaponRoot : null,
+                weaponPresenter != null ? weaponPresenter.SecondaryWeaponRoot : null
+            };
+            for (int rootIndex = 0; rootIndex < roots.Length; rootIndex++)
+            {
+                Transform root = roots[rootIndex];
+                if (root == null)
+                {
+                    continue;
+                }
+                Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+                for (int rendererIndex = 0; rendererIndex < renderers.Length; rendererIndex++)
+                {
+                    Renderer renderer = renderers[rendererIndex];
+                    string name = renderer.name.ToLowerInvariant();
+                    for (int termIndex = 0; termIndex < nameTerms.Length; termIndex++)
+                    {
+                        if (name.Contains(nameTerms[termIndex]) &&
+                            renderer.sharedMaterial != null)
+                        {
+                            return renderer.sharedMaterial;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static Material CreateFallbackPreviewMaterial()
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ??
+                Shader.Find("Standard") ??
+                Shader.Find("Unlit/Color");
+            return shader != null
+                ? new Material(shader) { hideFlags = HideFlags.HideAndDontSave }
+                : null;
         }
 
         private static void SetAnimatorParameter(
@@ -500,6 +675,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             characterProxy.SetActive(proxy == characterProxy);
             primaryProxy.SetActive(proxy == primaryProxy);
             secondaryProxy.SetActive(proxy == secondaryProxy);
+            if (lootWeaponProxy != null)
+            {
+                lootWeaponProxy.SetActive(proxy == lootWeaponProxy);
+            }
             proxy.transform.localRotation = yawBeforeRoll
                 ? Quaternion.AngleAxis(roll, Vector3.forward) *
                     Quaternion.AngleAxis(yaw, Vector3.up)
@@ -731,10 +910,26 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             ReleaseTexture(primaryThumbnail);
             ReleaseTexture(secondaryThumbnail);
             ReleaseTexture(weaponTexture);
+            ReleaseTexture(lootWeaponVerticalTexture);
+            ReleaseTexture(lootWeaponHorizontalTexture);
+            ReleaseTexture(lootBowVerticalTexture);
+            ReleaseTexture(lootBowHorizontalTexture);
             characterTexture = null;
             primaryThumbnail = null;
             secondaryThumbnail = null;
             weaponTexture = null;
+            lootWeaponVerticalTexture = null;
+            lootWeaponHorizontalTexture = null;
+            lootBowVerticalTexture = null;
+            lootBowHorizontalTexture = null;
+            if (fallbackPreviewMaterial != null)
+            {
+                Destroy(fallbackPreviewMaterial);
+                fallbackPreviewMaterial = null;
+            }
+            lootWeaponSource = null;
+            lootWeaponProxy = null;
+            renderedLootWeaponSeed = int.MinValue;
             for (int index = 0; index < bakedMeshes.Count; index++)
             {
                 if (bakedMeshes[index] != null)

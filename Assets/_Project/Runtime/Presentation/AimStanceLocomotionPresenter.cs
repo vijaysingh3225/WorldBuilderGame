@@ -257,6 +257,37 @@ namespace WorldBuilder.Gameplay.Presentation
                 spine.rotation = preservedSpineRotation;
             }
 
+            ApplySwordGuardTravelFacing();
+
+        }
+
+        private void ApplySwordGuardTravelFacing()
+        {
+            if (!SwordGuardActive ||
+                !motor.IsGrounded ||
+                swordBlockPresenter == null ||
+                swordBlockPresenter.BlockWeight <= 0.001f)
+            {
+                return;
+            }
+
+            Vector3 localTravel = motor.LocalHorizontalVelocity;
+            localTravel.y = 0f;
+            if (localTravel.sqrMagnitude <= 0.0064f)
+            {
+                return;
+            }
+
+            // The guard layer and upper-body aim remain facing the threat.
+            // Only rotate the hips; restoring the spine's world rotation
+            // leaves the torso and sword locked on the aiming direction.
+            Quaternion preservedSpineRotation = spine.rotation;
+            float travelYaw = CalculateGuardTravelYaw(localTravel);
+            hips.rotation = Quaternion.AngleAxis(
+                travelYaw * swordBlockPresenter.BlockWeight,
+                characterRoot.up) *
+                hips.rotation;
+            spine.rotation = preservedSpineRotation;
         }
 
         private float GetBowYaw(Vector3 localVelocity)
@@ -283,6 +314,21 @@ namespace WorldBuilder.Gameplay.Presentation
                 shoulderSideBlend,
                 -1f,
                 1f));
+        }
+
+        public static float CalculateGuardTravelYaw(Vector3 localTravel)
+        {
+            Vector3 planarTravel = Vector3.ProjectOnPlane(
+                localTravel,
+                Vector3.up);
+            if (planarTravel.sqrMagnitude <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            return Mathf.Atan2(
+                planarTravel.x,
+                planarTravel.z) * Mathf.Rad2Deg;
         }
 
         private float MoveWeight(

@@ -55,16 +55,23 @@ namespace WorldBuilder.Gameplay.Combat
         private float nextAttackTime;
         private bool swingStarted;
         private bool damageWindowOpen;
+        private float activeDamageMultiplier = 1f;
+        private bool openingHoldEnabled;
+        private bool attackHeldLastFrame;
         private bool hasPreviousBladePose;
         private Vector3 previousBladeBase;
         private Vector3 previousBladeTip;
 
         public event Action AttackRequested;
+        public event Action AttackHoldStarted;
+        public event Action<float> AttackHoldReleased;
         public event Action AttackStarted;
         public event Action<string> AttackRejected;
         public event Action<MeleeAttackReport> AttackResolved;
 
         public float CooldownRemaining => Mathf.Max(0f, nextAttackTime - Time.time);
+        public bool AttackInputHeld =>
+            input != null && input.CurrentIntent.AttackHeld;
         public float Damage =>
             Mathf.Max(
                 0f,
@@ -114,6 +121,12 @@ namespace WorldBuilder.Gameplay.Combat
             runtimeDamageBonus = bonus;
         }
 
+        public void SetOpeningHoldEnabled(bool enabled)
+        {
+            openingHoldEnabled = enabled;
+            attackHeldLastFrame = false;
+        }
+
         private void Awake()
         {
             input = GetComponent<PlayerInputSource>();
@@ -123,16 +136,48 @@ namespace WorldBuilder.Gameplay.Combat
 
         private void Update()
         {
+            bool playerHoldInput =
+                openingHoldEnabled &&
+                input != null &&
+                !input.DiagnosticOverrideActive;
+            if (!playerHoldInput)
+            {
+                attackHeldLastFrame = false;
+                if (input.CurrentIntent.AttackPressed)
+                {
+                    RequestStandardAttack();
+                }
+                return;
+            }
+
+            bool attackHeld = input.CurrentIntent.AttackHeld;
             if (input.CurrentIntent.AttackPressed)
             {
-                if (AttackRequested != null)
+                if (attackHeld)
                 {
-                    AttackRequested.Invoke();
+                    AttackHoldStarted?.Invoke();
                 }
                 else
                 {
-                    TryAttack();
+                    RequestStandardAttack();
                 }
+            }
+            if (attackHeldLastFrame && !attackHeld)
+            {
+                AttackHoldReleased?.Invoke(Time.time);
+            }
+            attackHeldLastFrame = attackHeld;
+        }
+
+        private void RequestStandardAttack()
+        {
+            if (AttackRequested != null)
+            {
+                AttackRequested.Invoke();
+            }
+            else
+            {
+                TryAttack();
             }
         }
 
@@ -156,6 +201,11 @@ namespace WorldBuilder.Gameplay.Combat
 
         public bool BeginSwing()
         {
+            return BeginSwing(1f);
+        }
+
+        public bool BeginSwing(float damageMultiplier)
+        {
             if (Time.time < nextAttackTime)
             {
                 AttackRejected?.Invoke("cooldown");
@@ -177,6 +227,7 @@ namespace WorldBuilder.Gameplay.Combat
             nextAttackTime = Time.time + cooldown;
             swingStarted = true;
             damageWindowOpen = false;
+            activeDamageMultiplier = Mathf.Max(0f, damageMultiplier);
             damagedRecipientsThisSwing.Clear();
             CaptureBladePose();
             AttackStarted?.Invoke();
@@ -204,6 +255,7 @@ namespace WorldBuilder.Gameplay.Combat
         {
             damageWindowOpen = false;
             swingStarted = false;
+            activeDamageMultiplier = 1f;
             hasPreviousBladePose = false;
         }
 
@@ -300,7 +352,12 @@ namespace WorldBuilder.Gameplay.Combat
                 uniqueDamageables++;
                 Vector3 hitPoint = hit.ClosestPoint(bladeCenter);
                 DamageRequest request =
-                    new DamageRequest(gameObject, Damage, hitPoint, damageDirection, weaponId);
+                    new DamageRequest(
+                        gameObject,
+                        Damage * activeDamageMultiplier,
+                        hitPoint,
+                        damageDirection,
+                        weaponId);
                 if (DamageService.TryApply(hit, request))
                 {
                     damagedTargets++;
@@ -330,7 +387,7 @@ namespace WorldBuilder.Gameplay.Combat
             hasPreviousBladePose = true;
         }
 
-        private void GetBladeSegment(out Vector3 bladeBase, out Vector3 bladeTip)
+        public void GetBladeSegment(out Vector3 bladeBase, out Vector3 bladeTip)
         {
             if (bladeTransform != null)
             {

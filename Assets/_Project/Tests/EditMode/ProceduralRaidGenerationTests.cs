@@ -1262,7 +1262,7 @@ namespace WorldBuilder.Tests
             Transform camps = generator.transform.Find(
                 $"Generated Raid {generator.Seed}/Forest Camps");
             Assert.That(camps, Is.Not.Null);
-            Assert.That(generator.GeneratedCampCount, Is.InRange(1, 3));
+            Assert.That(generator.GeneratedCampCount, Is.InRange(2, 4));
             Assert.That(
                 camps.childCount,
                 Is.EqualTo(generator.GeneratedCampCount));
@@ -2403,7 +2403,7 @@ namespace WorldBuilder.Tests
                     patrolRouteField.GetValue(enemy) as Vector3[];
                 Assert.That(
                     patrolRoute,
-                    Has.Length.EqualTo(5));
+                    Has.Length.EqualTo(3));
                 patrolRoutes.Add(patrolRoute);
                 for (int index = 1; index < patrolRoute.Length; index++)
                 {
@@ -2411,7 +2411,7 @@ namespace WorldBuilder.Tests
                         Vector3.Distance(
                             patrolRoute[index - 1],
                             patrolRoute[index]),
-                        Is.InRange(3.5f, 12f),
+                            Is.InRange(3.5f, 36f),
                         $"{enemy.name} needs meaningful, evenly spaced patrol legs rather than rapid short reversals.");
                 }
                 for (int index = 1; index < patrolRoute.Length - 1; index++)

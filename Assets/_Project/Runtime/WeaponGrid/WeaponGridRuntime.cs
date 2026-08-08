@@ -442,6 +442,15 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             return new List<ArtifactDefinitionData>
             {
                 new ArtifactDefinitionData(
+                    "owl-eye-seal",
+                    "Owl Eye Seal",
+                    new Color(0.62f, 0.73f, 0.88f),
+                    new[] { GridCoordinate.Root },
+                    new[]
+                    {
+                        new ArtifactStatModifier(ArtifactStat.Damage, 1f)
+                    }),
+                new ArtifactDefinitionData(
                     "artifact-power-shard",
                     "Power Shard",
                     new Color(0.96f, 0.64f, 0.18f),

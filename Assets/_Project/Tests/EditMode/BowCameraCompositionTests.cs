@@ -133,6 +133,44 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void BowVisualAimDampsCloseRangeTargetPointJumps()
+        {
+            Vector3 current = Vector3.forward;
+            Vector3 firstTarget = Quaternion.Euler(28f, 0f, 0f) *
+                Vector3.forward;
+            Vector3 firstFrame =
+                TwoSlotWeaponPresenter.CalculateStableBowAimDirection(
+                    current,
+                    firstTarget,
+                    1f / 60f,
+                    0.12f,
+                    420f);
+            Vector3 oppositeTarget =
+                Quaternion.Euler(-28f, 0f, 0f) *
+                Vector3.forward;
+            Vector3 secondFrame =
+                TwoSlotWeaponPresenter.CalculateStableBowAimDirection(
+                    firstFrame,
+                    oppositeTarget,
+                    1f / 60f,
+                    0.12f,
+                    420f);
+
+            Assert.That(
+                Vector3.Angle(current, firstFrame),
+                Is.LessThan(7f),
+                "A single close-range target-point change must not snap the rendered arms to the raw ray.");
+            Assert.That(
+                Vector3.Angle(firstFrame, secondFrame),
+                Is.LessThan(7f),
+                "Alternating visible body points must remain a continuous rendered bow pose.");
+            Assert.That(
+                Vector3.Angle(secondFrame, oppositeTarget),
+                Is.LessThan(Vector3.Angle(firstFrame, oppositeTarget)),
+                "The stabilized pose must still converge toward the current target.");
+        }
+
+        [Test]
         public void ShoulderHandoffHoldsItsNaturalPoseAcrossOrientationChange()
         {
             Assert.That(

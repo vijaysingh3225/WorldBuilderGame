@@ -42,6 +42,8 @@ namespace WorldBuilder.Gameplay.Presentation
         private float bowDrawTorsoYaw;
         private float bowDrawTorsoYawVelocity;
         private AimStanceLocomotionPresenter stancePresenter;
+        private bool presentationAimOverrideActive;
+        private Vector3 presentationAimDirection;
 
         public float CurrentYaw => currentYaw;
         public float MaximumYaw => maximumYaw;
@@ -124,6 +126,23 @@ namespace WorldBuilder.Gameplay.Presentation
             {
                 return BowAimLocked || SwordGuardLocked;
             }
+        }
+
+        // Presentation-only aim is for ambient behavior such as a guard
+        // scanning while talking. Unlike CharacterAimSource, it never drives
+        // the motor's root-facing override.
+        public void SetPresentationAimDirection(Vector3 direction)
+        {
+            presentationAimDirection = direction.sqrMagnitude > 0.0001f
+                ? direction.normalized
+                : Vector3.forward;
+            presentationAimOverrideActive =
+                direction.sqrMagnitude > 0.0001f;
+        }
+
+        public void ClearPresentationAimDirection()
+        {
+            presentationAimOverrideActive = false;
         }
 
         public void Configure(
@@ -222,7 +241,8 @@ namespace WorldBuilder.Gameplay.Presentation
 
             if (characterAimSource != null &&
                 !characterAimSource.OverrideActive &&
-                !characterAimSource.CameraFallbackAllowed)
+                !characterAimSource.CameraFallbackAllowed &&
+                !presentationAimOverrideActive)
             {
                 currentYaw = 0f;
                 yawVelocity = 0f;
@@ -233,6 +253,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
             if ((characterAimSource == null ||
                  !characterAimSource.OverrideActive) &&
+                !presentationAimOverrideActive &&
                 aimCamera == null)
             {
                 aimCamera = Camera.main;
@@ -240,6 +261,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
             if ((characterAimSource == null ||
                  !characterAimSource.OverrideActive) &&
+                !presentationAimOverrideActive &&
                 aimCamera == null)
             {
                 return;
@@ -249,7 +271,9 @@ namespace WorldBuilder.Gameplay.Presentation
             Vector3 rootForward =
                 Vector3.ProjectOnPlane(characterRoot.forward, up).normalized;
             Vector3 aimDirection =
-                characterAimSource != null &&
+                presentationAimOverrideActive
+                    ? presentationAimDirection
+                    : characterAimSource != null &&
                 characterAimSource.OverrideActive
                     ? characterAimSource.Direction
                     : aimTarget != null &&

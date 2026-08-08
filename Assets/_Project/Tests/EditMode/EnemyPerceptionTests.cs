@@ -230,17 +230,35 @@ namespace WorldBuilder.Tests
             Vector3 result = EnemyBrain.CalculateAlertFacingDirection(
                 Vector3.forward,
                 Vector3.back,
-                120f,
+                240f,
                 0.25f);
 
             Assert.That(
                 Vector3.Angle(Vector3.forward, result),
-                Is.EqualTo(30f).Within(0.01f),
+                Is.EqualTo(60f).Within(0.01f),
                 "A rear alert must not issue an instantaneous 180-degree facing change.");
             Assert.That(
                 Vector3.Angle(result, Vector3.back),
-                Is.EqualTo(150f).Within(0.01f),
+                Is.EqualTo(120f).Within(0.01f),
                 "The limited turn must continue toward the exact detected direction.");
+        }
+
+        [Test]
+        public void AlertedGuardKeepsRearTargetInCombatAwareness()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, -10f));
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            brain.Configure(player.transform);
+            SetPrivateField(brain, "alerted", true);
+            Physics.SyncTransforms();
+
+            Assert.That(
+                EvaluateSight(brain),
+                Is.True,
+                "Once alerted, clear line of sight behind the guard must not fall into investigation aiming.");
         }
 
         [Test]
@@ -366,6 +384,10 @@ namespace WorldBuilder.Tests
                 input.CurrentIntent.Move.y,
                 Is.GreaterThan(0.9f),
                 "The swordsman should immediately move toward the last-seen position.");
+            Assert.That(
+                input.CurrentIntent.SprintHeld,
+                Is.True,
+                "A swordsman must sprint while pursuing the remembered position.");
             Assert.That(
                 brain.CurrentState,
                 Is.EqualTo(EnemyBrain.EnemyState.Pursuing));
@@ -700,6 +722,50 @@ namespace WorldBuilder.Tests
             Assert.That(
                 GetPrivateField<float>(brain, "rangedStrafeTimer"),
                 Is.InRange(2.8f, 4.2f));
+        }
+
+        [Test]
+        public void CloseRangedCombatBacksAwayWhileKeepingOnlySecondaryStrafe()
+        {
+            Vector3 closeMovement = EnemyBrain.CalculateRangedCombatMovement(
+                Vector3.forward * 2.2f,
+                1f,
+                true,
+                0.38f,
+                6.25f,
+                2.5f,
+                0.96f);
+            Vector3 pausedStrafeMovement =
+                EnemyBrain.CalculateRangedCombatMovement(
+                    Vector3.forward * 2.2f,
+                    -1f,
+                    false,
+                    0.38f,
+                    6.25f,
+                    2.5f,
+                    0.96f);
+
+            Assert.That(closeMovement.z, Is.LessThan(-0.88f));
+            Assert.That(
+                Mathf.Abs(closeMovement.x),
+                Is.LessThan(Mathf.Abs(closeMovement.z) * 0.25f),
+                "Emergency spacing must dominate the lateral strafe.");
+            Assert.That(pausedStrafeMovement.x, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(
+                pausedStrafeMovement.z,
+                Is.LessThan(-0.9f),
+                "A strafe pause must never stop an archer from retreating at close range.");
+
+            Vector3 distantMovement = EnemyBrain.CalculateRangedCombatMovement(
+                Vector3.forward * 20f,
+                1f,
+                true,
+                0.38f,
+                6.25f,
+                2.5f,
+                0.96f);
+            Assert.That(distantMovement.z, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(distantMovement.x, Is.EqualTo(0.38f).Within(0.001f));
         }
 
         [Test]
@@ -1162,7 +1228,7 @@ namespace WorldBuilder.Tests
                 ResolvePrivateMethod(
                         "ResolvePatrolPauseDuration")
                     .Invoke(brain, null);
-            Assert.That(pause, Is.InRange(3.2f, 6.4f));
+            Assert.That(pause, Is.InRange(5.5f, 8.5f));
             Assert.That(
                 Vector3.Distance(
                     route[1],

@@ -15,6 +15,7 @@ using WorldBuilder.Gameplay.Loop;
 using WorldBuilder.Gameplay.Loop.Scenes;
 using WorldBuilder.Gameplay.Presentation;
 using WorldBuilder.Gameplay.WeaponGrid;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Tests.EditMode
 {
@@ -434,14 +435,55 @@ namespace WorldBuilder.Tests.EditMode
                 .ToArray();
 
             Assert.That(
-                paths.Take(4),
+                paths.Take(5),
                 Is.EqualTo(new[]
                 {
                     GameplaySceneRegistry.BootstrapScenePath,
                     GameplaySceneRegistry.HomeBaseScenePath,
                     GameplaySceneRegistry.RaidPrototypeScenePath,
-                    GameplaySceneRegistry.CombatLabScenePath
+                    GameplaySceneRegistry.CombatLabScenePath,
+                    GameplaySceneRegistry.ShortSwordGeneratorLabScenePath
                 }));
+        }
+
+        [Test]
+        public void ShortSwordGeneratorLabContainsGeneratorUiAndStudioCamera()
+        {
+            Open(GameplaySceneRegistry.ShortSwordGeneratorLabScenePath);
+
+            ProceduralShortSwordGenerator generator =
+                Object.FindFirstObjectByType<ProceduralShortSwordGenerator>(
+                    FindObjectsInactive.Include);
+            ShortSwordGeneratorLabController controller =
+                Object.FindFirstObjectByType<ShortSwordGeneratorLabController>(
+                    FindObjectsInactive.Include);
+
+            Assert.That(generator, Is.Not.Null);
+            Assert.That(controller, Is.Not.Null);
+            Assert.That(controller.Generator, Is.SameAs(generator));
+            Assert.That(Camera.main, Is.Not.Null);
+            Assert.That(GameObject.Find("Sword Pedestal"), Is.Not.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator ShortSwordGeneratorLabGeneratesOnPlay()
+        {
+            Open(GameplaySceneRegistry.ShortSwordGeneratorLabScenePath);
+            yield return new EnterPlayMode();
+            yield return null;
+
+            ProceduralShortSwordGenerator generator =
+                Object.FindFirstObjectByType<ProceduralShortSwordGenerator>();
+            Assert.That(generator, Is.Not.Null);
+            Assert.That(generator.HasGeneratedSword, Is.True);
+            Assert.That(generator.GeneratedParts, Has.Count.EqualTo(4));
+            Assert.That(
+                generator.GeneratedParts.All(part =>
+                    part.activeInHierarchy &&
+                    part.GetComponent<MeshFilter>()?.sharedMesh != null),
+                Is.True);
+
+            yield return new ExitPlayMode();
         }
 
         [Test]
@@ -987,7 +1029,7 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [UnityTest]
-        public IEnumerator RaidArchersStartPatrollingWithBowOnlyLoadouts()
+        public IEnumerator RaidPatrolsStartWithBowOrSwordLoadouts()
         {
             Open(GameplaySceneRegistry.RaidPrototypeScenePath);
             yield return new EnterPlayMode();
@@ -1098,9 +1140,22 @@ namespace WorldBuilder.Tests.EditMode
                     enemy.GetComponentInChildren<
                         TwoSlotWeaponPresenter>(true);
                 Assert.That(loadout, Is.Not.Null);
-                Assert.That(loadout.BowIsEquipped, Is.True);
-                Assert.That(loadout.BowIsVisible, Is.True);
-                Assert.That(loadout.SwordIsVisible, Is.False);
+                Assert.That(
+                    enemy.ConfiguredWeaponLoadout,
+                    Is.Not.EqualTo(EnemyBrain.WeaponLoadout.Adaptive));
+                if (enemy.ConfiguredWeaponLoadout ==
+                    EnemyBrain.WeaponLoadout.BowOnly)
+                {
+                    Assert.That(loadout.BowIsEquipped, Is.True);
+                    Assert.That(loadout.BowIsVisible, Is.True);
+                    Assert.That(loadout.SwordIsVisible, Is.False);
+                }
+                else
+                {
+                    Assert.That(loadout.BowIsEquipped, Is.False);
+                    Assert.That(loadout.BowIsVisible, Is.False);
+                    Assert.That(loadout.SwordIsVisible, Is.True);
+                }
 
                 int index = System.Array.IndexOf(enemies, enemy);
                 if (Vector3.Distance(
@@ -1427,7 +1482,7 @@ namespace WorldBuilder.Tests.EditMode
                     skybox.GetTexture("_MainTex")),
                 Is.EqualTo(
                     "Assets/_Project/Art/Environment/Skybox/" +
-                    "Sky129/sky_129_2k.png"));
+                    "Sky94/sky_94_2k.png"));
             Assert.That(
                 serialized.FindProperty("treeCount")
                     .intValue,

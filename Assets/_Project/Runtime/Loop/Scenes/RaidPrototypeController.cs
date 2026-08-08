@@ -5,7 +5,9 @@ using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
+using WorldBuilder.Gameplay.Presentation;
 using WorldBuilder.Gameplay.WeaponGrid;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
 {
@@ -28,6 +30,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private GameSession session;
         private WeaponGridSandboxToolkit gridToolkit;
         private BowWeapon bowWeapon;
+        private ShortSwordAttackPresenter shortSwordAttack;
         private Transform playerRoot;
         private bool initialized;
         private bool playerDeathSubscribed;
@@ -159,11 +162,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 $"ARROWS  {ArrowCount}",
                 LoopSceneGui.Muted);
             bowWeapon ??= FindFirstObjectByType<BowWeapon>();
+            if (shortSwordAttack == null && playerRoot != null)
+            {
+                shortSwordAttack =
+                    playerRoot.GetComponentInChildren<
+                        ShortSwordAttackPresenter>(true);
+            }
             if (bowWeapon != null &&
                 (bowWeapon.IsDrawing ||
                  bowWeapon.DrawNormalized > 0f))
             {
                 DrawBowCharge(new Rect(24f, 88f, 300f, 12f));
+            }
+            else if (shortSwordAttack != null &&
+                     shortSwordAttack.IsHeavyCharging)
+            {
+                DrawHeavyCharge(new Rect(24f, 88f, 300f, 12f));
             }
 
             if (completionPending && showCompletionOverlay)
@@ -512,10 +526,46 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 RegisterObelisk(discoveredObelisks[index]);
             }
 
+            EnsureProceduralRaidSwords(discoveredEnemies);
+
             if (playerRoot == null)
             {
                 statusMessage =
                     "Raid session is active, but no Player was found.";
+            }
+        }
+
+        private void EnsureProceduralRaidSwords(
+            EnemyBrain[] discoveredEnemies)
+        {
+            EnsureProceduralSword(playerRoot);
+            for (int index = 0; index < discoveredEnemies.Length; index++)
+            {
+                EnsureProceduralSword(discoveredEnemies[index] != null
+                    ? discoveredEnemies[index].transform
+                    : null);
+            }
+        }
+
+        private static void EnsureProceduralSword(Transform actor)
+        {
+            if (actor == null)
+            {
+                return;
+            }
+            TwoSlotWeaponPresenter weapons =
+                actor.GetComponentInChildren<TwoSlotWeaponPresenter>(true);
+            Transform sword = weapons != null
+                ? weapons.PrimaryWeaponRoot
+                : null;
+            if (sword != null)
+            {
+                RaidShortSwordPresentation presentation =
+                    RaidShortSwordPresentation.Replace(
+                    sword,
+                    UnityEngine.Random.Range(int.MinValue, int.MaxValue));
+                presentation?.ConfigureMeleeWeapon(
+                    actor.GetComponent<MeleeWeapon>());
             }
         }
 
@@ -734,6 +784,27 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     rect.height - 4f),
                 Texture2D.whiteTexture);
             GUI.color = previous;
+        }
+
+        private void DrawHeavyCharge(Rect rect)
+        {
+            Color previous = GUI.color;
+            GUI.color = new Color(0.02f, 0.025f, 0.03f, 0.9f);
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = new Color(0.78f, 0.28f, 0.16f);
+            GUI.DrawTexture(
+                new Rect(
+                    rect.x + 2f,
+                    rect.y + 2f,
+                    (rect.width - 4f) *
+                    shortSwordAttack.HeavyChargeNormalized,
+                    rect.height - 4f),
+                Texture2D.whiteTexture);
+            GUI.color = previous;
+            GUI.Label(
+                new Rect(rect.x, rect.y + 12f, rect.width, 20f),
+                "HEAVY STRIKE",
+                LoopSceneGui.Muted);
         }
     }
 }

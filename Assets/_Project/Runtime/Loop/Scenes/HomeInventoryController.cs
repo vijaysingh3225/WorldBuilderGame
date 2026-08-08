@@ -69,6 +69,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private Vector2Int heldGrabOffset;
         private float heldCellSize;
         private bool leftPressPickedUpItem;
+        private StorageEntry inspectedLootWeapon;
+        private LootWeaponData inspectedLootWeaponData;
+        private WeaponGridState inspectedLootWeaponGrid;
+        private StorageEntry weaponContextEntry;
+        private InventoryGridKind weaponContextGrid;
+        private Rect weaponContextMenuRect;
         private StackPaintMode stackPaintMode;
         private readonly List<StackPaintCell> stackPaintCells =
             new List<StackPaintCell>();
@@ -232,6 +238,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (!childGridOpen)
             {
                 DrawHeldItem();
+            }
+            if (!childGridOpen && inspectedLootWeapon != null)
+            {
+                DrawLootWeaponInspector();
+            }
+            if (!childGridOpen && weaponContextEntry != null)
+            {
+                DrawWeaponContextMenu();
             }
             GUI.enabled = previousEnabled;
         }
@@ -793,6 +807,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     GUI.color = previous;
                 }
             }
+            if (heldEntry != null)
+            {
+                for (int index = 0; index < cellRects.Length; index++)
+                {
+                    if (cellRects[index].Contains(Event.current.mousePosition))
+                    {
+                        DrawHeldPlacementPreview(
+                            cellRects,
+                            entries,
+                            index,
+                            columns,
+                            rows);
+                        break;
+                    }
+                }
+            }
             var drawnEntryIds = new HashSet<string>(
                 StringComparer.Ordinal);
             for (int index = 0; index < entries.Count; index++)
@@ -898,6 +928,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
+            if (current.button == 0 &&
+                current.clickCount == 2 &&
+                heldEntry == null &&
+                entry != null &&
+                ItemDefinitionCatalog.IsWeapon(entry.DefinitionId))
+            {
+                OpenLootWeaponInspector(entry);
+                current.Use();
+                return;
+            }
+
             if (heldEntry != null &&
                 CanPaintHeldStack() &&
                 (current.button == 0 || current.button == 1))
@@ -925,6 +966,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             if (current.button == 1)
             {
+                if (heldEntry == null && entry != null &&
+                    ItemDefinitionCatalog.IsWeapon(entry.DefinitionId))
+                {
+                    weaponContextEntry = entry;
+                    weaponContextGrid = gridKind;
+                    weaponContextMenuRect = new Rect(
+                        current.mousePosition.x + 8f,
+                        current.mousePosition.y + 8f,
+                        150f,
+                        78f);
+                    current.Use();
+                    return;
+                }
                 if (heldEntry == null && entry != null)
                 {
                     PickUp(
@@ -1011,6 +1065,194 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Event.current.button == 0)
             {
                 leftPressPickedUpItem = false;
+            }
+        }
+
+        private void OpenLootWeaponInspector(StorageEntry entry)
+        {
+            if (entry == null ||
+                !LootWeaponData.TryParse(
+                    entry.CustomStateJson,
+                    out LootWeaponData data))
+            {
+                statusMessage = "This weapon's data could not be read.";
+                return;
+            }
+
+            inspectedLootWeapon = entry;
+            inspectedLootWeaponData = data;
+            if (data.WeaponDefinitionId != ItemDefinitionIds.LootShortSword)
+            {
+                previewRenderer?.SelectWeapon(1);
+            }
+            inspectedLootWeaponGrid = string.IsNullOrWhiteSpace(
+                data.GridStateJson)
+                    ? null
+                    : JsonUtility.FromJson<WeaponGridState>(
+                        data.GridStateJson);
+            inspectedLootWeaponGrid?.EnsureInitialized(
+                data.DisplayName,
+                data.VisualSeed);
+        }
+
+        private void DrawLootWeaponInspector()
+        {
+            float windowWidth = Mathf.Min(820f, Screen.width - 30f);
+            float windowHeight = Mathf.Min(620f, Screen.height - 30f);
+            Rect window = new Rect(
+                Screen.width * 0.5f - windowWidth * 0.5f,
+                Screen.height * 0.5f - windowHeight * 0.5f,
+                windowWidth,
+                windowHeight);
+            LoopSceneGui.DrawPanel(window, new Color(0.24f, 0.31f, 0.33f));
+            if (GUI.Button(new Rect(window.xMax - 34f, window.y + 8f, 26f, 24f), "X"))
+            {
+                inspectedLootWeapon = null;
+                inspectedLootWeaponData = null;
+                inspectedLootWeaponGrid = null;
+                return;
+            }
+
+            GUI.Label(
+                new Rect(window.x + 18f, window.y + 14f, window.width - 60f, 28f),
+                inspectedLootWeaponData.DisplayName.ToUpperInvariant(),
+                LoopSceneGui.Heading);
+            GUI.Label(
+                new Rect(window.x + 18f, window.y + 44f, window.width - 36f, 22f),
+                $"LEVEL {inspectedLootWeaponData.Level}  /  DOUBLE-CLICKED RAID WEAPON",
+                LoopSceneGui.Muted);
+
+            Rect modelRect = new Rect(
+                window.x + 18f,
+                window.y + 76f,
+                window.width * 0.42f,
+                window.height - 112f);
+            DrawInventoryCellSurface(modelRect);
+            Texture modelTexture = null;
+            if (previewRenderer != null)
+            {
+                modelTexture = inspectedLootWeaponData.WeaponDefinitionId ==
+                    ItemDefinitionIds.LootShortSword
+                        ? previewRenderer.RenderLootShortSword(
+                            inspectedLootWeaponData.VisualSeed)
+                        : previewRenderer.RenderLootHuntingBow();
+            }
+            if (modelTexture != null)
+            {
+                GUI.DrawTexture(
+                    new Rect(
+                        modelRect.x + 7f,
+                        modelRect.y + 7f,
+                        modelRect.width - 14f,
+                        modelRect.height - 36f),
+                    modelTexture,
+                    ScaleMode.ScaleToFit,
+                    true);
+                HandlePreviewRotation(
+                    modelRect,
+                    delta => previewRenderer.RotateWeapon(delta));
+            }
+            else
+            {
+                GUI.Label(modelRect, inspectedLootWeaponData.WeaponDefinitionId ==
+                    ItemDefinitionIds.LootShortSword ? "SHORT\nSWORD" : "HUNTING\nBOW", cellStyle);
+            }
+            GUI.Label(
+                new Rect(modelRect.x + 8f, modelRect.yMax - 28f, modelRect.width - 16f, 20f),
+                "DRAG TO ROTATE",
+                LoopSceneGui.Muted);
+
+            Rect gridRect = new Rect(
+                modelRect.xMax + 22f,
+                window.y + 76f,
+                window.xMax - modelRect.xMax - 40f,
+                window.height - 112f);
+            GUI.Label(gridRect, "WEAPON GRID", LoopSceneGui.Heading);
+            DrawLootWeaponGrid(new Rect(gridRect.x, gridRect.y + 30f, gridRect.width, gridRect.height - 30f));
+        }
+
+        private void DrawWeaponContextMenu()
+        {
+            Rect menu = weaponContextMenuRect;
+            LoopSceneGui.DrawPanel(menu, new Color(0.20f, 0.25f, 0.26f));
+            if (GUI.Button(new Rect(menu.x + 8f, menu.y + 7f, menu.width - 16f, 28f), "INSPECT"))
+            {
+                OpenLootWeaponInspector(weaponContextEntry);
+                weaponContextEntry = null;
+                weaponContextMenuRect = default;
+                return;
+            }
+            if (GUI.Button(new Rect(menu.x + 8f, menu.y + 42f, menu.width - 16f, 28f), "DISCARD"))
+            {
+                if (TryTakeEntry(
+                        weaponContextGrid,
+                        weaponContextEntry,
+                        weaponContextEntry.Quantity,
+                        out _))
+                {
+                    statusMessage = "Weapon discarded.";
+                    PersistHomeTransaction();
+                }
+                weaponContextEntry = null;
+                weaponContextMenuRect = default;
+            }
+        }
+
+        private void DrawHeldPlacementPreview(
+            IReadOnlyList<Rect> cellRects,
+            IReadOnlyList<StorageEntry> entries,
+            int hoveredSlot,
+            int columns,
+            int rows)
+        {
+            int anchor = CalculateHeldAnchorSlot(hoveredSlot, columns);
+            IReadOnlyList<Vector2Int> footprint = ItemDefinitionCatalog.GetFootprint(
+                heldEntry.DefinitionId,
+                heldEntry.RotationQuarterTurns);
+            bool fits = ItemGridPlacement.CanPlace(
+                entries,
+                heldEntry,
+                anchor,
+                columns,
+                rows);
+            Color previous = GUI.color;
+            GUI.color = fits
+                ? new Color(0.76f, 0.87f, 0.63f, 0.28f)
+                : new Color(0.88f, 0.34f, 0.26f, 0.32f);
+            for (int index = 0; index < footprint.Count; index++)
+            {
+                int column = anchor % columns + footprint[index].x;
+                int row = anchor / columns + footprint[index].y;
+                if (column < 0 || column >= columns || row < 0 || row >= rows)
+                {
+                    continue;
+                }
+                GUI.DrawTexture(
+                    cellRects[row * columns + column],
+                    Texture2D.whiteTexture);
+            }
+            GUI.color = previous;
+        }
+
+        private void DrawLootWeaponGrid(Rect area)
+        {
+            if (inspectedLootWeaponGrid == null)
+            {
+                GUI.Label(area, "GRID DATA UNAVAILABLE", LoopSceneGui.Muted);
+                return;
+            }
+
+            const float cellSize = 42f;
+            IReadOnlyList<GridCoordinate> cells = inspectedLootWeaponGrid.UnlockedCells;
+            for (int index = 0; index < cells.Count; index++)
+            {
+                GridCoordinate cell = cells[index];
+                Rect rect = new Rect(
+                    area.center.x + cell.X * (cellSize + 2f) - cellSize * 0.5f,
+                    area.center.y - cell.Y * (cellSize + 2f) - cellSize * 0.5f,
+                    cellSize,
+                    cellSize);
+                LoopSceneGui.DrawWeaponGridCell(rect);
             }
         }
 
@@ -1454,6 +1696,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float cellSize,
             int displayedQuantity = -1)
         {
+            if (ItemDefinitionCatalog.IsWeapon(entry.DefinitionId))
+            {
+                DrawWeaponFootprintIcon(footprintRect, entry);
+                return;
+            }
             Texture2D icon = ItemDefinitionCatalog.LoadIcon(
                 entry.DefinitionId);
             if (icon != null)
@@ -1514,6 +1761,86 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     quantity.ToString(),
                     quantityStyle);
             }
+        }
+
+        private void DrawWeaponFootprintIcon(
+            Rect rect,
+            StorageEntry entry)
+        {
+            if (previewRenderer != null)
+            {
+                Texture preview = null;
+                if (entry.DefinitionId == ItemDefinitionIds.LootShortSword &&
+                    LootWeaponData.TryParse(entry.CustomStateJson, out LootWeaponData data))
+                {
+                    preview = previewRenderer.RenderLootShortSword(
+                        data.VisualSeed,
+                        entry.RotationQuarterTurns);
+                }
+                else
+                {
+                    preview = entry.DefinitionId == ItemDefinitionIds.LootHuntingBow
+                        ? previewRenderer.RenderLootHuntingBow(
+                            entry.RotationQuarterTurns)
+                        : previewRenderer.WeaponTexture;
+                }
+                if (preview != null)
+                {
+                    GUI.DrawTexture(
+                        new Rect(
+                            rect.x + 3f,
+                            rect.y + 3f,
+                            rect.width - 6f,
+                            rect.height - 6f),
+                        preview,
+                        ScaleMode.ScaleToFit,
+                        true);
+                    return;
+                }
+            }
+            Color previous = GUI.color;
+            bool sword = entry.DefinitionId == ItemDefinitionIds.LootShortSword;
+            GUI.color = sword
+                ? new Color(0.80f, 0.85f, 0.86f, 0.94f)
+                : new Color(0.68f, 0.47f, 0.24f, 0.94f);
+            if (sword)
+            {
+                float bladeWidth = Mathf.Max(4f, rect.width * 0.24f);
+                GUI.DrawTexture(new Rect(
+                    rect.center.x - bladeWidth * 0.5f,
+                    rect.y + 7f,
+                    bladeWidth,
+                    rect.height * 0.66f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(
+                    rect.x + rect.width * 0.17f,
+                    rect.y + rect.height * 0.68f,
+                    rect.width * 0.66f,
+                    Mathf.Max(3f, rect.height * 0.045f)), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(
+                    rect.center.x - bladeWidth * 0.32f,
+                    rect.y + rect.height * 0.73f,
+                    bladeWidth * 0.64f,
+                    rect.height * 0.18f), Texture2D.blackTexture);
+            }
+            else
+            {
+                GUI.DrawTexture(new Rect(
+                    rect.center.x - 2f,
+                    rect.y + 6f,
+                    4f,
+                    rect.height - 12f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(
+                    rect.x + rect.width * 0.16f,
+                    rect.y + 8f,
+                    3f,
+                    rect.height - 16f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(
+                    rect.x + rect.width * 0.84f - 3f,
+                    rect.y + 8f,
+                    3f,
+                    rect.height - 16f), Texture2D.whiteTexture);
+            }
+            GUI.color = previous;
         }
 
         private static void DrawInventorySection(Rect area)

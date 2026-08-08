@@ -56,6 +56,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 CancelFreshConfirmation();
                 Launch(GameLaunchMode.CombatLab);
             }
+            else if (keyboard.wKey.wasPressedThisFrame)
+            {
+                CancelFreshConfirmation();
+                LaunchShortSwordGeneratorLab();
+            }
         }
 
         private void OnGUI()
@@ -63,7 +68,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             LoopSceneGui.DrawDimmer(0.72f);
 
             float width = Mathf.Min(620f, Screen.width - 40f);
-            float height = Mathf.Min(610f, Screen.height - 40f);
+            float height = Mathf.Min(660f, Screen.height - 40f);
             Rect panel = new Rect(
                 (Screen.width - width) * 0.5f,
                 (Screen.height - height) * 0.5f,
@@ -144,7 +149,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Launch(GameLaunchMode.CombatLab);
             }
 
-            y += 68f;
+            y += 58f;
+            if (DrawLaunchButton(
+                    new Rect(x, y, contentWidth, 48f),
+                    "[W]  WEAPON GENERATOR",
+                    "Generate reusable procedural short swords"))
+            {
+                CancelFreshConfirmation();
+                LaunchShortSwordGeneratorLab();
+            }
+
+            y += 62f;
             GUI.Label(
                 new Rect(x, y, contentWidth, 42f),
                 statusMessage,
@@ -206,6 +221,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void CancelFreshConfirmation()
         {
             freshOverwriteConfirmationPending = false;
+        }
+
+        private void LaunchShortSwordGeneratorLab()
+        {
+            if (!GameplaySceneRuntime.TryLoadScene(
+                    GameplaySceneNames.ShortSwordGeneratorLab,
+                    out string error))
+            {
+                statusMessage = error;
+            }
         }
 
         private void Launch(

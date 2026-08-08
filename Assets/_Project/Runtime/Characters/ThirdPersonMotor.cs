@@ -50,8 +50,13 @@ namespace WorldBuilder.Gameplay.Characters
         private CharacterController controller;
         private PlayerInputSource input;
         private Health health;
+        private BowWeapon bowWeapon;
         private Vector3 horizontalVelocity;
+        private Vector3 planarDashDirection;
         private float verticalVelocity;
+        private float planarDashDistanceRemaining;
+        private float planarDashSpeed;
+        private float planarDashEndsAt = float.NegativeInfinity;
         private Transform cameraTransform;
         private float standingHeight;
         private Vector3 standingCenter;
@@ -159,6 +164,30 @@ namespace WorldBuilder.Gameplay.Characters
             targetHorizontalSpeed = 0f;
             airborneSpeedLimit = standingJumpAirSpeedLimit;
             isBrakingForReversal = false;
+            ClearPlanarDash();
+        }
+
+        public void ApplyPlanarDash(
+            Vector3 worldDirection,
+            float distance,
+            float duration = 0.12f)
+        {
+            Vector3 planarDirection = Vector3.ProjectOnPlane(
+                worldDirection,
+                Vector3.up);
+            if (planarDirection.sqrMagnitude <= 0.0001f ||
+                distance <= 0f)
+            {
+                return;
+            }
+
+            planarDirection.Normalize();
+            float safeDuration = Mathf.Max(0.01f, duration);
+            planarDashDirection = planarDirection;
+            planarDashDistanceRemaining = distance;
+            planarDashSpeed = distance / safeDuration;
+            planarDashEndsAt = Time.time + safeDuration;
+            isBrakingForReversal = false;
         }
 
         public void ResetForDiagnostics(Vector3 worldPosition, Quaternion worldRotation)
@@ -178,6 +207,7 @@ namespace WorldBuilder.Gameplay.Characters
             targetHorizontalSpeed = 0f;
             airborneSpeedLimit = standingJumpAirSpeedLimit;
             isBrakingForReversal = false;
+            ClearPlanarDash();
             movementCameraBasisLocked = false;
             movementCameraUnlockPending = false;
             lastGroundedTime = Time.time;
@@ -196,6 +226,7 @@ namespace WorldBuilder.Gameplay.Characters
                 MinimumTraversalStepOffset);
             input = GetComponent<PlayerInputSource>();
             health = GetComponent<Health>();
+            bowWeapon = GetComponent<BowWeapon>();
             EnsurePlayerDamageNumbers();
             EnsureAnatomicalDamageHitboxes();
             standingHeight = controller.height;
@@ -278,10 +309,16 @@ namespace WorldBuilder.Gameplay.Characters
                 bool inspectionMovementOrbit =
                     input.CameraOrbitHeld ||
                     movementCameraBasisLocked;
+                // Charging the short sword does not aim-lock locomotion. A
+                // drawn bow and blocking still deliberately keep the slower,
+                // facing-locked gait.
+                bool combatAimHeld =
+                    intent.BlockHeld ||
+                    (bowWeapon != null && bowWeapon.DrawInputHeld);
                 bool sprintAllowed = CalculateSprintAllowed(
                     facingOverridden,
                     inspectionMovementOrbit,
-                    intent.BlockHeld || intent.AttackHeld,
+                    combatAimHeld,
                     intent.SprintHeld);
                 float targetSpeed = isCrouched
                     ? CrouchSpeed
@@ -319,7 +356,9 @@ namespace WorldBuilder.Gameplay.Characters
                 overrideFacingDirection);
 
             UpdateVerticalMotion(intent);
-            Vector3 motion = horizontalVelocity + Vector3.up * verticalVelocity;
+            Vector3 motion = horizontalVelocity +
+                Vector3.up * verticalVelocity +
+                CalculatePlanarDashVelocity();
             if (!hasGroundControl &&
                 TryGetGroundSurface(out RaycastHit groundHit) &&
                 IsSteepSlope(groundHit.normal, controller.slopeLimit))
@@ -332,6 +371,37 @@ namespace WorldBuilder.Gameplay.Characters
             }
             controller.Move(motion * Time.deltaTime);
             isGrounded = HasSupportedGroundContact();
+        }
+
+        private Vector3 CalculatePlanarDashVelocity()
+        {
+            if (planarDashDistanceRemaining <= 0.001f)
+            {
+                ClearPlanarDash();
+                return Vector3.zero;
+            }
+
+            float stepDistance = Time.time >= planarDashEndsAt
+                ? planarDashDistanceRemaining
+                : Mathf.Min(
+                    planarDashDistanceRemaining,
+                    planarDashSpeed * Time.deltaTime);
+            planarDashDistanceRemaining -= stepDistance;
+            Vector3 velocity = planarDashDirection *
+                (stepDistance / Mathf.Max(0.0001f, Time.deltaTime));
+            if (planarDashDistanceRemaining <= 0.001f)
+            {
+                ClearPlanarDash();
+            }
+            return velocity;
+        }
+
+        private void ClearPlanarDash()
+        {
+            planarDashDirection = Vector3.zero;
+            planarDashDistanceRemaining = 0f;
+            planarDashSpeed = 0f;
+            planarDashEndsAt = float.NegativeInfinity;
         }
 
         private Vector3 ToWorldDirection(Vector2 move)

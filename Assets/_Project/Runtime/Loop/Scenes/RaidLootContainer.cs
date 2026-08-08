@@ -12,6 +12,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     [DisallowMultipleComponent]
     public sealed class RaidLootContainer : MonoBehaviour
     {
+        public const float GuardCoinChance = 0.40f;
+        public const int GuardMinimumCoins = 1;
+        public const int GuardMaximumCoins = 5;
+        public const float ChestArtifactChance = 0.30f;
+
         public enum LootSourceKind
         {
             Corpse,
@@ -95,6 +100,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 1,
                 10,
                 includeChestMaterials: false);
+            string weaponDefinitionId = archer
+                ? ItemDefinitionIds.LootHuntingBow
+                : ItemDefinitionIds.LootShortSword;
+            LootWeaponData weaponData = LootWeaponData.Create(
+                weaponDefinitionId,
+                seed ^ 0x5F3759DF);
+            AddGeneratedEntry(StorageEntry.Create(
+                weaponDefinitionId,
+                customStateJson: JsonUtility.ToJson(weaponData)));
             ownerHealth = enemy != null
                 ? enemy.GetComponent<Health>()
                 : GetComponent<Health>();
@@ -352,8 +366,23 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 healthPack.SetSlotIndex(includeArrows ? 1 : 0);
                 entries.Add(healthPack);
             }
+            if (includeChestMaterials &&
+                random.NextDouble() < ChestArtifactChance)
+            {
+                AddGeneratedEntry(
+                    StorageEntry.Create(ItemDefinitionIds.OwlEyeSeal));
+            }
             if (!includeChestMaterials)
             {
+                if (random.NextDouble() < GuardCoinChance)
+                {
+                    AddGeneratedEntry(
+                        StorageEntry.Create(
+                            ItemDefinitionIds.CopperCoin,
+                            random.Next(
+                                GuardMinimumCoins,
+                                GuardMaximumCoins + 1)));
+                }
                 return;
             }
             if (random.NextDouble() < 0.5d)
@@ -370,6 +399,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 AddGeneratedEntry(
                     StorageEntry.Create(
                         ItemDefinitionIds.Coal,
+                        random.Next(1, 11)));
+            }
+            if (random.NextDouble() < 0.5d)
+            {
+                AddGeneratedEntry(
+                    StorageEntry.Create(
+                        ItemDefinitionIds.CopperCoin,
                         random.Next(1, 11)));
             }
         }

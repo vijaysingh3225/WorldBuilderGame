@@ -45,6 +45,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public const float ForgeCellSize = 52f;
         public const float MinimumGridZoom = 0.65f;
         public const float MaximumGridZoom = 1.8f;
+        public const float ArtifactLibraryWidthFraction = 0.24f;
         private const float ForgeHeaderHeight = 58f;
         private const float ForgeFooterHeight = 24f;
         private readonly RaycastHit[] focusHits = new RaycastHit[24];
@@ -60,6 +61,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private HomeInventoryController inventory;
         [SerializeField] private PlayerInputSource playerInput;
         [SerializeField] private WeaponGridRuntime weaponGrid;
+        [SerializeField] private InventoryPreviewRenderer previewRenderer;
 
         private Transform player;
         private bool isOpen;
@@ -82,6 +84,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private MeleeWeapon meleeWeapon;
         private BowWeapon bowWeapon;
         private bool gridPanning;
+        private int previewWeaponIndex = -1;
 
         public bool IsOpen => isOpen;
         public string AdjacentChestId => ResolveAdjacentChest()?.ChestId;
@@ -169,16 +172,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 CalculateInventorySectionSpacing(panel.width);
             float gap = spacing * 0.25f;
             Rect content = CalculateForgeContentRect(panel);
-            float column = (content.width - gap * 2f) / 3f;
+            float libraryWidth = CalculateArtifactLibraryWidth(content.width);
             Rect workspace = new Rect(
                 content.x,
                 content.y,
-                column * 2f + gap,
+                Mathf.Max(0f, content.width - libraryWidth - gap),
                 content.height);
             Rect library = new Rect(
                 workspace.xMax + gap,
                 content.y,
-                column,
+                libraryWidth,
                 content.height);
             PlayerProfile profile = ResolveProfile();
             DrawWeaponWorkspace(workspace, profile);
@@ -250,6 +253,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 weaponIndex = 1;
             }
+            SelectPreviewWeapon(weaponIndex);
             WeaponInstanceRecord weapon = profile.GetWeapon(weaponIndex + 1);
             GUI.Label(
                 new Rect(rect.x + 250f, rect.y + 14f, rect.width - 266f, 26f),
@@ -260,18 +264,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 rect.y + 52f,
                 rect.width - 28f,
                 rect.height - 66f);
-            float detailsWidth = Mathf.Clamp(body.width * 0.36f, 230f, 320f);
-            Rect detailsPanel = new Rect(
+            float sideWidth = Mathf.Clamp(body.width * 0.27f, 220f, 286f);
+            Rect sidePanel = new Rect(
                 body.x,
                 body.y,
-                detailsWidth,
+                sideWidth,
                 body.height);
             Rect gridPanel = new Rect(
-                detailsPanel.xMax + 10f,
+                sidePanel.xMax + 10f,
                 body.y,
-                body.width - detailsWidth - 10f,
+                body.width - sideWidth - 10f,
                 body.height);
-            DrawInventorySection(detailsPanel);
+            DrawInventorySection(sidePanel);
             DrawInventorySection(gridPanel);
             WeaponGridState selectedState =
                 weaponGrid.Loadout.GetWeapon(weaponIndex);
@@ -279,11 +283,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 ArtifactPatternResolver.ResolveCompleted(
                     selectedState,
                     weaponGrid.Definitions);
+            float previewHeight = Mathf.Clamp(
+                sidePanel.height * 0.43f,
+                170f,
+                260f);
+            Rect previewPanel = new Rect(
+                sidePanel.x + 3f,
+                sidePanel.y + 3f,
+                sidePanel.width - 6f,
+                previewHeight);
+            DrawWeaponPreview(previewPanel);
             Rect detailsViewport = new Rect(
-                detailsPanel.x + 3f,
-                detailsPanel.y + 3f,
-                detailsPanel.width - 6f,
-                detailsPanel.height - 6f);
+                sidePanel.x + 3f,
+                previewPanel.yMax + 6f,
+                sidePanel.width - 6f,
+                Mathf.Max(0f, sidePanel.yMax - previewPanel.yMax - 9f));
             float requiredDetailsHeight =
                 CalculateWeaponDetailsContentHeight(
                     completedPatterns.Count);
@@ -334,6 +348,59 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     gridPanel.width - 36f,
                     gridPanel.height - 58f),
                 selectedState);
+        }
+
+        private void DrawWeaponPreview(Rect rect)
+        {
+            DrawInventorySection(rect);
+            GUI.Label(
+                new Rect(rect.x + 10f, rect.y + 8f, rect.width - 20f, 20f),
+                "WEAPON MODEL",
+                LoopSceneGui.Heading);
+            Rect modelArea = new Rect(
+                rect.x + 8f,
+                rect.y + 30f,
+                rect.width - 16f,
+                Mathf.Max(0f, rect.height - 38f));
+            if (previewRenderer != null && previewRenderer.WeaponTexture != null)
+            {
+                GUI.DrawTexture(
+                    modelArea,
+                    previewRenderer.WeaponTexture,
+                    ScaleMode.ScaleToFit,
+                    true);
+            }
+            else
+            {
+                GUI.Label(modelArea, "WEAPON PREVIEW", LoopSceneGui.Centered);
+            }
+            GUI.Label(
+                new Rect(modelArea.x, modelArea.yMax - 19f, modelArea.width, 18f),
+                "DRAG TO ROTATE",
+                LoopSceneGui.Muted);
+            HandleWeaponPreviewRotation(modelArea);
+        }
+
+        private void HandleWeaponPreviewRotation(Rect area)
+        {
+            Event current = Event.current;
+            if (current.type == EventType.MouseDrag &&
+                current.button == 0 &&
+                area.Contains(current.mousePosition))
+            {
+                previewRenderer?.RotateWeapon(-current.delta.x * 0.8f);
+                current.Use();
+            }
+        }
+
+        private void SelectPreviewWeapon(int index)
+        {
+            if (previewRenderer == null || previewWeaponIndex == index)
+            {
+                return;
+            }
+            previewRenderer.SelectWeapon(index);
+            previewWeaponIndex = index;
         }
 
         private void DrawWeaponDetails(
@@ -403,6 +470,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 top,
                 Mathf.Max(0f, panel.width - horizontalMargin * 2f),
                 Mathf.Max(0f, bottom - top));
+        }
+
+        public static float CalculateArtifactLibraryWidth(float contentWidth)
+        {
+            return Mathf.Min(
+                Mathf.Max(0f, contentWidth),
+                Mathf.Max(
+                    190f,
+                    contentWidth * ArtifactLibraryWidthFraction));
         }
 
         public static float CalculateWeaponDetailsContentHeight(
@@ -1015,6 +1091,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             heldEntryId = null;
+            previewRenderer ??= GetComponent<InventoryPreviewRenderer>() ??
+                gameObject.AddComponent<InventoryPreviewRenderer>();
+            previewRenderer.Configure(playerInput != null
+                ? playerInput.transform
+                : player, rebuild: true);
+            previewWeaponIndex = -1;
+            SelectPreviewWeapon(weaponIndex);
             isOpen = true;
         }
 

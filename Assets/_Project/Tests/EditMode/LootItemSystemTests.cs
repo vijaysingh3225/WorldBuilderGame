@@ -50,6 +50,9 @@ namespace WorldBuilder.Tests.EditMode
                 ItemDefinitionCatalog.LoadIcon(ItemDefinitionIds.Coal),
                 Is.Not.Null);
             Assert.That(
+                ItemDefinitionCatalog.LoadIcon(ItemDefinitionIds.CopperCoin),
+                Is.Not.Null);
+            Assert.That(
                 ItemDefinitionCatalog.IsStackable(
                     ItemDefinitionIds.IronIngot),
                 Is.False);
@@ -60,6 +63,10 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.Coal),
                 Is.EqualTo(10));
+            Assert.That(
+                ItemDefinitionCatalog.MaximumStack(
+                    ItemDefinitionIds.CopperCoin),
+                Is.EqualTo(100));
         }
 
         [Test]
@@ -372,12 +379,18 @@ namespace WorldBuilder.Tests.EditMode
                     sourceObject.AddComponent<RaidLootContainer>();
                 bool sawCorpseHealthPack = false;
                 bool sawEmptyCorpseUtilitySlot = false;
+                bool sawCorpseCoins = false;
+                bool sawCorpseWithoutCoins = false;
                 bool sawChestHealthPack = false;
                 bool sawEmptyChestUtilitySlot = false;
                 bool sawChestIron = false;
                 bool sawChestWithoutIron = false;
                 bool sawChestCoal = false;
                 bool sawChestWithoutCoal = false;
+                bool sawChestCoins = false;
+                bool sawChestWithoutCoins = false;
+                bool sawChestArtifact = false;
+                bool sawChestWithoutArtifact = false;
                 for (int seed = 0; seed < 64; seed++)
                 {
                     source.ConfigureCorpse(null, seed);
@@ -386,6 +399,16 @@ namespace WorldBuilder.Tests.EditMode
                     StorageEntry corpseArrows = source.Entries.Single(entry =>
                         entry.DefinitionId == ItemDefinitionIds.Arrow);
                     Assert.That(corpseArrows.Quantity, Is.InRange(1, 10));
+                    StorageEntry corpseBow = source.Entries.Single(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.LootHuntingBow);
+                    Assert.That(corpseBow.Quantity, Is.EqualTo(1));
+                    Assert.That(
+                        LootWeaponData.TryParse(
+                            corpseBow.CustomStateJson,
+                            out LootWeaponData bowData),
+                        Is.True);
+                    Assert.That(bowData.Level, Is.InRange(1, 5));
+                    Assert.That(bowData.GridStateJson, Is.Not.Empty);
                     bool corpseHasHealth = source.Entries.Any(entry =>
                         entry.DefinitionId == ItemDefinitionIds.HealthPack);
                     sawCorpseHealthPack |= corpseHasHealth;
@@ -398,6 +421,19 @@ namespace WorldBuilder.Tests.EditMode
                         entry.DefinitionId == ItemDefinitionIds.Coal),
                         Is.False,
                         "Defeated AI must never carry chest-only coal.");
+                    StorageEntry corpseCoins = source.Entries.SingleOrDefault(
+                        entry => entry.DefinitionId ==
+                            ItemDefinitionIds.CopperCoin);
+                    sawCorpseCoins |= corpseCoins != null;
+                    sawCorpseWithoutCoins |= corpseCoins == null;
+                    if (corpseCoins != null)
+                    {
+                        Assert.That(
+                            corpseCoins.Quantity,
+                            Is.InRange(
+                                RaidLootContainer.GuardMinimumCoins,
+                                RaidLootContainer.GuardMaximumCoins));
+                    }
 
                     source.ConfigureChest("Camp Chest", seed);
                     Assert.That(source.Columns, Is.EqualTo(4));
@@ -414,10 +450,19 @@ namespace WorldBuilder.Tests.EditMode
                         .ToArray();
                     StorageEntry coal = source.Entries.SingleOrDefault(entry =>
                         entry.DefinitionId == ItemDefinitionIds.Coal);
+                    StorageEntry coins = source.Entries.SingleOrDefault(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.CopperCoin);
                     sawChestIron |= ingots.Length > 0;
                     sawChestWithoutIron |= ingots.Length == 0;
                     sawChestCoal |= coal != null;
                     sawChestWithoutCoal |= coal == null;
+                    sawChestCoins |= coins != null;
+                    sawChestWithoutCoins |= coins == null;
+                    StorageEntry artifact = source.Entries.SingleOrDefault(
+                        entry => entry.DefinitionId ==
+                            ItemDefinitionIds.OwlEyeSeal);
+                    sawChestArtifact |= artifact != null;
+                    sawChestWithoutArtifact |= artifact == null;
                     Assert.That(ingots.Length, Is.InRange(0, 3));
                     Assert.That(
                         ingots.All(entry => entry.Quantity == 1),
@@ -427,16 +472,43 @@ namespace WorldBuilder.Tests.EditMode
                     {
                         Assert.That(coal.Quantity, Is.InRange(1, 10));
                     }
+                    if (coins != null)
+                    {
+                        Assert.That(coins.Quantity, Is.InRange(1, 10));
+                    }
+                    if (artifact != null)
+                    {
+                        Assert.That(artifact.Quantity, Is.EqualTo(1));
+                    }
+                    if (artifact != null)
+                    {
+                        Assert.That(artifact.Quantity, Is.EqualTo(1));
+                    }
                 }
 
                 Assert.That(sawCorpseHealthPack, Is.True);
                 Assert.That(sawEmptyCorpseUtilitySlot, Is.True);
+                Assert.That(sawCorpseCoins, Is.True);
+                Assert.That(sawCorpseWithoutCoins, Is.True);
                 Assert.That(sawChestHealthPack, Is.True);
                 Assert.That(sawEmptyChestUtilitySlot, Is.True);
                 Assert.That(sawChestIron, Is.True);
                 Assert.That(sawChestWithoutIron, Is.True);
                 Assert.That(sawChestCoal, Is.True);
                 Assert.That(sawChestWithoutCoal, Is.True);
+                Assert.That(sawChestCoins, Is.True);
+                Assert.That(sawChestWithoutCoins, Is.True);
+                Assert.That(sawChestArtifact, Is.True);
+                Assert.That(sawChestWithoutArtifact, Is.True);
+                Assert.That(
+                    RaidLootContainer.ChestArtifactChance,
+                    Is.EqualTo(0.30f));
+                Assert.That(
+                    ItemDefinitionCatalog.Category(ItemDefinitionIds.OwlEyeSeal),
+                    Is.EqualTo(ItemCategory.Artifact));
+                Assert.That(
+                    ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.OwlEyeSeal),
+                    Is.EqualTo(1));
                 Assert.That(
                     ItemDefinitionCatalog.MaximumStack(
                         ItemDefinitionIds.IronIngot),
@@ -445,6 +517,20 @@ namespace WorldBuilder.Tests.EditMode
                     ItemDefinitionCatalog.MaximumStack(
                         ItemDefinitionIds.Coal),
                     Is.EqualTo(10));
+                Assert.That(
+                    ItemDefinitionCatalog.MaximumStack(
+                        ItemDefinitionIds.CopperCoin),
+                    Is.EqualTo(100));
+                Assert.That(
+                    ItemDefinitionCatalog.GetFootprint(
+                        ItemDefinitionIds.LootShortSword,
+                        0).Count,
+                    Is.EqualTo(3));
+                Assert.That(
+                    ItemDefinitionCatalog.GetFootprint(
+                        ItemDefinitionIds.LootHuntingBow,
+                        0).Count,
+                    Is.EqualTo(6));
             }
             finally
             {

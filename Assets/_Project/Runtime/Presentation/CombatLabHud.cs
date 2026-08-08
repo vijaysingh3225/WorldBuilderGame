@@ -10,6 +10,7 @@ namespace WorldBuilder.Gameplay.Presentation
         [SerializeField] private Health enemyHealth;
         [SerializeField] private TwoSlotWeaponPresenter weaponSlots;
         [SerializeField] private BowWeapon bowWeapon;
+        [SerializeField] private ShortSwordAttackPresenter shortSwordAttack;
         [SerializeField] private EnemyBrain enemyBrain;
 
         private GUIStyle titleStyle;
@@ -32,6 +33,11 @@ namespace WorldBuilder.Gameplay.Presentation
                 player != null
                     ? player.GetComponentInChildren<BowWeapon>(true)
                     : null;
+            shortSwordAttack =
+                player != null
+                    ? player.GetComponentInChildren<
+                        ShortSwordAttackPresenter>(true)
+                    : null;
             enemyBrain =
                 enemy != null
                     ? enemy.GetComponent<EnemyBrain>()
@@ -45,6 +51,12 @@ namespace WorldBuilder.Gameplay.Presentation
                 Object.FindFirstObjectByType<TwoSlotWeaponPresenter>();
             bowWeapon ??=
                 Object.FindFirstObjectByType<BowWeapon>();
+            if (shortSwordAttack == null && playerHealth != null)
+            {
+                shortSwordAttack =
+                    playerHealth.GetComponentInChildren<
+                        ShortSwordAttackPresenter>(true);
+            }
             DrawHealthBar(
                 new Rect(24f, 40f, 260f, 18f),
                 playerHealth,
@@ -60,6 +72,11 @@ namespace WorldBuilder.Gameplay.Presentation
                 {
                     DrawBowCrosshair();
                 }
+            }
+            else if (shortSwordAttack != null &&
+                     shortSwordAttack.IsHeavyCharging)
+            {
+                DrawHeavyCharge(new Rect(24f, 70f, 260f, 12f));
             }
             enemyBrain ??=
                 enemyHealth != null
@@ -125,6 +142,27 @@ namespace WorldBuilder.Gameplay.Presentation
                 bowWeapon.IsDrawing
                     ? (bowWeapon.CanFire ? "RELEASE TO FIRE" : "SETTLING")
                     : "HOLD RMB TO DRAW",
+                textStyle);
+        }
+
+        private void DrawHeavyCharge(Rect rect)
+        {
+            Color previous = GUI.color;
+            GUI.color = new Color(0.04f, 0.05f, 0.06f, 0.88f);
+            GUI.DrawTexture(rect, whiteTexture);
+            GUI.color = new Color(0.76f, 0.30f, 0.18f);
+            GUI.DrawTexture(
+                new Rect(
+                    rect.x + 2f,
+                    rect.y + 2f,
+                    (rect.width - 4f) *
+                    shortSwordAttack.HeavyChargeNormalized,
+                    rect.height - 4f),
+                whiteTexture);
+            GUI.color = previous;
+            GUI.Label(
+                new Rect(rect.x, rect.y + 12f, rect.width, 20f),
+                "HEAVY STRIKE",
                 textStyle);
         }
 
