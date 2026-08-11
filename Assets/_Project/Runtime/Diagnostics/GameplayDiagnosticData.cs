@@ -27,6 +27,12 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public bool intentJumpHeld;
         public bool intentCrouch;
         public bool intentAttack;
+        public bool intentBlock;
+        public float blockWeight;
+        public float leftHandHiltContactGap;
+        public float leftGripAxisAlignmentAngle;
+        public float bladeHeadClearance;
+        public float bladeHeadSilhouetteClearance;
         public Vector3 playerPosition;
         public float playerYaw;
         public Vector3 horizontalVelocity;
@@ -94,6 +100,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public float handSpread;
         public Vector3 leftHandLocal;
         public Vector3 rightHandLocal;
+        public float leftHandLocalFrameTravel;
         public bool swordAttackActive;
         public Vector3 swordDirection;
         public Vector3 swordBladePlaneNormal;
@@ -111,6 +118,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public string enemyState;
         public float weaponCooldownRemaining;
         public Vector3 attackCenter;
+        public bool weaponAttackInProgress;
+        public Vector3 bladeBase;
+        public Vector3 bladeTip;
     }
 
     [Serializable]
@@ -281,6 +291,16 @@ namespace WorldBuilder.Gameplay.Diagnostics
         public float weaponCooldown;
         public float weaponReach;
         public float weaponRadius;
+        public string weaponAttackId;
+        public float attackDuration;
+        public float attackActiveStart;
+        public float attackContactTime;
+        public float attackActiveEnd;
+        public float attackInputBuffer;
+        public float attackMovementMultiplier;
+        public float attackTurnRate;
+        public float attackCancelAfter;
+        public int bladeSweepSegments;
         public float cameraDistance;
         public float cameraShoulderOffset;
         public float cameraPositionSmoothTime;

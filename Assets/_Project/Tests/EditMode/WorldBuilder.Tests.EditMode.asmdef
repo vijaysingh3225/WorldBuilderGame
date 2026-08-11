@@ -2,7 +2,8 @@
   "name": "WorldBuilder.Tests.EditMode",
   "rootNamespace": "WorldBuilder.Tests",
   "references": [
-    "WorldBuilder.Gameplay"
+    "WorldBuilder.Gameplay",
+    "WorldBuilder.Editor"
   ],
   "includePlatforms": [
     "Editor"

@@ -11,7 +11,9 @@ namespace WorldBuilder.Gameplay.Input
             bool jumpPressed,
             bool jumpHeld,
             bool crouchHeld,
-            bool attackPressed)
+            bool attackPressed,
+            bool blockHeld = false,
+            bool attackHeld = false)
         {
             Move = Vector2.ClampMagnitude(move, 1f);
             Look = look;
@@ -20,6 +22,8 @@ namespace WorldBuilder.Gameplay.Input
             JumpHeld = jumpHeld;
             CrouchHeld = crouchHeld;
             AttackPressed = attackPressed;
+            BlockHeld = blockHeld;
+            AttackHeld = attackHeld;
         }
 
         public Vector2 Move { get; }
@@ -29,6 +33,8 @@ namespace WorldBuilder.Gameplay.Input
         public bool JumpHeld { get; }
         public bool CrouchHeld { get; }
         public bool AttackPressed { get; }
+        public bool BlockHeld { get; }
+        public bool AttackHeld { get; }
     }
 
     public interface IPlayerIntentSource

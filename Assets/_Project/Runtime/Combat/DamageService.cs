@@ -21,6 +21,9 @@ namespace WorldBuilder.Gameplay.Combat
                 return false;
             }
 
+            PlayerHitFeedbackEmitter.TryPlay(
+                target,
+                request);
             damageable.ReceiveDamage(request);
             GameplayEventLog.Publish("damage", request.Instigator, $"{request.SourceId}:{request.Amount:0.##}->{target.name}");
             Resolved?.Invoke(target, request);
@@ -34,6 +37,23 @@ namespace WorldBuilder.Gameplay.Combat
 
         private static IDamageable FindDamageable(GameObject target)
         {
+            HumanoidDamageZone zone =
+                target.GetComponentInParent<HumanoidDamageZone>(true);
+            if (zone != null)
+            {
+                return zone;
+            }
+
+            // Root colliders such as CharacterController can receive the arrow
+            // collision before a precise hitbox. Keep those hits on the enemy
+            // profile instead of bypassing the anatomical damage rules via Health.
+            EnemyDamageProfile enemyProfile =
+                target.GetComponentInParent<EnemyDamageProfile>(true);
+            if (enemyProfile != null)
+            {
+                return enemyProfile;
+            }
+
             MonoBehaviour[] components = target.GetComponentsInParent<MonoBehaviour>(true);
             for (int index = 0; index < components.Length; index++)
             {

@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -10,9 +11,35 @@ namespace WorldBuilder.Gameplay.Input
 
         private bool diagnosticOverrideActive;
         private PlayerIntent diagnosticIntent;
+        private bool crouchToggled;
+        private bool userInterfaceCaptureActive;
+        private bool gameplayCursorCaptureRequested;
+        private int shoulderSide = 1;
 
         public PlayerIntent CurrentIntent { get; private set; }
         public bool DiagnosticOverrideActive => diagnosticOverrideActive;
+        public bool UserInterfaceCaptureActive =>
+            userInterfaceCaptureActive;
+        public bool GameplayCursorCaptureRequested =>
+            gameplayCursorCaptureRequested;
+        public bool CameraOrbitHeld { get; private set; }
+        public int ShoulderSide => shoulderSide;
+        public event Action<int> WeaponSlotRequested;
+
+        public void SetUserInterfaceCapture(bool captured)
+        {
+            userInterfaceCaptureActive = captured;
+            if (captured)
+            {
+                CurrentIntent = default;
+                CameraOrbitHeld = false;
+            }
+        }
+
+        public void RequestGameplayCursorCapture()
+        {
+            gameplayCursorCaptureRequested = true;
+        }
 
         public void SetDiagnosticOverride(in PlayerIntent intent)
         {
@@ -28,6 +55,11 @@ namespace WorldBuilder.Gameplay.Input
             CurrentIntent = default;
         }
 
+        public void SetShoulderSideDiagnostic(int side)
+        {
+            shoulderSide = side < 0 ? -1 : 1;
+        }
+
         private void OnEnable()
         {
             LockCursor();
@@ -37,26 +69,70 @@ namespace WorldBuilder.Gameplay.Input
         {
             diagnosticOverrideActive = false;
             diagnosticIntent = default;
+            crouchToggled = false;
+            userInterfaceCaptureActive = false;
+            gameplayCursorCaptureRequested = false;
+            CameraOrbitHeld = false;
+            shoulderSide = 1;
             CurrentIntent = default;
         }
 
         private void Update()
         {
+            if (userInterfaceCaptureActive)
+            {
+                CurrentIntent = default;
+                CameraOrbitHeld = false;
+                return;
+            }
+
+            if (gameplayCursorCaptureRequested)
+            {
+                Keyboard captureKeyboard = Keyboard.current;
+                if (PlayerControlBindings.IsPressed(
+                        captureKeyboard,
+                        PlayerControl.Pause))
+                {
+                    CurrentIntent = default;
+                    CameraOrbitHeld = false;
+                    return;
+                }
+
+                LockCursor();
+                gameplayCursorCaptureRequested =
+                    Cursor.lockState != CursorLockMode.Locked;
+                CurrentIntent = default;
+                CameraOrbitHeld = false;
+                return;
+            }
+
             if (diagnosticOverrideActive)
             {
                 CurrentIntent = diagnosticIntent;
+                CameraOrbitHeld = false;
                 return;
             }
 
             Keyboard keyboard = Keyboard.current;
             Mouse mouse = Mouse.current;
+            bool primaryClickPressed =
+                mouse != null && mouse.leftButton.wasPressedThisFrame;
+            bool secondaryClickPressed =
+                mouse != null && mouse.rightButton.wasPressedThisFrame;
+            bool inspectionClickPressed =
+                mouse != null && mouse.middleButton.wasPressedThisFrame;
 
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+            if (PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Pause))
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
-            else if (mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked)
+            else if ((primaryClickPressed ||
+                    secondaryClickPressed ||
+                    inspectionClickPressed) &&
+                Cursor.lockState != CursorLockMode.Locked)
             {
                 LockCursor();
             }
@@ -64,20 +140,108 @@ namespace WorldBuilder.Gameplay.Input
             Vector2 move = Vector2.zero;
             if (keyboard != null)
             {
-                move.x = ReadAxis(keyboard.aKey.isPressed, keyboard.dKey.isPressed);
-                move.y = ReadAxis(keyboard.sKey.isPressed, keyboard.wKey.isPressed);
+                move.x = ReadAxis(
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveLeft),
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveRight));
+                move.y = ReadAxis(
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveBackward),
+                    PlayerControlBindings.IsPressed(
+                        keyboard,
+                        PlayerControl.MoveForward));
             }
 
             bool cursorLocked = Cursor.lockState == CursorLockMode.Locked;
+            CameraOrbitHeld =
+                cursorLocked &&
+                mouse != null &&
+                mouse.middleButton.isPressed;
             Vector2 look = cursorLocked && mouse != null ? mouse.delta.ReadValue() * lookScale : Vector2.zero;
-            bool attackPressed = cursorLocked && mouse != null && mouse.leftButton.wasPressedThisFrame;
-            bool sprintHeld = keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
-            bool jumpPressed = keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
-            bool jumpHeld = keyboard != null && keyboard.spaceKey.isPressed;
-            bool crouchHeld = keyboard != null &&
-                (keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed || keyboard.cKey.isPressed);
+            bool attackPressed = primaryClickPressed;
+            bool attackHeld =
+                cursorLocked &&
+                mouse != null &&
+                mouse.leftButton.isPressed;
+            bool blockHeld =
+                cursorLocked &&
+                mouse != null &&
+                mouse.rightButton.isPressed;
+            bool sprintHeld = PlayerControlBindings.IsPressed(
+                keyboard,
+                PlayerControl.Sprint);
+            bool jumpPressed = PlayerControlBindings.WasPressedThisFrame(
+                keyboard,
+                PlayerControl.Jump);
+            bool jumpHeld = PlayerControlBindings.IsPressed(
+                keyboard,
+                PlayerControl.Jump);
+            bool crouchPressed =
+                PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Crouch);
+            if (crouchPressed)
+            {
+                crouchToggled = !crouchToggled;
+            }
 
-            CurrentIntent = new PlayerIntent(move, look, sprintHeld, jumpPressed, jumpHeld, crouchHeld, attackPressed);
+            if (cursorLocked &&
+                PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.SwapShoulder))
+            {
+                shoulderSide = -shoulderSide;
+            }
+
+            ReadWeaponSlotRequest(keyboard, mouse);
+            CurrentIntent = new PlayerIntent(
+                move,
+                look,
+                sprintHeld,
+                jumpPressed,
+                jumpHeld,
+                crouchToggled,
+                attackPressed,
+                blockHeld,
+                attackHeld);
+        }
+
+        private void ReadWeaponSlotRequest(Keyboard keyboard, Mouse mouse)
+        {
+            int requestedSlot = -1;
+            if (keyboard != null)
+            {
+                if (PlayerControlBindings.WasPressedThisFrame(
+                        keyboard,
+                        PlayerControl.WeaponSlotOne))
+                {
+                    requestedSlot = 0;
+                }
+                else if (PlayerControlBindings.WasPressedThisFrame(
+                        keyboard,
+                        PlayerControl.WeaponSlotTwo))
+                {
+                    requestedSlot = 1;
+                }
+            }
+
+            if (requestedSlot < 0 && mouse != null)
+            {
+                float scroll = mouse.scroll.ReadValue().y;
+                if (Mathf.Abs(scroll) > 0.01f)
+                {
+                    requestedSlot = scroll > 0f ? 0 : 1;
+                }
+            }
+
+            if (requestedSlot >= 0)
+            {
+                WeaponSlotRequested?.Invoke(requestedSlot);
+            }
         }
 
         private static float ReadAxis(bool negative, bool positive)

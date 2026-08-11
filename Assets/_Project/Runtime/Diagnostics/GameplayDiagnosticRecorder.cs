@@ -36,12 +36,11 @@ namespace WorldBuilder.Gameplay.Diagnostics
         [SerializeField] private ThirdPersonMotor motor;
         [SerializeField] private PlayerInputSource input;
         [SerializeField] private Animator animator;
-        [SerializeField] private MeleeWeapon weapon;
         [SerializeField] private Health playerHealth;
         [SerializeField] private Health enemyHealth;
         [SerializeField] private EnemyBrain enemyBrain;
         [SerializeField] private Camera gameplayCamera;
-        [SerializeField] private ShortSwordAttackPresenter swordPresenter;
+        [SerializeField] private ShortSwordBlockPresenter blockPresenter;
 
         private Transform player;
         private Transform enemy;
@@ -65,6 +64,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private Transform rightHand;
         private Vector3 previousLeftFootWorld;
         private Vector3 previousRightFootWorld;
+        private Vector3 previousLeftHandLocal;
         private Quaternion previousHeadRotation;
         private bool hasPreviousPose;
         private bool recording;
@@ -166,7 +166,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             ThirdPersonMotor movementMotor,
             PlayerInputSource intentSource,
             Animator targetAnimator,
-            MeleeWeapon meleeWeapon,
             Health owningHealth,
             Health targetHealth,
             EnemyBrain targetBrain,
@@ -175,7 +174,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             motor = movementMotor;
             input = intentSource;
             animator = targetAnimator;
-            weapon = meleeWeapon;
             playerHealth = owningHealth;
             enemyHealth = targetHealth;
             enemyBrain = targetBrain;
@@ -347,6 +345,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
             hasPreviousPose = false;
             previousLeftFootWorld = Vector3.zero;
             previousRightFootWorld = Vector3.zero;
+            previousLeftHandLocal = Vector3.zero;
             previousHeadRotation = Quaternion.identity;
         }
 
@@ -500,14 +499,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 animator = player.GetComponentInChildren<Animator>(true);
             }
 
-            if (weapon == null && player != null)
+            if (blockPresenter == null && animator != null)
             {
-                weapon = player.GetComponent<MeleeWeapon>();
-            }
-
-            if (swordPresenter == null && animator != null)
-            {
-                swordPresenter = animator.GetComponent<ShortSwordAttackPresenter>();
+                blockPresenter = animator.GetComponent<ShortSwordBlockPresenter>();
             }
 
             if (playerHealth == null && player != null)
@@ -570,27 +564,12 @@ namespace WorldBuilder.Gameplay.Diagnostics
             GameplayEventLog.Published += OnGameplayEvent;
             DamageService.Resolved -= OnDamageResolved;
             DamageService.Resolved += OnDamageResolved;
-            if (weapon != null)
-            {
-                weapon.AttackStarted -= OnAttackStarted;
-                weapon.AttackStarted += OnAttackStarted;
-                weapon.AttackRejected -= OnAttackRejected;
-                weapon.AttackRejected += OnAttackRejected;
-                weapon.AttackResolved -= OnAttackResolved;
-                weapon.AttackResolved += OnAttackResolved;
-            }
         }
 
         private void Unsubscribe()
         {
             GameplayEventLog.Published -= OnGameplayEvent;
             DamageService.Resolved -= OnDamageResolved;
-            if (weapon != null)
-            {
-                weapon.AttackStarted -= OnAttackStarted;
-                weapon.AttackRejected -= OnAttackRejected;
-                weapon.AttackResolved -= OnAttackResolved;
-            }
         }
 
         private void OnGameplayEvent(GameplayEventRecord record)
@@ -602,45 +581,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 kind = "gameplay-" + record.Category,
                 source = record.SourceId,
                 detail = record.Detail
-            });
-        }
-
-        private void OnAttackStarted()
-        {
-            AddEvent(new GameplayDiagnosticEvent
-            {
-                unityFrame = Time.frameCount,
-                time = RelativeTime,
-                kind = "attack-started",
-                source = "player",
-                position = weapon != null ? weapon.AttackCenter : Vector3.zero
-            });
-        }
-
-        private void OnAttackRejected(string reason)
-        {
-            AddEvent(new GameplayDiagnosticEvent
-            {
-                unityFrame = Time.frameCount,
-                time = RelativeTime,
-                kind = "attack-rejected",
-                source = "player",
-                detail = reason
-            });
-        }
-
-        private void OnAttackResolved(MeleeAttackReport report)
-        {
-            AddEvent(new GameplayDiagnosticEvent
-            {
-                unityFrame = Time.frameCount,
-                time = RelativeTime,
-                kind = "attack-resolved",
-                source = "player",
-                position = report.Center,
-                colliderCount = report.OverlappingColliders,
-                uniqueTargetCount = report.UniqueDamageables,
-                damagedTargetCount = report.DamagedTargets
             });
         }
 
@@ -734,6 +674,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
             float spinePitch = SpineWorldPitch();
             float leftTravel = hasPreviousPose ? Vector3.Distance(previousLeftFootWorld, leftWorld) : 0f;
             float rightTravel = hasPreviousPose ? Vector3.Distance(previousRightFootWorld, rightWorld) : 0f;
+            Vector3 leftHandLocal = LocalPoint(leftHand);
+            float leftHandLocalTravel = hasPreviousPose
+                ? Vector3.Distance(previousLeftHandLocal, leftHandLocal)
+                : 0f;
             float headAngularSpeed = hasPreviousPose && head != null && sampleDeltaTime > 0f
                 ? Quaternion.Angle(previousHeadRotation, head.rotation) / sampleDeltaTime
                 : 0f;
@@ -770,6 +714,24 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 intentJumpHeld = intent.JumpHeld,
                 intentCrouch = intent.CrouchHeld,
                 intentAttack = intent.AttackPressed,
+                intentBlock = intent.BlockHeld,
+                blockWeight = blockPresenter != null ? blockPresenter.BlockWeight : 0f,
+                leftHandHiltContactGap =
+                    blockPresenter != null
+                        ? blockPresenter.LeftHandHiltContactGap
+                        : MissingGroundGap,
+                leftGripAxisAlignmentAngle =
+                    blockPresenter != null
+                        ? blockPresenter.LeftGripAxisAlignmentAngle
+                        : 180f,
+                bladeHeadClearance =
+                    blockPresenter != null
+                        ? blockPresenter.BladeHeadClearance
+                        : MissingGroundGap,
+                bladeHeadSilhouetteClearance =
+                    blockPresenter != null
+                        ? blockPresenter.BladeHeadSilhouetteClearance
+                        : MissingGroundGap,
                 playerPosition = playerPosition,
                 playerYaw = player != null ? player.eulerAngles.y : 0f,
                 horizontalVelocity = velocity,
@@ -849,24 +811,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 handSpread = leftHand != null && rightHand != null
                     ? Vector3.Distance(leftHand.position, rightHand.position)
                     : 0f,
-                leftHandLocal = LocalPoint(leftHand),
+                leftHandLocal = leftHandLocal,
                 rightHandLocal = LocalPoint(rightHand),
-                swordAttackActive = swordPresenter != null && swordPresenter.IsAttacking,
-                swordDirection = swordPresenter != null
-                    ? swordPresenter.SwordDirection
-                    : Vector3.zero,
-                swordBladePlaneNormal = swordPresenter != null
-                    ? swordPresenter.BladePlaneNormal
-                    : Vector3.zero,
-                swordBladePlaneError = swordPresenter != null
-                    ? swordPresenter.BladePlaneAlignmentError
-                    : 0f,
-                swordForearmAngle =
-                    swordPresenter != null && rightHand != null && rightElbow != null
-                        ? Vector3.Angle(
-                            swordPresenter.SwordDirection,
-                            rightHand.position - rightElbow.position)
-                        : 0f,
+                leftHandLocalFrameTravel = leftHandLocalTravel,
                 cameraPosition = cameraPosition,
                 cameraYaw = cameraEuler.y,
                 cameraPitch = NormalizeAngle(cameraEuler.x),
@@ -882,15 +829,14 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 enemyFacingAngle = player != null && enemy != null
                     ? FacingError(enemy, player.position - enemy.position)
                     : 0f,
-                enemyState = enemyBrain != null ? enemyBrain.CurrentState.ToString() : "none",
-                weaponCooldownRemaining = weapon != null ? weapon.CooldownRemaining : 0f,
-                attackCenter = weapon != null ? weapon.AttackCenter : Vector3.zero
+                enemyState = enemyBrain != null ? enemyBrain.CurrentState.ToString() : "none"
             };
             frames.Add(frame);
             observedPlayerHealth = frame.playerHealth;
             observedEnemyHealth = frame.enemyHealth;
             previousLeftFootWorld = leftWorld;
             previousRightFootWorld = rightWorld;
+            previousLeftHandLocal = leftHandLocal;
             previousHeadRotation = head != null ? head.rotation : Quaternion.identity;
             previousWallCaptureTime = wallNow;
             hasPreviousPose = true;
@@ -914,7 +860,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     leftUpperLeg != null && rightUpperLeg != null && leftKnee != null && rightKnee != null &&
                     leftFoot != null && rightFoot != null,
                 camera = gameplayCamera != null,
-                meleeWeapon = weapon != null,
+                meleeWeapon = false,
                 playerHealth = playerHealth != null,
                 enemyHealth = enemyHealth != null,
                 enemyBrain = enemyBrain != null,
@@ -981,10 +927,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     ? animator.runtimeAnimatorController.name
                     : "none",
                 animatorPlaybackSpeed = animator != null ? animator.speed : 0f,
-                weaponDamage = weapon != null ? weapon.Damage : 0f,
-                weaponCooldown = weapon != null ? weapon.Cooldown : 0f,
-                weaponReach = weapon != null ? weapon.Reach : 0f,
-                weaponRadius = weapon != null ? weapon.Radius : 0f,
+                weaponAttackId = "none",
                 cameraDistance = cameraRig != null ? cameraRig.DesiredDistance : 0f,
                 cameraShoulderOffset = cameraRig != null ? cameraRig.ShoulderOffset : 0f,
                 cameraPositionSmoothTime = cameraRig != null ? cameraRig.PositionSmoothTime : 0f
@@ -1217,7 +1160,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             AddCapabilityCheck(checks, "pose-bones-present", capabilities.humanoidPoseBones,
                 "required Humanoid pose bones");
             AddCapabilityCheck(checks, "camera-present", capabilities.camera, "gameplay Camera");
-            AddCapabilityCheck(checks, "weapon-present", capabilities.meleeWeapon, "MeleeWeapon");
             AddCapabilityCheck(checks, "player-health-present", capabilities.playerHealth, "player Health");
             AddCapabilityCheck(checks, "dummy-present", capabilities.enemyHealth, "training dummy Health");
             AddCapabilityCheck(checks, "dummy-brain-present", capabilities.enemyBrain, "training dummy EnemyBrain");
@@ -1258,17 +1200,113 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     "firstTargetSpeed", firstStop != null ? firstStop.targetSpeed : -1f,
                     firstStop != null && Mathf.Abs(firstStop.intentMoveY) < 0.01f && firstStop.targetSpeed < 0.01f,
                     "zero intent and zero target on same frame", "Phase boundaries must not be one frame out of sync.");
-                bool attacksAligned = events.Where(item => item.kind == "attack-started").All(item =>
-                    frames.Any(frame => frame.unityFrame == item.unityFrame && frame.intentAttack));
-                AddSystemCheck(checks, "attack-intent-event-aligned", "failure", "combat", "all",
-                    "alignedAttackEvents", attacksAligned ? 1f : 0f, attacksAligned, "1",
-                    "Accepted attacks must share a frame with their recorded input pulse.");
+
+                List<GameplayDiagnosticFrame> rapidBlockFrames = frames.FindAll(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-toggle-stress");
+                float maximumRapidBlockHandTravel = rapidBlockFrames.Count == 0
+                    ? 99f
+                    : rapidBlockFrames.Max(frame => frame.leftHandLocalFrameTravel);
+                AddSystemCheck(checks, "block-toggle-hand-bounded", "failure",
+                    "combat", "block-toggle-stress", "maximumLeftHandFrameTravel",
+                    maximumRapidBlockHandTravel,
+                    rapidBlockFrames.Count > 0 && maximumRapidBlockHandTravel <= 0.14f,
+                    "<= 0.14 m/frame",
+                    "Rapid block reversals must blend directly between the authored guard and rest without a snap.");
+
+                GameplayDiagnosticFrame recoveredBlockRest = frames.LastOrDefault(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-entry-rest");
+                AddSystemCheck(checks, "block-toggle-rest-recovered", "failure",
+                    "combat", "block-entry-rest", "handSpread",
+                    recoveredBlockRest != null ? recoveredBlockRest.handSpread : -1f,
+                    recoveredBlockRest != null &&
+                    recoveredBlockRest.blockWeight <= 0.01f &&
+                    recoveredBlockRest.handSpread >= 0.6f,
+                    "weight <= 0.01 and hands >= 0.60 m apart",
+                    "Rapid toggling must not accumulate entry offsets or leave the left hand away from rest.");
+
+                List<GameplayDiagnosticFrame> blockEntryFrames = frames.FindAll(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-hold" &&
+                    frame.blockWeight <= 0.42f);
+                float maximumEarlyEntryTravel = blockEntryFrames.Count == 0
+                    ? 99f
+                    : blockEntryFrames.Max(frame => frame.leftHandLocalFrameTravel);
+                AddSystemCheck(checks, "block-entry-direct", "failure",
+                    "combat", "block-hold", "maximumEarlyLeftHandFrameTravel",
+                    maximumEarlyEntryTravel,
+                    blockEntryFrames.Count >= 3 && maximumEarlyEntryTravel <= 0.14f,
+                    "<= 0.14 m/frame",
+                    "The left hand must blend directly into the fixed guard without a waypoint or catch-up excursion.");
+
+                List<GameplayDiagnosticFrame> blockJumpFrames = frames.FindAll(
+                    frame => frame.scenario == "combat" &&
+                    frame.phase == "block-jump");
+                float maximumBlockJumpPairTravel = 99f;
+                if (blockJumpFrames.Count > 0)
+                {
+                    maximumBlockJumpPairTravel = 0f;
+                    Vector3 previousHandPair =
+                        blockJumpFrames[0].leftHandLocal -
+                        blockJumpFrames[0].rightHandLocal;
+                    for (int index = 1; index < blockJumpFrames.Count; index++)
+                    {
+                        Vector3 handPair =
+                            blockJumpFrames[index].leftHandLocal -
+                            blockJumpFrames[index].rightHandLocal;
+                        maximumBlockJumpPairTravel = Mathf.Max(
+                            maximumBlockJumpPairTravel,
+                            Vector3.Distance(previousHandPair, handPair));
+                        previousHandPair = handPair;
+                    }
+                }
+                float maximumBlockJumpHiltGap = blockJumpFrames.Count == 0
+                    ? 99f
+                    : blockJumpFrames.Max(
+                        frame => frame.leftHandHiltContactGap);
+                AddSystemCheck(checks, "block-jump-hand-locked", "failure",
+                    "combat", "block-jump", "maximumHandPairFrameTravel",
+                    maximumBlockJumpPairTravel,
+                    blockJumpFrames.Count > 0 &&
+                    maximumBlockJumpPairTravel <= 0.01f,
+                    "<= 0.01 m/frame",
+                    "A held guard must keep both hands locked together through takeoff, apex, and landing.");
+                AddSystemCheck(checks, "block-jump-grip-held", "failure",
+                    "combat", "block-jump", "maximumLeftHandHiltGap",
+                    maximumBlockJumpHiltGap,
+                    blockJumpFrames.Count > 0 &&
+                    maximumBlockJumpHiltGap <= 0.09f,
+                    "<= 0.09 m",
+                    "Jump and landing motion must not pull the guarded left hand away from the hilt.");
+
+                GameplayDiagnosticFrame heldBlock = frames.LastOrDefault(
+                    frame => frame.scenario == "combat" && frame.phase == "block-hold");
+                AddSystemCheck(checks, "block-held-two-handed", "failure", "combat", "block-hold",
+                    "leftHandHiltContactGap",
+                    heldBlock != null ? heldBlock.leftHandHiltContactGap : -1f,
+                    heldBlock != null &&
+                    heldBlock.intentBlock &&
+                    heldBlock.blockWeight >= 0.99f &&
+                    heldBlock.leftHandHiltContactGap <= 0.09f,
+                    "held, weight >= 0.99, left knuckles <= 0.09 m from hilt",
+                    "The held block must reach the actual two-handed hilt pose.");
+                GameplayDiagnosticFrame releasedBlock = frames.LastOrDefault(
+                    frame => frame.scenario == "combat" && frame.phase == "block-release");
+                AddSystemCheck(checks, "block-release-restores-carry", "failure", "combat", "block-release",
+                    "blockWeight", releasedBlock != null ? releasedBlock.blockWeight : -1f,
+                    releasedBlock != null &&
+                    !releasedBlock.intentBlock &&
+                    releasedBlock.blockWeight <= 0.01f &&
+                    releasedBlock.handSpread >= 0.6f,
+                    "released, weight <= 0.01, hands >= 0.60 m apart",
+                    "Releasing right click must restore the one-handed carry.");
             }
 
             bool eventOrderValid = events.Select((item, index) => item.sequence == index + 1).All(value => value);
             AddSystemCheck(checks, "event-sequence-contiguous", "failure", "suite", "complete", "sequence",
                 eventOrderValid ? 1f : 0f, eventOrderValid, "contiguous from 1",
-                "Correlated combat and gameplay events must have an unambiguous order.");
+                "Correlated gameplay events must have an unambiguous order.");
             float minimumPlayerHealth = frames.Count > 0 ? frames.Min(frame => frame.playerHealth) : 0f;
             AddSystemCheck(checks, "player-remains-undamaged", "failure", "suite", "complete", "minimumHealth",
                 minimumPlayerHealth, minimumPlayerHealth >= 99.99f, ">= 99.99",
@@ -1384,53 +1422,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
                         phase.endingGrounded ? 1f : 0f,
                         phase.airborneRatio > 0.05f && phase.endingGrounded, "airborne then grounded",
                         "A jump is incomplete unless it leaves the ground and lands in the same phase.");
-                }
-                else if (phase.phase == "accepted-miss")
-                {
-                    AddCheck(checks, "accepted-miss-no-damage", "failure", phase, "effectiveDamage",
-                        phase.effectiveDamage, Mathf.Approximately(phase.effectiveDamage, 0f), "0 damage",
-                        "An out-of-range accepted swing must not damage the dummy.");
-                    AddCheck(checks, "accepted-miss-contract", "failure", phase, "resolvedAttacks",
-                        phase.resolvedAttacks,
-                        phase.attackStarts == 1 && phase.resolvedAttacks == 1 && phase.damageEvents == 0,
-                        "1 start, 1 resolution, 0 damage events",
-                        "Separates an accepted miss from an input/cooldown rejection.");
-                }
-                else if (phase.phase == "passive-dummy")
-                {
-                    AddCheck(checks, "dummy-stationary", "failure", phase, "enemyTravel", phase.enemyTravel,
-                        phase.enemyTravel <= 0.01f, "<= 0.01 m",
-                        "The Combat Lab enemy must remain a passive target dummy.");
-                }
-                else if (phase.phase == "in-range-hit")
-                {
-                    AddCheck(checks, "in-range-damage-contract", "failure", phase, "effectiveDamage",
-                        phase.effectiveDamage,
-                        phase.attackStarts == 1 && phase.resolvedAttacks == 1 && phase.damageEvents == 1 &&
-                        phase.effectiveDamage >= 1f,
-                        "1 start, 1 resolution, 1 positive damage event",
-                        "The real overlap and damage path must resolve exactly once in range.");
-                }
-                else if (phase.phase == "cooldown-rejection")
-                {
-                    AddCheck(checks, "cooldown-rejected", "failure", phase, "attackRejections",
-                        phase.attackRejections,
-                        phase.attackRejections == 1 && phase.attackStarts == 0 &&
-                        phase.resolvedAttacks == 0 && phase.damageEvents == 0,
-                        "1 rejection and no accepted/resolved attack",
-                        "A repeated input inside cooldown must be rejected explicitly without side effects.");
-                }
-                else if (phase.phase == "lethal-chain")
-                {
-                    AddCheck(checks, "lethal-chain-contract", "failure", phase, "enemyHealthEnd",
-                        phase.enemyHealthEnd,
-                        phase.enemyHealthEnd <= 0.01f && phase.attackStarts == 2 &&
-                        phase.resolvedAttacks == 2 && phase.damageEvents == 2 && phase.deathEvents == 1,
-                        "0 health, 2 attacks, 2 damage events, 1 death",
-                        "The lethal path must exercise repeated accepted attacks and publish death exactly once.");
-                    AddCheck(checks, "lethal-overkill-accounted", "failure", phase, "overkillDamage",
-                        phase.overkillDamage, phase.overkillDamage > 0f, "> 0",
-                        "The final hit must distinguish requested, effective, and overkill damage.");
                 }
             }
 
@@ -1581,7 +1572,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private void WriteFramesCsv(string path)
         {
             using StreamWriter writer = new StreamWriter(path, false, new UTF8Encoding(false));
-            writer.WriteLine("sample,unity_frame,time,game_time,delta_time,wall_time,wall_delta_time,scenario,phase,intent_x,intent_y,sprint,jump_pressed,jump_held,crouch,attack,player_x,player_y,player_z,player_yaw,velocity_x,velocity_y,velocity_z,speed,target_speed,vertical_velocity,grounded,ground_control,crouched,crouch_amount,controller_height,reversal_braking,velocity_facing_error,desired_facing_error,animator_state_hash,animator_normalized_time,dominant_clip,dominant_weight,animator_in_transition,next_state_hash,next_normalized_time,next_clip,next_clip_weight,pose_facing_error,shoulder_facing_error,head_chest_angle,head_angular_speed,left_foot_x,left_foot_y,left_foot_z,right_foot_x,right_foot_y,right_foot_z,left_ground_gap,right_ground_gap,left_knee_gap,right_knee_gap,left_toe_gap,right_toe_gap,left_foot_travel,right_foot_travel,foot_width,left_is_rear,rear_knee_gap,front_foot_gap,rear_foot_gap,pelvis_rear_foot_distance,pelvis_gap,spine_upright_angle,sole_calibrated,left_heel_probe_gap,right_heel_probe_gap,left_toe_probe_gap,right_toe_probe_gap,left_knee_surface_gap,right_knee_surface_gap,left_knee_flexion,right_knee_flexion,front_plant_error,pelvis_height_ratio,spine_pitch,rear_hip_heel_ratio,rear_hip_heel_forward_ratio,split_stance,left_elbow_x,right_elbow_x,hand_spread,left_hand_x,left_hand_y,left_hand_z,right_hand_x,right_hand_y,right_hand_z,sword_attack_active,sword_direction_x,sword_direction_y,sword_direction_z,sword_plane_normal_x,sword_plane_normal_y,sword_plane_normal_z,sword_plane_error,sword_forearm_angle,camera_x,camera_y,camera_z,camera_yaw,camera_pitch,camera_distance,player_health,enemy_health,enemy_x,enemy_y,enemy_z,enemy_distance,enemy_facing_angle,enemy_state,cooldown,attack_center_x,attack_center_y,attack_center_z");
+            writer.WriteLine("sample,unity_frame,time,game_time,delta_time,wall_time,wall_delta_time,scenario,phase,intent_x,intent_y,sprint,jump_pressed,jump_held,crouch,attack,block,block_weight,left_hand_hilt_gap,left_grip_axis_angle,blade_head_clearance,blade_head_silhouette_clearance,player_x,player_y,player_z,player_yaw,velocity_x,velocity_y,velocity_z,speed,target_speed,vertical_velocity,grounded,ground_control,crouched,crouch_amount,controller_height,reversal_braking,velocity_facing_error,desired_facing_error,animator_state_hash,animator_normalized_time,dominant_clip,dominant_weight,animator_in_transition,next_state_hash,next_normalized_time,next_clip,next_clip_weight,pose_facing_error,shoulder_facing_error,head_chest_angle,head_angular_speed,left_foot_x,left_foot_y,left_foot_z,right_foot_x,right_foot_y,right_foot_z,left_ground_gap,right_ground_gap,left_knee_gap,right_knee_gap,left_toe_gap,right_toe_gap,left_foot_travel,right_foot_travel,foot_width,left_is_rear,rear_knee_gap,front_foot_gap,rear_foot_gap,pelvis_rear_foot_distance,pelvis_gap,spine_upright_angle,sole_calibrated,left_heel_probe_gap,right_heel_probe_gap,left_toe_probe_gap,right_toe_probe_gap,left_knee_surface_gap,right_knee_surface_gap,left_knee_flexion,right_knee_flexion,front_plant_error,pelvis_height_ratio,spine_pitch,rear_hip_heel_ratio,rear_hip_heel_forward_ratio,split_stance,left_elbow_x,right_elbow_x,hand_spread,left_hand_x,left_hand_y,left_hand_z,right_hand_x,right_hand_y,right_hand_z,left_hand_local_frame_travel,sword_attack_active,sword_direction_x,sword_direction_y,sword_direction_z,sword_plane_normal_x,sword_plane_normal_y,sword_plane_normal_z,sword_plane_error,sword_forearm_angle,camera_x,camera_y,camera_z,camera_yaw,camera_pitch,camera_distance,player_health,enemy_health,enemy_x,enemy_y,enemy_z,enemy_distance,enemy_facing_angle,enemy_state,cooldown,attack_center_x,attack_center_y,attack_center_z,weapon_attack_in_progress,blade_base_x,blade_base_y,blade_base_z,blade_tip_x,blade_tip_y,blade_tip_z");
             foreach (GameplayDiagnosticFrame frame in frames)
             {
                 writer.WriteLine(string.Join(",", new[]
@@ -1591,6 +1582,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     Csv(frame.scenario), Csv(frame.phase),
                     F(frame.intentMoveX), F(frame.intentMoveY), B(frame.intentSprint), B(frame.intentJumpPressed),
                     B(frame.intentJumpHeld), B(frame.intentCrouch), B(frame.intentAttack),
+                    B(frame.intentBlock), F(frame.blockWeight),
+                    F(frame.leftHandHiltContactGap),
+                    F(frame.leftGripAxisAlignmentAngle), F(frame.bladeHeadClearance),
+                    F(frame.bladeHeadSilhouetteClearance),
                     F(frame.playerPosition.x), F(frame.playerPosition.y), F(frame.playerPosition.z), F(frame.playerYaw),
                     F(frame.horizontalVelocity.x), F(frame.horizontalVelocity.y), F(frame.horizontalVelocity.z),
                     F(frame.horizontalSpeed), F(frame.targetSpeed), F(frame.verticalVelocity), B(frame.grounded),
@@ -1619,6 +1614,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     F(frame.rightElbowLocalX), F(frame.handSpread),
                     F(frame.leftHandLocal.x), F(frame.leftHandLocal.y), F(frame.leftHandLocal.z),
                     F(frame.rightHandLocal.x), F(frame.rightHandLocal.y), F(frame.rightHandLocal.z),
+                    F(frame.leftHandLocalFrameTravel),
                     B(frame.swordAttackActive),
                     F(frame.swordDirection.x), F(frame.swordDirection.y), F(frame.swordDirection.z),
                     F(frame.swordBladePlaneNormal.x), F(frame.swordBladePlaneNormal.y),
@@ -1629,7 +1625,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     F(frame.cameraDistance), F(frame.playerHealth), F(frame.enemyHealth), F(frame.enemyPosition.x),
                     F(frame.enemyPosition.y), F(frame.enemyPosition.z), F(frame.enemyDistance),
                     F(frame.enemyFacingAngle), Csv(frame.enemyState), F(frame.weaponCooldownRemaining),
-                    F(frame.attackCenter.x), F(frame.attackCenter.y), F(frame.attackCenter.z)
+                    F(frame.attackCenter.x), F(frame.attackCenter.y), F(frame.attackCenter.z),
+                    B(frame.weaponAttackInProgress),
+                    F(frame.bladeBase.x), F(frame.bladeBase.y), F(frame.bladeBase.z),
+                    F(frame.bladeTip.x), F(frame.bladeTip.y), F(frame.bladeTip.z)
                 }));
             }
         }
@@ -1812,8 +1811,6 @@ namespace WorldBuilder.Gameplay.Diagnostics
             float healthMax = Mathf.Max(100f, frames.Count > 0 ? frames.Max(frame => frame.enemyHealth) : 100f);
             AppendPolyline(svg, frames, left, combatTop, plotWidth, panelHeight, duration, 0f, healthMax,
                 frame => frame.enemyHealth, "#ff5f6d", 2.5f);
-            AppendPolyline(svg, frames, left, combatTop, plotWidth, panelHeight, duration, 0f, 1f,
-                frame => frame.weaponCooldownRemaining, "#c792ea", 1.8f);
 
             svg.AppendLine("<text x=\"1120\" y=\"28\" class=\"small\">speed #63d98b · target #42bde8 · vertical #f2a65a · L foot #58a6ff · R foot #ff8c42 · health #ff5f6d · cooldown #c792ea</text>");
             svg.AppendLine("</svg>");
@@ -1886,12 +1883,7 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     .Append(report.configuration.acceleration.ToString("0.0", CultureInfo.InvariantCulture)).Append(" m/s² / ")
                     .Append(report.configuration.turnSpeed.ToString("0", CultureInfo.InvariantCulture)).AppendLine(" deg/s.");
                 output.Append("Animator/controller: `").Append(report.configuration.animatorController)
-                    .Append("`; weapon damage/cooldown/reach/radius: ")
-                    .Append(report.configuration.weaponDamage.ToString("0.#", CultureInfo.InvariantCulture)).Append(" / ")
-                    .Append(report.configuration.weaponCooldown.ToString("0.00", CultureInfo.InvariantCulture)).Append(" / ")
-                    .Append(report.configuration.weaponReach.ToString("0.00", CultureInfo.InvariantCulture)).Append(" / ")
-                    .Append(report.configuration.weaponRadius.ToString("0.00", CultureInfo.InvariantCulture))
-                    .AppendLine(".").AppendLine();
+                    .AppendLine("`; playable attack: none.").AppendLine();
             }
 
             GameplayDiagnosticCheck[] noteworthy = report.checks

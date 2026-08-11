@@ -9,9 +9,11 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string SpeedParameter = "Speed";
         public const string MoveXParameter = "MoveX";
         public const string MoveZParameter = "MoveZ";
+        public const string GaitPlaybackParameter = "GaitPlayback";
         public const string VerticalSpeedParameter = "VerticalSpeed";
         public const string GroundedParameter = "Grounded";
         public const string CrouchedParameter = "Crouched";
+        public const float MinimumLocomotionDampTime = 0.16f;
 
         private static readonly int SpeedHash = Animator.StringToHash(SpeedParameter);
         private static readonly int MoveXHash = Animator.StringToHash(MoveXParameter);
@@ -32,6 +34,7 @@ namespace WorldBuilder.Gameplay.Presentation
             if (animator != null)
             {
                 animator.applyRootMotion = false;
+                KeepAnimatedVisualRenderable();
             }
 
 #if UNITY_EDITOR
@@ -60,6 +63,25 @@ namespace WorldBuilder.Gameplay.Presentation
             if (animator != null)
             {
                 animator.applyRootMotion = false;
+                KeepAnimatedVisualRenderable();
+            }
+        }
+
+        private void KeepAnimatedVisualRenderable()
+        {
+            animator.cullingMode =
+                AnimatorCullingMode.AlwaysAnimate;
+            SkinnedMeshRenderer[] renderers =
+                animator.GetComponentsInChildren<
+                    SkinnedMeshRenderer>(true);
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                SkinnedMeshRenderer renderer =
+                    renderers[index];
+                renderer.updateWhenOffscreen = true;
+                Bounds bounds = renderer.localBounds;
+                bounds.Expand(0.5f);
+                renderer.localBounds = bounds;
             }
         }
 
@@ -71,9 +93,24 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             Vector3 localVelocity = motor.LocalHorizontalVelocity;
-            animator.SetFloat(SpeedHash, motor.HorizontalSpeed, locomotionDampTime, Time.deltaTime);
-            animator.SetFloat(MoveXHash, localVelocity.x, locomotionDampTime, Time.deltaTime);
-            animator.SetFloat(MoveZHash, localVelocity.z, locomotionDampTime, Time.deltaTime);
+            float effectiveDampTime = Mathf.Max(
+                MinimumLocomotionDampTime,
+                locomotionDampTime);
+            animator.SetFloat(
+                SpeedHash,
+                motor.AnimationHorizontalSpeed,
+                effectiveDampTime,
+                Time.deltaTime);
+            animator.SetFloat(
+                MoveXHash,
+                localVelocity.x,
+                effectiveDampTime,
+                Time.deltaTime);
+            animator.SetFloat(
+                MoveZHash,
+                localVelocity.z,
+                effectiveDampTime,
+                Time.deltaTime);
             animator.SetFloat(VerticalSpeedHash, motor.VerticalVelocity);
             animator.SetBool(GroundedHash, motor.IsGrounded);
             animator.SetBool(CrouchedHash, motor.IsCrouched);
