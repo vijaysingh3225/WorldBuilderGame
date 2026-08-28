@@ -12,7 +12,10 @@ using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Diagnostics;
 using WorldBuilder.Gameplay.Input;
 using WorldBuilder.Gameplay.Loop;
+using WorldBuilder.Gameplay.Loop.Scenes;
 using WorldBuilder.Gameplay.Presentation;
+using WorldBuilder.Gameplay.WeaponGrid;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Editor
 {
@@ -20,7 +23,7 @@ namespace WorldBuilder.Editor
     {
         public const string ScenePath = "Assets/_Project/Scenes/CombatLab.unity";
         public const string CheckpointMarkerName =
-            "Prototype Systems - V74 Weapon Grid Toolkit";
+            "Prototype Systems - V75 Column Blade Loadout";
         private const string MaterialFolder = "Assets/_Project/Art/Prototype/Materials";
         private const string ShortSwordBladePath =
             "Assets/_Project/Art/Prototype/Weapons/PrototypeShortSwordBlade.asset";
@@ -78,24 +81,6 @@ namespace WorldBuilder.Editor
             Material floorMaterial = GetOrCreateMaterial("Floor", new Color(0.16f, 0.19f, 0.20f));
             Material wallMaterial = GetOrCreateMaterial("Stone", new Color(0.25f, 0.28f, 0.27f));
             Material accentMaterial = GetOrCreateMaterial("MossAccent", new Color(0.30f, 0.40f, 0.27f));
-            Material rangeMaterial = GetOrCreateMaterial(
-                "RangeZone",
-                new Color(0.19f, 0.30f, 0.34f),
-                0.08f);
-            Material closeQuartersMaterial = GetOrCreateMaterial(
-                "CloseQuartersZone",
-                new Color(0.39f, 0.29f, 0.17f),
-                0.08f);
-            Material traversalMaterial = GetOrCreateMaterial(
-                "TraversalZone",
-                new Color(0.22f, 0.34f, 0.23f),
-                0.08f);
-            Material measurementMaterial = GetOrCreateMaterial(
-                "RangeMeasurement",
-                new Color(0.68f, 0.64f, 0.45f),
-                0.05f,
-                0f,
-                true);
             Material playerMaterial = GetOrCreateMaterial(
                 "CombatLabPlayer",
                 new Color(0.22f, 0.22f, 0.22f),
@@ -113,17 +98,39 @@ namespace WorldBuilder.Editor
             Material bladeMaterial = GetOrCreateMaterial(
                 "ShortSwordBlade",
                 new Color(0.56f, 0.62f, 0.67f),
-                0.72f,
-                0.82f);
+                0.18f,
+                0.2f,
+                true);
             Material guardMaterial = GetOrCreateMaterial(
                 "ShortSwordGuard",
                 new Color(0.15f, 0.17f, 0.18f),
-                0.4f,
-                0.75f);
+                0.18f,
+                0.2f,
+                true);
             Material gripMaterial = GetOrCreateMaterial(
                 "ShortSwordGrip",
                 new Color(0.21f, 0.105f, 0.045f),
-                0.22f);
+                0.12f,
+                0f,
+                true);
+            Material swordForgeSilhouetteMaterial = GetOrCreateMaterial(
+                "SwordForgeSilhouette",
+                new Color(0.018f, 0.022f, 0.025f),
+                0f,
+                0f,
+                true);
+            Material columnStoneMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordGeneratorLabSceneBuilder.
+                        ColumnBladeStoneMaterialPath) ?? bladeMaterial;
+            Material columnWoodMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordGeneratorLabSceneBuilder.
+                        ColumnBladeWoodMaterialPath) ?? bladeMaterial;
+            Material columnObsidianMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordGeneratorLabSceneBuilder.
+                        ColumnBladeObsidianMaterialPath) ?? bladeMaterial;
 
             CreateLighting();
             GameplayLoopSceneBuilder.CreateSceneBootstrap(
@@ -134,14 +141,10 @@ namespace WorldBuilder.Editor
                 environment.transform,
                 floorMaterial,
                 wallMaterial,
-                accentMaterial,
-                rangeMaterial,
-                closeQuartersMaterial,
-                traversalMaterial,
-                measurementMaterial);
+                accentMaterial);
 
             GameObject player = CreatePlayer(
-                new Vector3(0f, 1f, -5.5f),
+                new Vector3(0f, 1f, -8f),
                 playerMaterial,
                 playerSecondaryMaterial,
                 bladeMaterial,
@@ -150,7 +153,7 @@ namespace WorldBuilder.Editor
                 out Health playerHealth,
                 out PlayerInputSource playerInput);
             GameObject enemy = CreateEnemy(
-                new Vector3(0f, 1f, 5f),
+                new Vector3(0f, 1f, 6f),
                 enemyMaterial,
                 enemySecondaryMaterial,
                 bladeMaterial,
@@ -158,22 +161,54 @@ namespace WorldBuilder.Editor
                 gripMaterial,
                 EnemyCombatVariant.CombatLabDummy,
                 out Health enemyHealth);
-            CreateRangedTargets(
-                enemyMaterial,
-                enemySecondaryMaterial,
-                bladeMaterial,
+            TwoSlotWeaponPresenter enemySlots =
+                enemy.GetComponentInChildren<TwoSlotWeaponPresenter>(true);
+            enemy.AddComponent<CombatLabColumnBladeLoadout>().Configure(
+                enemySlots != null ? enemySlots.PrimaryWeaponRoot : null,
+                enemy.GetComponent<MeleeWeapon>(),
+                columnStoneMaterial,
+                columnWoodMaterial,
+                columnObsidianMaterial,
                 guardMaterial,
                 gripMaterial);
+            enemy.AddComponent<CombatLabDummyActivator>()
+                .Configure(
+                    enemy.GetComponent<EnemyBrain>(),
+                    player.transform);
             CreateCamera(player.transform, playerInput);
+            CreateCombatLabSwordForge(
+                environment.transform,
+                player,
+                playerInput,
+                swordForgeSilhouetteMaterial,
+                columnStoneMaterial,
+                columnWoodMaterial,
+                columnObsidianMaterial,
+                guardMaterial,
+                gripMaterial);
 
             GameObject systems = new GameObject(CheckpointMarkerName);
             CombatLabHud hud = systems.AddComponent<CombatLabHud>();
             hud.Configure(playerHealth, enemyHealth);
             systems.AddComponent<GameplayDiagnosticRecorder>();
-            GameplayLoopSceneBuilder.AttachWeaponGrid(
+            WeaponGridRuntime weaponGrid =
+                GameplayLoopSceneBuilder.AttachWeaponGrid(
                 systems,
                 player,
                 playerInput);
+            WeaponGridSandboxToolkit gridToolkit =
+                systems.GetComponent<WeaponGridSandboxToolkit>();
+            gridToolkit.SetToggleWithTab(false);
+            HomeInventoryController inventory =
+                systems.AddComponent<HomeInventoryController>();
+            inventory.Configure(
+                null,
+                playerInput,
+                gridToolkit);
+            CreateCombatLabAnvil(
+                environment.transform,
+                playerInput,
+                weaponGrid);
             GameplayLoopSceneBuilder.AttachSceneNavigation(
                 systems,
                 playerInput);
@@ -454,59 +489,225 @@ namespace WorldBuilder.Editor
             Transform parent,
             Material floor,
             Material stone,
-            Material accent,
-            Material range,
-            Material closeQuarters,
-            Material traversal,
-            Material measurement)
+            Material accent)
         {
             CreateBlock(
                 "Lab Floor",
-                new Vector3(0f, -0.25f, 35f),
-                new Vector3(104f, 0.5f, 120f),
+                new Vector3(0f, -0.25f, 2f),
+                new Vector3(38f, 0.5f, 34f),
                 floor,
                 parent);
-            CreateBlock("North Wall", new Vector3(0f, 2f, 94.75f), new Vector3(104f, 4.5f, 0.5f), stone, parent);
-            CreateBlock("South Wall", new Vector3(0f, 2f, -24.75f), new Vector3(104f, 4.5f, 0.5f), stone, parent);
-            CreateBlock("East Wall", new Vector3(51.75f, 2f, 35f), new Vector3(0.5f, 4.5f, 120f), stone, parent);
-            CreateBlock("West Wall", new Vector3(-51.75f, 2f, 35f), new Vector3(0.5f, 4.5f, 120f), stone, parent);
+            CreateBlock(
+                "North Wall",
+                new Vector3(0f, 2.25f, 18.75f),
+                new Vector3(38f, 5f, 0.5f),
+                stone,
+                parent);
+            CreateBlock(
+                "South Wall",
+                new Vector3(0f, 2.25f, -14.75f),
+                new Vector3(38f, 5f, 0.5f),
+                stone,
+                parent);
+            CreateBlock(
+                "East Wall",
+                new Vector3(18.75f, 2.25f, 2f),
+                new Vector3(0.5f, 5f, 34f),
+                stone,
+                parent);
+            CreateBlock(
+                "West Wall",
+                new Vector3(-18.75f, 2.25f, 2f),
+                new Vector3(0.5f, 5f, 34f),
+                stone,
+                parent);
 
             Transform duelZone =
-                CreateZoneRoot("01 - Central Duel Yard", parent);
+                CreateZoneRoot("Combat Room", parent);
             CreateSurfaceMarker(
-                "Duel Yard Boundary",
-                new Vector3(0f, 0.012f, 0f),
-                new Vector3(25f, 0.024f, 25f),
+                "Combat Area",
+                new Vector3(0f, 0.012f, 1f),
+                new Vector3(22f, 0.024f, 24f),
                 accent,
                 duelZone);
 
-            CreateBlock("West Cover", new Vector3(-4.4f, 0.7f, -0.8f), new Vector3(3.2f, 1.4f, 1.1f), stone, duelZone);
-            CreateBlock("East Cover", new Vector3(4.4f, 0.7f, 1.2f), new Vector3(3.2f, 1.4f, 1.1f), stone, duelZone);
-            CreateBlock("North Pillar", new Vector3(-5.7f, 1.3f, 5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, duelZone);
-            CreateBlock("South Pillar", new Vector3(5.7f, 1.3f, -5.8f), new Vector3(1.4f, 2.6f, 1.4f), stone, duelZone);
-
-            CreateBlock("Crouch Test Roof", new Vector3(7.6f, 1.95f, 5.8f), new Vector3(4f, 0.5f, 3f), stone, duelZone);
-            CreateBlock("Crouch Test Left Support", new Vector3(5.85f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, duelZone);
-            CreateBlock("Crouch Test Right Support", new Vector3(9.35f, 0.85f, 5.8f), new Vector3(0.5f, 1.7f, 3f), stone, duelZone);
-            CreateMarker("Crouch Test Marker", new Vector3(7.6f, 0.03f, 5.8f), new Vector3(3f, 0.05f, 2.2f), accent, duelZone);
-
-            CreateMarker("Player Start Marker", new Vector3(0f, 0.03f, -5.5f), new Vector3(2.4f, 0.05f, 2.4f), accent, duelZone);
-            CreateMarker("Enemy Start Marker", new Vector3(0f, 0.03f, 5f), new Vector3(2.4f, 0.05f, 2.4f), accent, duelZone);
-
-            CreateShootingRange(
-                parent,
+            CreateBlock(
+                "Low Cover",
+                new Vector3(-6f, 0.65f, 0f),
+                new Vector3(4f, 1.3f, 1f),
                 stone,
-                range,
-                measurement);
-            CreateCloseQuartersCourse(
-                parent,
+                duelZone);
+            CreateBlock(
+                "Tall Cover",
+                new Vector3(6f, 1.15f, 0.5f),
+                new Vector3(1f, 2.3f, 4f),
                 stone,
-                closeQuarters);
-            CreateTraversalCourse(
-                parent,
+                duelZone);
+            CreateBlock(
+                "Corner Pillar",
+                new Vector3(-7f, 1.5f, 10f),
+                new Vector3(1.6f, 3f, 1.6f),
                 stone,
-                traversal,
-                measurement);
+                duelZone);
+            CreateBlock(
+                "Practice Barrier",
+                new Vector3(7.5f, 0.45f, 10f),
+                new Vector3(4.5f, 0.9f, 0.8f),
+                stone,
+                duelZone);
+
+            CreateMarker(
+                "Player Start Marker",
+                new Vector3(0f, 0.03f, -8f),
+                new Vector3(2.4f, 0.05f, 2.4f),
+                accent,
+                duelZone);
+            CreateMarker(
+                "Dummy Start Marker",
+                new Vector3(0f, 0.03f, 6f),
+                new Vector3(2.4f, 0.05f, 2.4f),
+                accent,
+                duelZone);
+        }
+
+        private static void CreateCombatLabAnvil(
+            Transform parent,
+            PlayerInputSource playerInput,
+            WeaponGridRuntime weaponGrid)
+        {
+            GameObject root = new GameObject("Unlimited Artifact Anvil");
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = new Vector3(-12f, 0f, 5f);
+            root.transform.localRotation =
+                Quaternion.Euler(0f, 90f, 0f);
+
+            BoxCollider interaction = root.AddComponent<BoxCollider>();
+            interaction.isTrigger = true;
+            interaction.center = new Vector3(0f, 0.7f, 0f);
+            interaction.size = new Vector3(1.8f, 1.5f, 1.8f);
+
+            GameObject source =
+                Resources.Load<GameObject>("HomeBase/Anvil/anvil");
+            if (source != null)
+            {
+                GameObject model = Object.Instantiate(source, root.transform);
+                model.name = "Anvil Model";
+                model.transform.localPosition =
+                    new Vector3(0f, 0.4031278f, -0.005788327f);
+                model.transform.localRotation =
+                    Quaternion.Euler(-90f, 0f, 0f);
+                model.transform.localScale =
+                    Vector3.one * 72.91329f;
+            }
+            else
+            {
+                CreateBlock(
+                    "Fallback Anvil",
+                    root.transform.position + Vector3.up * 0.55f,
+                    new Vector3(1.25f, 1.1f, 0.7f),
+                    GetOrCreateMaterial(
+                        "HomeAnvil",
+                        new Color(0.18f, 0.20f, 0.21f),
+                        0.58f,
+                        0.42f),
+                    root.transform);
+            }
+
+            HomeAnvil anvil = root.AddComponent<HomeAnvil>();
+            anvil.ConfigureUnlimitedArtifactCatalog(
+                playerInput,
+                weaponGrid);
+        }
+
+        private static void CreateCombatLabSwordForge(
+            Transform parent,
+            GameObject player,
+            PlayerInputSource playerInput,
+            Material silhouetteMaterial,
+            Material columnStoneMaterial,
+            Material columnWoodMaterial,
+            Material columnObsidianMaterial,
+            Material columnFurnitureMaterial,
+            Material columnAccentMaterial)
+        {
+            GameObject root = new GameObject(
+                CombatLabSwordForge.StationName);
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition =
+                new Vector3(0f, 0.63f, -14.40f);
+            root.transform.localRotation = Quaternion.identity;
+
+            BoxCollider interaction = root.AddComponent<BoxCollider>();
+            interaction.isTrigger = false;
+            interaction.center = new Vector3(0f, 0.52f, 0f);
+            interaction.size = new Vector3(1.12f, 1.72f, 0.13f);
+
+            GameObject blade = CreateVisualPart(
+                "Wall Column Blade Silhouette",
+                PrimitiveType.Cube,
+                root.transform,
+                new Vector3(0f, 0.63f, 0f),
+                new Vector3(0.15f, 0.86f, 0.035f),
+                silhouetteMaterial);
+            ConfigureSwordSilhouetteRenderer(blade.GetComponent<Renderer>());
+
+            GameObject guard = CreateVisualPart(
+                "Wall Sword Guard Silhouette",
+                PrimitiveType.Cube,
+                root.transform,
+                new Vector3(0f, 0.19f, 0f),
+                new Vector3(0.56f, 0.055f, 0.035f),
+                silhouetteMaterial);
+            GameObject grip = CreateVisualPart(
+                "Wall Sword Grip Silhouette",
+                PrimitiveType.Cylinder,
+                root.transform,
+                new Vector3(0f, 0.015f, 0f),
+                new Vector3(0.047f, 0.14f, 0.024f),
+                silhouetteMaterial);
+            GameObject pommel = CreateVisualPart(
+                "Wall Sword Pommel Silhouette",
+                PrimitiveType.Sphere,
+                root.transform,
+                new Vector3(0f, -0.155f, 0f),
+                new Vector3(0.085f, 0.075f, 0.030f),
+                silhouetteMaterial);
+            ConfigureSwordSilhouetteRenderer(guard.GetComponent<Renderer>());
+            ConfigureSwordSilhouetteRenderer(grip.GetComponent<Renderer>());
+            ConfigureSwordSilhouetteRenderer(pommel.GetComponent<Renderer>());
+
+            CombatLabSwordForge forge =
+                root.AddComponent<CombatLabSwordForge>();
+            forge.Configure(
+                player.transform,
+                playerInput,
+                player.GetComponentInChildren<
+                    TwoSlotWeaponPresenter>(true),
+                player.GetComponent<MeleeWeapon>(),
+                generateWhenPlayStarts: true);
+            forge.ConfigureColumnBladeMaterials(
+                columnStoneMaterial,
+                columnWoodMaterial,
+                columnObsidianMaterial,
+                columnFurnitureMaterial,
+                columnAccentMaterial);
+        }
+
+        private static void ConfigureSwordSilhouetteRenderer(
+            Renderer renderer)
+        {
+            if (renderer == null)
+            {
+                return;
+            }
+
+            renderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage =
+                UnityEngine.Rendering.LightProbeUsage.Off;
+            renderer.reflectionProbeUsage =
+                UnityEngine.Rendering.ReflectionProbeUsage.Off;
         }
 
         private static void CreateShootingRange(
@@ -2017,6 +2218,16 @@ namespace WorldBuilder.Editor
             {
                 material.SetFloat("_SpecularHighlights", matte ? 0f : 1f);
             }
+            if (matte)
+            {
+                material.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+                material.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            }
+            else
+            {
+                material.DisableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+                material.DisableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            }
 
             EditorUtility.SetDirty(material);
             return material;
@@ -2054,6 +2265,10 @@ namespace WorldBuilder.Editor
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
+                EditorApplication.playModeStateChanged -=
+                    BuildAfterReturningToEditMode;
+                EditorApplication.playModeStateChanged +=
+                    BuildAfterReturningToEditMode;
                 return;
             }
 
@@ -2068,6 +2283,19 @@ namespace WorldBuilder.Editor
             {
                 CombatLabSceneBuilder.Build();
             }
+        }
+
+        private static void BuildAfterReturningToEditMode(
+            PlayModeStateChange state)
+        {
+            if (state != PlayModeStateChange.EnteredEditMode)
+            {
+                return;
+            }
+
+            EditorApplication.playModeStateChanged -=
+                BuildAfterReturningToEditMode;
+            EditorApplication.delayCall += TryBuildInitialScene;
         }
     }
 }

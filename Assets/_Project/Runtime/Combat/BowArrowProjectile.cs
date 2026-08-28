@@ -85,6 +85,8 @@ namespace WorldBuilder.Gameplay.Combat
         private bool flybyStoppedByImpact;
         private float launchedAt;
         private bool stuck;
+        private readonly RaycastHit[] flightHitBuffer =
+            new RaycastHit[16];
 
         public bool IsStuck => stuck;
         public Vector3 HitPoint { get; private set; }
@@ -262,14 +264,31 @@ namespace WorldBuilder.Gameplay.Combat
                 return false;
             }
 
-            RaycastHit[] hits = Physics.RaycastAll(
+            RaycastHit[] hits = flightHitBuffer;
+            int hitCount = Physics.RaycastNonAlloc(
                 origin,
                 displacement / distance,
+                hits,
                 distance,
                 Physics.AllLayers,
                 QueryTriggerInteraction.Ignore);
+
+            // A saturated non-alloc buffer does not guarantee it contains the
+            // nearest valid impact. Fall back to the complete query only then
+            // so arrow collision behavior remains unchanged in dense scenes.
+            if (hitCount == hits.Length)
+            {
+                hits = Physics.RaycastAll(
+                    origin,
+                    displacement / distance,
+                    distance,
+                    Physics.AllLayers,
+                    QueryTriggerInteraction.Ignore);
+                hitCount = hits.Length;
+            }
+
             float closestDistance = float.PositiveInfinity;
-            for (int index = 0; index < hits.Length; index++)
+            for (int index = 0; index < hitCount; index++)
             {
                 Collider candidate = hits[index].collider;
                 if (candidate == null ||

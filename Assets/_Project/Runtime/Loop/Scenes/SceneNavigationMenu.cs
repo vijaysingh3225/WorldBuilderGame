@@ -15,6 +15,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private PlayerInputSource playerInput;
         [SerializeField] private WeaponGridSandboxToolkit gridToolkit;
         [SerializeField] private HomeInventoryController homeInventory;
+        [SerializeField] private HomeAnvil homeAnvil;
 
         private bool isOpen;
         private float previousTimeScale = 1f;
@@ -54,12 +55,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
-            gridToolkit ??=
-                FindFirstObjectByType<WeaponGridSandboxToolkit>();
-            homeInventory ??=
-                FindFirstObjectByType<HomeInventoryController>();
-            if ((gridToolkit != null && gridToolkit.IsOpen) ||
-                (homeInventory != null && homeInventory.IsOpen))
+            if (IsModalUiOpen())
             {
                 return;
             }
@@ -72,6 +68,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 Open();
             }
+        }
+
+        private bool IsModalUiOpen()
+        {
+            gridToolkit ??=
+                FindFirstObjectByType<WeaponGridSandboxToolkit>();
+            homeInventory ??=
+                FindFirstObjectByType<HomeInventoryController>();
+            homeAnvil ??= FindFirstObjectByType<HomeAnvil>();
+            return (gridToolkit != null && gridToolkit.IsOpen) ||
+                (homeInventory != null && homeInventory.IsOpen) ||
+                (homeAnvil != null && homeAnvil.IsOpen);
         }
 
         private void OnDisable()
@@ -137,6 +145,38 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (DrawButton(x, ref y, contentWidth, "RESUME"))
             {
                 Close();
+                return;
+            }
+
+            if (BrowserRaidDemoController.IsEnabled)
+            {
+                y += 12f;
+                GUI.Label(
+                    new Rect(x, y, contentWidth, 24f),
+                    "RAID DEMO",
+                    LoopSceneGui.Heading);
+                y += 32f;
+                if (DrawButton(
+                        x,
+                        ref y,
+                        contentWidth,
+                        "RESTART RAID"))
+                {
+                    Close();
+                    BrowserRaidDemoController.Current?.LaunchRaid();
+                    return;
+                }
+
+                if (DrawButton(
+                        x,
+                        ref y,
+                        contentWidth,
+                        "MAIN MENU"))
+                {
+                    Close();
+                    BrowserRaidDemoController.Current?.ReturnToMenu();
+                    return;
+                }
                 return;
             }
 

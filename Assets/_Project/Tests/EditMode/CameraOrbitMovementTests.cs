@@ -2,6 +2,8 @@ using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using WorldBuilder.Gameplay.Characters;
+using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Tests.EditMode
 {
@@ -93,7 +95,7 @@ namespace WorldBuilder.Tests.EditMode
                     false,
                     true),
                 Is.True,
-                "Middle-mouse inspection must preserve held Shift sprinting.");
+                "Middle-mouse inspection must preserve toggled sprinting.");
             Assert.That(
                 ThirdPersonMotor.CalculateSprintAllowed(
                     true,
@@ -109,6 +111,56 @@ namespace WorldBuilder.Tests.EditMode
                     false,
                     true),
                 Is.True);
+        }
+
+        [Test]
+        public void SprintInputTogglesAndPlayerDamageCancelsItBriefly()
+        {
+            GameObject player = new GameObject("damage-sprint-player")
+            {
+                tag = "Player"
+            };
+            try
+            {
+                player.AddComponent<CharacterController>();
+                PlayerInputSource input =
+                    player.AddComponent<PlayerInputSource>();
+                Health health = player.AddComponent<Health>();
+                health.Configure(100f);
+                ThirdPersonMotor motor =
+                    player.AddComponent<ThirdPersonMotor>();
+
+                input.RequestSprintToggle();
+                Assert.That(input.SprintToggleActive, Is.True);
+                input.RequestSprintToggle();
+                Assert.That(input.SprintToggleActive, Is.False);
+
+                input.RequestSprintToggle();
+                health.ReceiveDamage(
+                    new DamageRequest(
+                        null,
+                        10f,
+                        player.transform.position,
+                        Vector3.back,
+                        "sprint-interrupt-test"));
+
+                Assert.That(
+                    input.SprintToggleActive,
+                    Is.False,
+                    "Any applied player damage must cancel the latched sprint input.");
+                Assert.That(
+                    motor.IsSprintInterrupted,
+                    Is.True,
+                    "Damage must briefly enforce walk speed even if sprint is toggled again immediately.");
+                Assert.That(
+                    ThirdPersonMotor.DefaultDamageSprintInterruption,
+                    Is.InRange(0.2f, 0.5f),
+                    "The interruption should be readable without making sprint unavailable for long.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(player);
+            }
         }
 
         [Test]

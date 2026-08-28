@@ -4,7 +4,7 @@ The Raid must remain deterministic and visually equivalent for a given seed whil
 
 ## Current measured checkpoint
 
-The production Edit Mode generation test uses the serialized `RaidPrototype` scene at a 144 m radius with 1,500 trees, 128,000 base-grass candidates, 4,200 undergrowth placements, 4,800 ground-flora studies, 192 boulders, trail dressing, bridges, objectives, and patrols.
+The 2026-08-03 production Edit Mode baseline used the serialized `RaidPrototype` scene at a 144 m radius with 1,500 trees, 128,000 base-grass candidates, 4,200 undergrowth placements, 4,800 ground-flora studies, 192 boulders, trail dressing, bridges, objectives, and patrols.
 
 On 2026-08-03, a warmed Unity 6000.3.20f1 batch run on the development machine measured:
 
@@ -12,6 +12,20 @@ On 2026-08-03, a warmed Unity 6000.3.20f1 batch run on the development machine m
 - After exact spatial queries and allocation cleanup: 2.26 s inside `GenerateWithSeed`; 3.05 s for the complete production test.
 
 These are comparison measurements, not cross-machine pass/fail thresholds. `ProceduralRaidGenerator.LastGenerationMilliseconds` and `GenerationStageMilliseconds` expose the current timings, and the Raid Map Review window shows the overall, scenery, and terrain times after each seed.
+
+## 2026-08-11 advanced-map optimization wiring
+
+The current serialized production map is a 227.684 m equal-area-radius island with 2,100 trees, 320,000 grass candidates, 10,500 undergrowth placements, 12,000 ground-flora studies, 480 boulders, and 266 trail stones. The advanced landform graph uses only its active six-route topology for all trail distance queries; the legacy layout splines remain a fallback-only source and are not layered into an advanced generation pass.
+
+Grass placement reuses the road distance already sampled for its rejection test. Grass vertex tinting evaluates the unchanged terrain/road tint function on a 0.45 m grid per 20 m chunk and bilinearly interpolates that field for mesh vertices. This preserves configured placement content and smoothly varying color while removing repeated spline and noise queries from every grass vertex. Re-profile the full production seed after the next unattended Unity batch run; do not treat wall-clock time as a test assertion.
+
+## 2026-08-14 development-workflow and surface-cache pass
+
+The editor Raid Map Review now keeps generated hierarchy, meshes, textures, and materials transient. It no longer saves a generated seed into `RaidMapReview.unity`; rebuilding the template reduced that scene from 2.16 GB to 4.71 MB. The reviewer defaults to an explicit `FastPreview` budget for layout iteration and retains a selectable `Production` mode. Production remains the default on the runtime generator and preserves every serialized ecology count.
+
+Generation now evaluates the terrain grid once, keeps its raw and fitted height samples in memory, and reuses the exact triangulated mesh surface for scenery grounding, normals, habitat height context, and final terrain construction. Boulder habitat influence and core rejection use a deterministic spatial index instead of scanning every boulder. The inert fast preview omits environment colliders; runtime and production generation retain authored collision. Runtime initialization is idempotent, and `EnsureGeneratedWithSeed` retains immutable same-seed environment geometry so a future dynamic raid reset does not rebuild the map.
+
+On the 2026-08-14 development machine, the focused production-seed rerun measured 19.40 seconds inside `GenerateWithSeed`, compared with the latest pre-pass captured run of 29.81 seconds. The fast editor preview measured 5.45 seconds for seed 1701 and 4.87 seconds for the immediately following seed. These are cold batch comparisons across different focused tests, so treat the direction and stage breakdown as evidence rather than a fixed threshold.
 
 Run the production check with:
 

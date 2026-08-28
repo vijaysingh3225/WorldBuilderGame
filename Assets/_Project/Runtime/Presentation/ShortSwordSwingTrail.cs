@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
@@ -11,12 +12,16 @@ namespace WorldBuilder.Gameplay.Presentation
     /// positions, so it starts flush with the real blade and never projects in
     /// front of its direction of travel.
     /// </summary>
+    [DefaultExecutionOrder(1200)]
     [DisallowMultipleComponent]
     public sealed class ShortSwordSwingTrail : MonoBehaviour
     {
-        private const float TrailLifetime = 0.065f;
+        private const float TrailLifetime = 0.052f;
+        private const float MinimumTrailLifetime = 0.035f;
+        private const float MaximumTrailLifetime = 0.085f;
         private const float MaximumOpacity = 0.28f;
         private const float MinimumMovementSqr = 0.000004f;
+        private const int MaximumSamples = 48;
 
         private struct BladeSample
         {
@@ -45,19 +50,43 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private Mesh sweepMesh;
         private bool emitting;
+        private ShortSwordCombatProfile combatProfile =
+            ShortSwordCombatProfile.Default;
 
         public Mesh SweepMesh => sweepMesh;
+        public float EffectiveTrailLifetime =>
+            Mathf.Clamp(
+                TrailLifetime * combatProfile.TrailPersistenceMultiplier,
+                MinimumTrailLifetime,
+                MaximumTrailLifetime);
+        public float EffectiveMaximumOpacity =>
+            MaximumOpacity * combatProfile.TrailOpacityMultiplier;
+        public bool IsEmitting => emitting;
+        public int SampleCount => samples.Count;
 
         public void Configure(MeleeWeapon meleeWeapon)
         {
+            if (weapon != meleeWeapon)
+            {
+                EndSwing();
+            }
             weapon = meleeWeapon;
             EnsureTrailMesh();
+        }
+
+        public void ConfigureGeneratedCombatProfile(
+            ShortSwordCombatProfile profile)
+        {
+            combatProfile = profile.IsValid
+                ? profile
+                : ShortSwordCombatProfile.Default;
         }
 
         public void BeginSlice()
         {
             if (weapon == null)
             {
+                EndSwing();
                 return;
             }
 
@@ -65,7 +94,7 @@ namespace WorldBuilder.Gameplay.Presentation
             samples.Clear();
             CaptureBladeSample();
             sweepMesh.Clear();
-            sweepRenderer.enabled = true;
+            sweepRenderer.enabled = false;
             emitting = true;
         }
 
@@ -96,6 +125,15 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
+            // The weapon's physical damage window is the authority. This also
+            // guarantees cleanup if an animation transition skips the presenter's
+            // usual close event or the attack is interrupted.
+            if (!weapon.DamageWindowOpen)
+            {
+                EndSwing();
+                return;
+            }
+
             CaptureBladeSample();
             RemoveExpiredSamples();
             RebuildSweepMesh();
@@ -110,33 +148,86 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             if (sweepMesh != null)
             {
+                if (sweepMeshFilter != null &&
+                    sweepMeshFilter.sharedMesh == sweepMesh)
+                {
+                    sweepMeshFilter.sharedMesh = null;
+                }
                 Destroy(sweepMesh);
             }
         }
 
         private void EnsureTrailMesh()
         {
-            if (sweepMeshFilter != null && sweepRenderer != null)
+            GameObject trailObject = null;
+            if (sweepMeshFilter != null)
             {
-                return;
+                trailObject = sweepMeshFilter.gameObject;
+            }
+            else if (sweepRenderer != null)
+            {
+                trailObject = sweepRenderer.gameObject;
+            }
+            else
+            {
+                Transform existingTrail = transform.Find(
+                    "Sword Blade Sweep Trail");
+                trailObject = existingTrail != null
+                    ? existingTrail.gameObject
+                    : new GameObject("Sword Blade Sweep Trail");
+                if (existingTrail == null)
+                {
+                    trailObject.transform.SetParent(transform, false);
+                }
             }
 
-            GameObject trailObject = new GameObject("Sword Blade Sweep Trail");
             trailObject.layer = gameObject.layer;
-            trailObject.transform.SetParent(transform, false);
-            sweepMeshFilter = trailObject.AddComponent<MeshFilter>();
-            sweepRenderer = trailObject.AddComponent<MeshRenderer>();
-            sweepRenderer.sharedMaterial = GetTrailMaterial();
+            if (sweepMeshFilter == null)
+            {
+                sweepMeshFilter =
+                    trailObject.GetComponent<MeshFilter>();
+                if (sweepMeshFilter == null)
+                {
+                    sweepMeshFilter =
+                        trailObject.AddComponent<MeshFilter>();
+                }
+            }
+            if (sweepRenderer == null)
+            {
+                sweepRenderer =
+                    trailObject.GetComponent<MeshRenderer>();
+                if (sweepRenderer == null)
+                {
+                    sweepRenderer =
+                        trailObject.AddComponent<MeshRenderer>();
+                }
+            }
+            if (sweepRenderer.sharedMaterial == null)
+            {
+                sweepRenderer.sharedMaterial = GetTrailMaterial();
+            }
             sweepRenderer.shadowCastingMode = ShadowCastingMode.Off;
             sweepRenderer.receiveShadows = false;
             sweepRenderer.enabled = false;
-            sweepMesh = new Mesh
+
+            // Meshes created with HideAndDontSave are intentionally absent
+            // after a Play-mode/domain reload even though Unity preserves the
+            // serialized filter and renderer references in the scene. Rebuild
+            // and rebind that runtime-only resource independently of the child
+            // component setup.
+            if (sweepMesh == null)
             {
-                name = "Runtime Sword Blade Sweep Mesh",
-                hideFlags = HideFlags.HideAndDontSave
-            };
-            sweepMesh.MarkDynamic();
-            sweepMeshFilter.sharedMesh = sweepMesh;
+                sweepMesh = new Mesh
+                {
+                    name = "Runtime Sword Blade Sweep Mesh",
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+                sweepMesh.MarkDynamic();
+            }
+            if (sweepMeshFilter.sharedMesh != sweepMesh)
+            {
+                sweepMeshFilter.sharedMesh = sweepMesh;
+            }
         }
 
         private void CaptureBladeSample()
@@ -151,21 +242,31 @@ namespace WorldBuilder.Gameplay.Presentation
             if (samples.Count > 0)
             {
                 BladeSample previous = samples[samples.Count - 1];
-                Vector3 previousCenter = (previous.Base + previous.Tip) * 0.5f;
-                Vector3 currentCenter = (bladeBase + bladeTip) * 0.5f;
-                if ((currentCenter - previousCenter).sqrMagnitude <
-                    MinimumMovementSqr)
+                float baseMovement =
+                    (bladeBase - previous.Base).sqrMagnitude;
+                float tipMovement =
+                    (bladeTip - previous.Tip).sqrMagnitude;
+                if (Mathf.Max(baseMovement, tipMovement) < MinimumMovementSqr)
                 {
+                    // Keep the ribbon's leading edge locked to the live blade and
+                    // refresh its time even when the blade is momentarily still.
+                    // Older geometry can then expire instead of leaving a frozen
+                    // final quad behind.
+                    samples[samples.Count - 1] = sample;
                     return;
                 }
             }
             samples.Add(sample);
+            if (samples.Count > MaximumSamples)
+            {
+                samples.RemoveAt(0);
+            }
         }
 
         private void RemoveExpiredSamples()
         {
-            float minimumTime = Time.time - TrailLifetime;
-            while (samples.Count > 2 && samples[0].Time < minimumTime)
+            float minimumTime = Time.time - EffectiveTrailLifetime;
+            while (samples.Count > 0 && samples[0].Time < minimumTime)
             {
                 samples.RemoveAt(0);
             }
@@ -176,56 +277,52 @@ namespace WorldBuilder.Gameplay.Presentation
             sweepMesh.Clear();
             if (samples.Count < 2)
             {
+                sweepRenderer.enabled = false;
                 return;
             }
 
             vertices.Clear();
             triangles.Clear();
             colors.Clear();
-            float oldestTime = samples[0].Time;
-            float newestTime = samples[samples.Count - 1].Time;
-            float duration = Mathf.Max(0.0001f, newestTime - oldestTime);
+            Transform meshSpace = sweepMeshFilter.transform;
             for (int index = 0; index < samples.Count - 1; index++)
             {
                 BladeSample previous = samples[index];
                 BladeSample current = samples[index + 1];
                 int vertexIndex = vertices.Count;
-                vertices.Add(transform.InverseTransformPoint(previous.Base));
-                vertices.Add(transform.InverseTransformPoint(previous.Tip));
-                vertices.Add(transform.InverseTransformPoint(current.Tip));
-                vertices.Add(transform.InverseTransformPoint(current.Base));
+                vertices.Add(meshSpace.InverseTransformPoint(previous.Base));
+                vertices.Add(meshSpace.InverseTransformPoint(previous.Tip));
+                vertices.Add(meshSpace.InverseTransformPoint(current.Tip));
+                vertices.Add(meshSpace.InverseTransformPoint(current.Base));
                 triangles.Add(vertexIndex);
                 triangles.Add(vertexIndex + 1);
                 triangles.Add(vertexIndex + 2);
                 triangles.Add(vertexIndex);
                 triangles.Add(vertexIndex + 2);
                 triangles.Add(vertexIndex + 3);
-                AddSampleColor(previous.Time, oldestTime, duration);
-                AddSampleColor(previous.Time, oldestTime, duration);
-                AddSampleColor(current.Time, oldestTime, duration);
-                AddSampleColor(current.Time, oldestTime, duration);
+                AddSampleColor(previous.Time);
+                AddSampleColor(previous.Time);
+                AddSampleColor(current.Time);
+                AddSampleColor(current.Time);
             }
 
             sweepMesh.SetVertices(vertices);
             sweepMesh.SetTriangles(triangles, 0, true);
             sweepMesh.SetColors(colors);
             sweepMesh.RecalculateBounds();
+            sweepRenderer.enabled = true;
         }
 
-        private void AddSampleColor(
-            float sampleTime,
-            float oldestTime,
-            float duration)
+        private void AddSampleColor(float sampleTime)
         {
-            float ageWeight = Mathf.InverseLerp(
-                oldestTime,
-                oldestTime + duration,
-                sampleTime);
+            float ageWeight = 1f - Mathf.Clamp01(
+                (Time.time - sampleTime) /
+                Mathf.Max(0.0001f, EffectiveTrailLifetime));
             colors.Add(new Color(
                 0.72f,
                 0.86f,
                 1f,
-                MaximumOpacity * ageWeight));
+                EffectiveMaximumOpacity * ageWeight));
         }
 
         private static Material GetTrailMaterial()

@@ -133,7 +133,7 @@ namespace WorldBuilder.Tests
             Assert.That(health.IsAlive, Is.True);
             Assert.That(
                 health.Current,
-                Is.EqualTo(40f).Within(0.001f));
+                Is.EqualTo(60f).Within(0.001f));
         }
 
         [Test]
@@ -209,6 +209,41 @@ namespace WorldBuilder.Tests
             Assert.That(profile.TorsoHitsToKill, Is.EqualTo(2));
             Assert.That(profile.LimbHitsToKill, Is.EqualTo(4));
             Assert.That(health.Minimum, Is.Zero);
+        }
+
+        [Test]
+        public void SkullHitboxCoversHighOuterHeadSilhouette()
+        {
+            GameObject skull = new GameObject("Skull Hitbox Probe");
+            try
+            {
+                skull.transform.position = Vector3.up *
+                    HumanoidDamageHitboxRig.
+                        SkullHitboxCenterDistance;
+                CapsuleCollider collider =
+                    skull.AddComponent<CapsuleCollider>();
+                collider.direction = 1;
+                collider.radius =
+                    HumanoidDamageHitboxRig.SkullHitboxRadius;
+                collider.height =
+                    HumanoidDamageHitboxRig.SkullHitboxHeight;
+                Physics.SyncTransforms();
+
+                Ray highOuterHeadRay = new Ray(
+                    new Vector3(0.10f, 0.25f, -1f),
+                    Vector3.forward);
+                Assert.That(
+                    collider.Raycast(
+                        highOuterHeadRay,
+                        out RaycastHit _,
+                        2f),
+                    Is.True,
+                    "An arrow through the visible upper forehead must hit the skull collider rather than pass through its narrowing crown.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(skull);
+            }
         }
 
         [Test]

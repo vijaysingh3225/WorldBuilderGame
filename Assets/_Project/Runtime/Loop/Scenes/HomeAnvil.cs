@@ -30,15 +30,32 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 int size)
             {
                 Entry = entry;
+                definitionId = entry.DefinitionId;
+                Source = source;
+                Function = function;
+                Size = size;
+            }
+
+            public AvailableArtifact(
+                string artifactDefinitionId,
+                string source,
+                string function,
+                int size)
+            {
+                Entry = null;
+                definitionId = artifactDefinitionId;
                 Source = source;
                 Function = function;
                 Size = size;
             }
 
             public StorageEntry Entry { get; }
+            public string DefinitionId => definitionId;
             public string Source { get; }
             public string Function { get; }
             public int Size { get; }
+
+            private readonly string definitionId;
         }
 
         private const float InteractionDistance = 4.2f;
@@ -62,11 +79,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private PlayerInputSource playerInput;
         [SerializeField] private WeaponGridRuntime weaponGrid;
         [SerializeField] private InventoryPreviewRenderer previewRenderer;
+        [SerializeField] private bool unlimitedArtifactCatalog;
 
         private Transform player;
         private bool isOpen;
         private int weaponIndex;
         private string heldEntryId;
+        private string heldDefinitionId;
         private int heldRotation;
         private string status = "Drag an artifact into an unlocked weapon cell.";
         private float previousTimeScale;
@@ -87,6 +106,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private int previewWeaponIndex = -1;
 
         public bool IsOpen => isOpen;
+        public bool UsesUnlimitedArtifactCatalog =>
+            unlimitedArtifactCatalog;
+        public int UnlimitedArtifactDefinitionCount =>
+            unlimitedArtifactCatalog && weaponGrid != null
+                ? weaponGrid.Definitions.Count
+                : 0;
         public string AdjacentChestId => ResolveAdjacentChest()?.ChestId;
 
         public void Configure(
@@ -99,6 +124,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             inventory = inventoryController;
             playerInput = input;
             weaponGrid = runtime;
+        }
+
+        public void ConfigureUnlimitedArtifactCatalog(
+            PlayerInputSource input,
+            WeaponGridRuntime runtime)
+        {
+            playerInput = input;
+            weaponGrid = runtime;
+            unlimitedArtifactCatalog = true;
+            status =
+                "Every artifact is available in unlimited quantities.";
         }
 
         private void Awake()
@@ -120,7 +156,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 {
                     Close();
                 }
-                if (keyboard != null && heldEntryId != null &&
+                if (keyboard != null &&
+                    (heldEntryId != null || heldDefinitionId != null) &&
                     PlayerControlBindings.WasPressedThisFrame(
                         keyboard,
                         PlayerControl.RotateInventoryItem))
@@ -220,13 +257,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     20f),
                 "Drag an artifact into the weapon grid  |  R rotates  |  right-click removes  |  Esc closes",
                 LoopSceneGui.Muted);
-            if (GUI.Button(
+            if (LoopSceneGui.DrawMinimalCloseButton(
                     new Rect(
                         panel.xMax - spacing - 26f,
                         top,
                         26f,
-                        26f),
-                    "X"))
+                        26f)))
             {
                 Close();
             }
@@ -424,7 +460,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 DrawStatLine(x, ref y, width, "BASE DAMAGE", Mathf.Max(0f, meleeWeapon.Damage - bonuses.Damage).ToString("0.#"));
                 DrawStatLine(x, ref y, width, "COOLDOWN", $"{meleeWeapon.Cooldown:0.00} s");
+                DrawStatLine(x, ref y, width, "ATTACK RATE", $"×{meleeWeapon.AttackSpeedMultiplier:0.000}");
                 DrawStatLine(x, ref y, width, "BLADE REACH", $"{meleeWeapon.Reach:0.00} m");
+                DrawStatLine(x, ref y, width, "HEFT / HANDLING", $"{meleeWeapon.Heft * 100f:0} / {meleeWeapon.Handling * 100f:0}");
+                DrawStatLine(x, ref y, width, "IMPACT / STAGGER", $"{meleeWeapon.HitPauseDuration * 1000f:0} ms / {meleeWeapon.StaggerDuration:0.000} s");
             }
             else if (weaponIndex == 1 && bowWeapon != null)
             {
@@ -484,7 +523,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public static float CalculateWeaponDetailsContentHeight(
             int completedPatternCount)
         {
-            const float fixedContentHeight = 404f;
+            const float fixedContentHeight = 506f;
             const float patternRowHeight = 34f;
             return fixedContentHeight +
                 Mathf.Max(3, completedPatternCount) * patternRowHeight;
@@ -517,7 +556,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 LoopSceneGui.Heading);
             GUI.Label(
                 new Rect(rect.x + 16f, rect.y + 32f, rect.width - 32f, 18f),
-                adjacentChest != null ? "BACKPACK + ADJACENT CHEST" : "BACKPACK",
+                unlimitedArtifactCatalog
+                    ? "UNLIMITED TEST CATALOG"
+                    : adjacentChest != null
+                        ? "BACKPACK + ADJACENT CHEST"
+                        : "BACKPACK",
                 LoopSceneGui.Muted);
             float controlsY = rect.y + 57f;
             GUI.Label(new Rect(rect.x + 16f, controlsY, 54f, 24f), "SEARCH", slotLabelStyle);
@@ -541,12 +584,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 controlsY + 38f,
                 rect.width - 28f,
                 rect.yMax - controlsY - 52f);
-            const int columns = 5;
+            int columns = unlimitedArtifactCatalog ? 3 : 5;
             const float gap = 2f;
-            int rows = Mathf.Max(
-                10,
-                Mathf.CeilToInt(
-                    artifacts.Count / (float)columns));
+            int rows = unlimitedArtifactCatalog
+                ? 1
+                : Mathf.Max(
+                    10,
+                    Mathf.CeilToInt(
+                        artifacts.Count / (float)columns));
             float cellSize = Mathf.Clamp(
                 Mathf.Floor(
                     (viewport.width - gap * (columns - 1)) /
@@ -607,6 +652,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return result;
             }
+            if (unlimitedArtifactCatalog)
+            {
+                AddUnlimitedArtifacts(result);
+                result.Sort(CompareAvailableArtifacts);
+                return result;
+            }
             AddAvailableArtifacts(result, profile, profile.InventoryEntryIds, "PACK");
             if (adjacentChest != null)
             {
@@ -618,6 +669,43 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
             result.Sort(CompareAvailableArtifacts);
             return result;
+        }
+
+        private void AddUnlimitedArtifacts(
+            ICollection<AvailableArtifact> result)
+        {
+            if (weaponGrid == null)
+            {
+                return;
+            }
+
+            string search = searchText?.Trim() ?? string.Empty;
+            for (int index = 0;
+                 index < weaponGrid.Definitions.Count;
+                 index++)
+            {
+                ArtifactDefinitionData definition =
+                    weaponGrid.Definitions[index];
+                string function = ResolveArtifactFunction(definition);
+                string displayName = ItemDefinitionCatalog.DisplayName(
+                    definition.DefinitionId);
+                if (search.Length > 0 &&
+                    displayName.IndexOf(
+                        search,
+                        StringComparison.OrdinalIgnoreCase) < 0 &&
+                    function.IndexOf(
+                        search,
+                        StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                result.Add(new AvailableArtifact(
+                    definition.DefinitionId,
+                    "INFINITE",
+                    function,
+                    definition.Shape.Count));
+            }
         }
 
         private void AddAvailableArtifacts(
@@ -652,8 +740,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int comparison = sortMode switch
             {
                 ArtifactSortMode.Name => string.Compare(
-                    ItemDefinitionCatalog.DisplayName(left.Entry.DefinitionId),
-                    ItemDefinitionCatalog.DisplayName(right.Entry.DefinitionId),
+                    ItemDefinitionCatalog.DisplayName(left.DefinitionId),
+                    ItemDefinitionCatalog.DisplayName(right.DefinitionId),
                     StringComparison.OrdinalIgnoreCase),
                 ArtifactSortMode.Size => left.Size.CompareTo(right.Size),
                 ArtifactSortMode.Source => string.Compare(left.Source, right.Source, StringComparison.Ordinal),
@@ -661,43 +749,40 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             };
             return comparison != 0
                 ? comparison
-                : string.Compare(left.Entry.EntryId, right.Entry.EntryId, StringComparison.Ordinal);
+                : string.Compare(
+                    left.DefinitionId,
+                    right.DefinitionId,
+                    StringComparison.Ordinal);
         }
 
         private void DrawLibraryArtifact(Rect rect, AvailableArtifact artifact)
         {
-            if (weaponGrid.TryGetDefinition(
-                    artifact.Entry.DefinitionId,
-                    out ArtifactDefinitionData definition))
-            {
-                Color previous = GUI.color;
-                GUI.color = new Color(
-                    definition.DisplayColor.r,
-                    definition.DisplayColor.g,
-                    definition.DisplayColor.b,
-                    0.72f);
-                GUI.DrawTexture(
-                    new Rect(rect.x + 3f, rect.y + 3f, rect.width - 6f, rect.height - 6f),
-                    Texture2D.whiteTexture);
-                GUI.color = previous;
-            }
+            bool drewIcon =
+                InventoryItemPresentation.DrawSingleCellIcon(
+                    rect,
+                    artifact.DefinitionId);
             Event current = Event.current;
             if (current.type == EventType.MouseDown &&
                 current.button == 0 &&
                 rect.Contains(current.mousePosition))
             {
-                BeginHolding(artifact.Entry);
+                if (unlimitedArtifactCatalog)
+                {
+                    BeginHolding(artifact.DefinitionId);
+                }
+                else
+                {
+                    BeginHolding(artifact.Entry);
+                }
                 current.Use();
             }
-            GUI.Label(rect, GetInitials(artifact.Entry.DefinitionId), cellStyle);
-            GUI.Label(
-                new Rect(rect.x + 4f, rect.y + 2f, rect.width - 8f, 13f),
-                ShortFunction(artifact.Function),
-                slotLabelStyle);
-            GUI.Label(
-                new Rect(rect.x + 4f, rect.yMax - 16f, rect.width - 8f, 13f),
-                artifact.Source.Substring(0, 1),
-                slotLabelStyle);
+            if (!drewIcon)
+            {
+                GUI.Label(
+                    rect,
+                    GetInitials(artifact.DefinitionId),
+                    cellStyle);
+            }
         }
 
         private static string ShortFunction(string function)
@@ -712,8 +797,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             };
         }
 
+        private void BeginHolding(string definitionId)
+        {
+            heldEntryId = null;
+            heldDefinitionId = definitionId;
+            heldRotation = 0;
+            status =
+                $"Place {ItemDefinitionCatalog.DisplayName(definitionId)} " +
+                "on the weapon grid. R rotates.";
+        }
+
         private void BeginHolding(StorageEntry entry)
         {
+            heldDefinitionId = null;
             heldEntryId = entry.EntryId;
             heldRotation = 0;
             status = $"Place {ItemDefinitionCatalog.DisplayName(entry.DefinitionId)} on the weapon grid. R rotates.";
@@ -788,22 +884,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     {
                         continue;
                     }
-                    Color previous = GUI.color;
-                    GUI.color = definition.DisplayColor;
-                    GUI.DrawTexture(
-                        new Rect(
-                            occupiedRect.x + 5f,
-                            occupiedRect.y + 5f,
-                            occupiedRect.width - 10f,
-                            occupiedRect.height - 10f),
-                        Texture2D.whiteTexture);
-                    GUI.color = previous;
-                }
-                if (gridRects.TryGetValue(placement.Anchor, out Rect anchorRect))
-                {
-                    GUI.Label(anchorRect, definition.DisplayName.Substring(0, 1), LoopSceneGui.Centered);
+                    if (!InventoryItemPresentation.DrawSingleCellIcon(
+                            occupiedRect,
+                            placement.Artifact.DefinitionId))
+                    {
+                        GUI.Label(
+                            occupiedRect,
+                            definition.DisplayName.Substring(0, 1),
+                            LoopSceneGui.Centered);
+                    }
                 }
             }
+
+            DrawHeldGridPreview(state);
 
             Event current = Event.current;
             if (current.type == EventType.MouseUp)
@@ -814,7 +907,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     {
                         continue;
                     }
-                    if (current.button == 0 && heldEntryId != null)
+                    if (current.button == 0 && IsHoldingArtifact(
+                            heldEntryId,
+                            heldDefinitionId))
                     {
                         TryInstallHeld(pair.Key);
                         current.Use();
@@ -828,6 +923,37 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
             }
             GUI.EndGroup();
+        }
+
+        private void DrawHeldGridPreview(WeaponGridState state)
+        {
+            string definitionId = ResolveHeldDefinitionId(
+                ResolveProfile());
+            if (definitionId == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<GridCoordinate, Rect> pair in gridRects)
+            {
+                if (!pair.Value.Contains(Event.current.mousePosition))
+                {
+                    continue;
+                }
+
+                bool occupied = state.FindPlacementAt(
+                    pair.Key,
+                    BuildCatalog()) != null;
+                Color previous = GUI.color;
+                GUI.color = occupied
+                    ? new Color(1f, 0.30f, 0.24f, 0.48f)
+                    : new Color(1f, 1f, 1f, 0.58f);
+                InventoryItemPresentation.DrawSingleCellIcon(
+                    pair.Value,
+                    definitionId);
+                GUI.color = previous;
+                break;
+            }
         }
 
         private void HandleGridNavigation(Rect view)
@@ -853,7 +979,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
             if (current.type == EventType.MouseDown &&
                 current.button == 0 &&
-                heldEntryId == null &&
+                !IsHoldingArtifact(
+                    heldEntryId,
+                    heldDefinitionId) &&
                 view.Contains(current.mousePosition))
             {
                 gridPanning = true;
@@ -885,8 +1013,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 MaximumGridZoom);
         }
 
+        public static bool IsHoldingArtifact(
+            string entryId,
+            string unlimitedDefinitionId)
+        {
+            return !string.IsNullOrWhiteSpace(entryId) ||
+                !string.IsNullOrWhiteSpace(unlimitedDefinitionId);
+        }
+
         private void TryInstallHeld(GridCoordinate coordinate)
         {
+            if (unlimitedArtifactCatalog)
+            {
+                TryInstallUnlimitedArtifact(coordinate);
+                return;
+            }
+
             PlayerProfile profile = ResolveProfile();
             StorageEntry entry = profile?.FindStorageEntry(heldEntryId);
             if (ArtifactInstallationService.TryInstall(
@@ -909,6 +1051,37 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        private void TryInstallUnlimitedArtifact(
+            GridCoordinate coordinate)
+        {
+            if (string.IsNullOrWhiteSpace(heldDefinitionId))
+            {
+                return;
+            }
+
+            string definitionId = heldDefinitionId;
+            var artifact = new ArtifactInstance(
+                Guid.NewGuid().ToString("N"),
+                definitionId);
+            if (weaponGrid.TryPlace(
+                    weaponIndex,
+                    artifact,
+                    coordinate,
+                    heldRotation,
+                    out string reason))
+            {
+                status =
+                    $"Installed {ItemDefinitionCatalog.DisplayName(definitionId)}. " +
+                    "The catalog copy remains available.";
+                heldDefinitionId = null;
+                Persist();
+            }
+            else
+            {
+                status = reason;
+            }
+        }
+
         private void TryRemoveAt(WeaponGridState state, GridCoordinate coordinate)
         {
             ArtifactPlacement placement = state.FindPlacementAt(
@@ -916,6 +1089,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 BuildCatalog());
             if (placement == null)
             {
+                return;
+            }
+            if (unlimitedArtifactCatalog)
+            {
+                if (weaponGrid.TryRemoveInstance(
+                        weaponIndex,
+                        placement.Artifact.InstanceId,
+                        out _))
+                {
+                    status =
+                        "Artifact removed. Unlimited copies remain in the catalog.";
+                    Persist();
+                }
                 return;
             }
             if (ArtifactInstallationService.TryReturnToStorage(
@@ -948,19 +1134,49 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void DrawHeldArtifact(PlayerProfile profile)
         {
-            if (heldEntryId == null)
+            string definitionId = ResolveHeldDefinitionId(profile);
+            if (definitionId == null)
             {
-                return;
-            }
-            StorageEntry entry = profile?.FindStorageEntry(heldEntryId);
-            if (entry == null)
-            {
-                heldEntryId = null;
                 return;
             }
             Vector2 mouse = Event.current.mousePosition;
-            Rect rect = new Rect(mouse.x + 14f, mouse.y + 14f, 152f, 42f);
-            GUI.Box(rect, ItemDefinitionCatalog.DisplayName(entry.DefinitionId), artifactStyle);
+            Rect rect =
+                InventoryItemPresentation.CalculateSingleCellCursorRect(
+                    mouse,
+                    ForgeCellSize);
+            Color previous = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.92f);
+            if (!InventoryItemPresentation.DrawSingleCellIcon(
+                    rect,
+                    definitionId))
+            {
+                GUI.Box(
+                    rect,
+                    ItemDefinitionCatalog.DisplayName(definitionId),
+                    artifactStyle);
+            }
+            GUI.color = previous;
+        }
+
+        private string ResolveHeldDefinitionId(PlayerProfile profile)
+        {
+            if (!string.IsNullOrWhiteSpace(heldDefinitionId))
+            {
+                return heldDefinitionId;
+            }
+            if (string.IsNullOrWhiteSpace(heldEntryId))
+            {
+                return null;
+            }
+
+            StorageEntry entry = profile?.FindStorageEntry(heldEntryId);
+            if (entry != null)
+            {
+                return entry.DefinitionId;
+            }
+
+            heldEntryId = null;
+            return null;
         }
 
         private void DrawStatLine(
@@ -1046,7 +1262,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return false;
             }
             Ray ray = camera.ScreenPointToRay(
-                LootInteractionPresentation.CalculateAimPoint(Screen.width, Screen.height));
+                LootInteractionPresentation.CalculateAimPoint(
+                    camera,
+                    player,
+                    Screen.width,
+                    Screen.height));
             int count = Physics.RaycastNonAlloc(
                 ray,
                 focusHits,
@@ -1079,6 +1299,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return;
             }
+            ResetGridViewportState();
             previousTimeScale = Time.timeScale;
             previousCursorLock = Cursor.lockState;
             previousCursorVisible = Cursor.visible;
@@ -1091,6 +1312,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             heldEntryId = null;
+            heldDefinitionId = null;
             previewRenderer ??= GetComponent<InventoryPreviewRenderer>() ??
                 gameObject.AddComponent<InventoryPreviewRenderer>();
             previewRenderer.Configure(playerInput != null
@@ -1099,6 +1321,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             previewWeaponIndex = -1;
             SelectPreviewWeapon(weaponIndex);
             isOpen = true;
+        }
+
+        private void ResetGridViewportState()
+        {
+            for (int index = 0; index < weaponGridPan.Length; index++)
+            {
+                weaponGridPan[index] = Vector2.zero;
+                weaponGridZoom[index] = 1f;
+            }
+            gridPanning = false;
         }
 
         public void Close()
@@ -1120,6 +1352,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
             }
             heldEntryId = null;
+            heldDefinitionId = null;
             isOpen = false;
         }
 
@@ -1131,7 +1364,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private PlayerProfile ResolveProfile()
         {
-            return homeBase != null ? homeBase.Profile : null;
+            if (homeBase != null)
+            {
+                return homeBase.Profile;
+            }
+
+            GameplayLoopBootstrap bootstrap =
+                GameplayLoopBootstrap.Current ??
+                FindFirstObjectByType<GameplayLoopBootstrap>();
+            return bootstrap?.Session?.ActiveProfile;
         }
 
         private void ResolveDependencies()

@@ -6,9 +6,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     public sealed class RaidPickup : MonoBehaviour
     {
         [SerializeField] private string definitionId =
-            "artifact-power-shard";
+            "owl-eye-seal";
         [SerializeField] private string displayName =
-            "Power Shard";
+            "Owl Eye Seal";
         [SerializeField, Min(1)] private int quantity = 1;
         [SerializeField, Min(0f)] private float rotationSpeed =
             42f;

@@ -1,6 +1,7 @@
 using UnityEngine;
 using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Gameplay.Presentation
 {
@@ -15,6 +16,8 @@ namespace WorldBuilder.Gameplay.Presentation
         public const string Hit2RecoveryStateName = "Sword Cycle Hit 2 Recovery";
         public const string Hit3StateName = "Sword Cycle Hit 3";
         public const string AttackStateName = Hit1StateName;
+        public const string AttackSpeedParameterName =
+            "ShortSwordAttackSpeed";
         public const float MinimumAttackTransitionDuration = 0.075f;
         public const float MinimumAttackReturnDuration = 0.10f;
         public const float AttackEntryBlendDuration = 0.12f;
@@ -23,8 +26,8 @@ namespace WorldBuilder.Gameplay.Presentation
         public const float RunningReturnGaitThreshold = 0.25f;
         public const float HeavyChargeThreshold = 0.28f;
         public const float HeavyMaximumChargeDuration = 1.35f;
-        public const float HeavyMinimumDamageMultiplier = 1.45f;
-        public const float HeavyMaximumDamageMultiplier = 2.80f;
+        public const float HeavyMinimumDamageMultiplier = 1f;
+        public const float HeavyMaximumDamageMultiplier = 1.5f;
         public const float HeavyMinimumLungeDistance = 0f;
         public const float HeavyMaximumLungeDistance = 1.80f;
         public const float HeavyDashDuration = 0.12f;
@@ -47,6 +50,8 @@ namespace WorldBuilder.Gameplay.Presentation
         private static readonly float[] SwingSoundTimes = { 0.30f, 0.25f, 0.27f };
         private static readonly float[] DamageWindowEndTimes = { 0.68f, 0.66f, 0.46f };
         private static readonly float[] SwingPitches = { 1f, 1f, 0.86f };
+        private static readonly int AttackSpeedParameterHash =
+            Animator.StringToHash(AttackSpeedParameterName);
 
         [SerializeField] private Animator animator;
         [SerializeField] private Transform playerRoot;
@@ -72,11 +77,6 @@ namespace WorldBuilder.Gameplay.Presentation
             0.48f;
         [SerializeField, Range(0.05f, 0.9f)] private float heavyChargeHoldNormalizedTime =
             HeavyChargeHoldNormalizedTime;
-        [SerializeField, Min(1f)] private float heavyMinimumDamageMultiplier =
-            HeavyMinimumDamageMultiplier;
-        [SerializeField, Min(1f)] private float heavyMaximumDamageMultiplier =
-            HeavyMaximumDamageMultiplier;
-
         private int attackLayerIndex = -1;
         private int currentHit;
         private bool attackActive;
@@ -99,6 +99,10 @@ namespace WorldBuilder.Gameplay.Presentation
         private float heavyChargeNormalized;
         private bool heavyLungeApplied;
         private bool heavyHoldGraceQueued;
+        private ShortSwordCombatProfile combatProfile =
+            ShortSwordCombatProfile.Default;
+        private float hitPauseEndsAt = float.NegativeInfinity;
+        private bool hasAttackSpeedParameter;
 
         public bool IsAttacking => attackActive || heavyChargeActive;
         public bool IsHeavyCharging => heavyChargeActive;
@@ -115,6 +119,20 @@ namespace WorldBuilder.Gameplay.Presentation
         public Vector3 SwordDirection => swordRoot != null ? swordRoot.up : Vector3.zero;
         public Vector3 BladePlaneNormal => swordRoot != null ? swordRoot.forward : Vector3.zero;
         public float BladePlaneAlignmentError => 0f;
+        public ShortSwordCombatProfile CombatProfile =>
+            combatProfile.IsValid
+                ? combatProfile
+                : ShortSwordCombatProfile.Default;
+
+        public void ConfigureGeneratedCombatProfile(
+            ShortSwordCombatProfile profile)
+        {
+            combatProfile = profile.IsValid
+                ? profile
+                : ShortSwordCombatProfile.Default;
+            ApplyAttackPlaybackSpeed();
+            swingTrail?.ConfigureGeneratedCombatProfile(combatProfile);
+        }
 
         public void Configure(
             Animator targetAnimator,
@@ -138,6 +156,7 @@ namespace WorldBuilder.Gameplay.Presentation
             }
             EnsureSwingTrail();
             swingTrail?.Configure(weapon);
+            swingTrail?.ConfigureGeneratedCombatProfile(CombatProfile);
             ConfigureAudio();
             ResolveAnimatorState();
             EnsureChargePosePresenter();
@@ -146,11 +165,32 @@ namespace WorldBuilder.Gameplay.Presentation
 
         public void SetWeaponEquipped(bool equipped)
         {
+            bool beginHeldHeavyCharge =
+                ShouldBeginHeldHeavyChargeOnEquip(
+                    weaponEquipped,
+                    equipped,
+                    weapon != null && weapon.OpeningHoldInputHeld);
             weaponEquipped = equipped;
             if (!weaponEquipped)
             {
                 ResetPresentation();
+                return;
             }
+
+            if (beginHeldHeavyCharge)
+            {
+                OnAttackHoldStarted();
+            }
+        }
+
+        public void InterruptForHitStagger()
+        {
+            ResetPresentation();
+        }
+
+        public void InterruptForWeaponReplacement()
+        {
+            ResetPresentation();
         }
 
         private void Awake()
@@ -162,6 +202,7 @@ namespace WorldBuilder.Gameplay.Presentation
             weapon?.SetOpeningHoldEnabled(true);
             EnsureSwingTrail();
             swingTrail?.Configure(weapon);
+            swingTrail?.ConfigureGeneratedCombatProfile(CombatProfile);
             ConfigureAudio();
             ResolveAnimatorState();
             EnsureChargePosePresenter();
@@ -180,6 +221,11 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private void Update()
         {
+            if (ApplyAttackPlaybackSpeed())
+            {
+                return;
+            }
+
             if (heavyChargeActive)
             {
                 UpdateHeavyCharge();
@@ -317,6 +363,11 @@ namespace WorldBuilder.Gameplay.Presentation
                 return;
             }
 
+            if (heavyChargeActive)
+            {
+                return;
+            }
+
             if (attackActive)
             {
                 heavyHoldGraceQueued = true;
@@ -385,8 +436,8 @@ namespace WorldBuilder.Gameplay.Presentation
                 false,
                 CalculateHeavyDamageMultiplier(
                     heavyChargeNormalized,
-                    heavyMinimumDamageMultiplier,
-                    heavyMaximumDamageMultiplier),
+                    HeavyMinimumDamageMultiplier,
+                    HeavyMaximumDamageMultiplier),
                 heavyChargeAnimationPosition);
         }
 
@@ -498,10 +549,48 @@ namespace WorldBuilder.Gameplay.Presentation
             // rapid combo crisp. The slower finisher gets the same source at a
             // lower pitch to follow its longer acceleration.
             swordAudioSource.Stop();
-            swordAudioSource.pitch = heavyAttackActive
+            float basePitch = heavyAttackActive
                 ? SwingPitches[currentHit] * 0.78f
                 : SwingPitches[currentHit];
-            swordAudioSource.PlayOneShot(swordSwingClip, swordSwingVolume);
+            swordAudioSource.pitch = Mathf.Clamp(
+                basePitch * CombatProfile.SwingPitchMultiplier,
+                0.55f,
+                1.45f);
+            swordAudioSource.PlayOneShot(
+                swordSwingClip,
+                Mathf.Clamp01(
+                    swordSwingVolume *
+                    CombatProfile.SwingVolumeMultiplier));
+        }
+
+        private void HandleAttackResolved(MeleeAttackReport report)
+        {
+            if (report.DamagedTargets <= 0 || !attackActive)
+            {
+                return;
+            }
+
+            float chargedImpact = heavyAttackActive
+                ? Mathf.Lerp(1f, 1.25f, heavyChargeNormalized)
+                : 1f;
+            hitPauseEndsAt = Mathf.Max(
+                hitPauseEndsAt,
+                Time.time + CombatProfile.HitPauseDuration * chargedImpact);
+            ApplyAttackPlaybackSpeed();
+        }
+
+        private bool ApplyAttackPlaybackSpeed()
+        {
+            bool paused = attackActive && Time.time < hitPauseEndsAt;
+            if (animator != null && hasAttackSpeedParameter)
+            {
+                animator.SetFloat(
+                    AttackSpeedParameterHash,
+                    paused
+                        ? 0f
+                        : CombatProfile.AttackSpeedMultiplier);
+            }
+            return paused;
         }
 
         private void ConfigureAudio()
@@ -725,12 +814,20 @@ namespace WorldBuilder.Gameplay.Presentation
             return queuedHold && inputHeld && swordEquipped;
         }
 
+        public static bool ShouldBeginHeldHeavyChargeOnEquip(
+            bool wasEquipped,
+            bool isEquipped,
+            bool inputHeld)
+        {
+            return !wasEquipped && isEquipped && inputHeld;
+        }
+
         private void FinishCurrentAttack()
         {
             bool beginQueuedHeavyCharge =
                 ShouldBeginQueuedHeavyCharge(
                     heavyHoldGraceQueued,
-                    weapon != null && weapon.AttackInputHeld,
+                    weapon != null && weapon.OpeningHoldInputHeld,
                     weaponEquipped);
             attackActive = false;
             entryBlending = false;
@@ -746,6 +843,7 @@ namespace WorldBuilder.Gameplay.Presentation
             heavyHoldGraceQueued = false;
             heavyChargeNormalized = 0f;
             heavyChargeAnimationPosition = 0f;
+            hitPauseEndsAt = float.NegativeInfinity;
             weapon.EndSwing();
             swingTrail?.EndSwing();
             if (beginQueuedHeavyCharge)
@@ -770,6 +868,7 @@ namespace WorldBuilder.Gameplay.Presentation
             heavyHoldGraceQueued = false;
             heavyChargeNormalized = 0f;
             heavyChargeAnimationPosition = 0f;
+            hitPauseEndsAt = float.NegativeInfinity;
             weapon?.EndSwing();
             swingTrail?.EndSwing();
             if (swordAudioSource != null)
@@ -798,6 +897,18 @@ namespace WorldBuilder.Gameplay.Presentation
             }
 
             attackLayerIndex = animator.GetLayerIndex(AttackLayerName);
+            hasAttackSpeedParameter = false;
+            foreach (AnimatorControllerParameter parameter in
+                     animator.parameters)
+            {
+                if (parameter.nameHash == AttackSpeedParameterHash &&
+                    parameter.type == AnimatorControllerParameterType.Float)
+                {
+                    hasAttackSpeedParameter = true;
+                    break;
+                }
+            }
+            ApplyAttackPlaybackSpeed();
             if (attackLayerIndex >= 0)
             {
                 SetAttackLayerWeight(0f);
@@ -835,6 +946,7 @@ namespace WorldBuilder.Gameplay.Presentation
             weapon.AttackRequested += OnAttackRequested;
             weapon.AttackHoldStarted += OnAttackHoldStarted;
             weapon.AttackHoldReleased += OnAttackHoldReleased;
+            weapon.AttackResolved += HandleAttackResolved;
             subscribed = true;
         }
 
@@ -848,6 +960,7 @@ namespace WorldBuilder.Gameplay.Presentation
             weapon.AttackRequested -= OnAttackRequested;
             weapon.AttackHoldStarted -= OnAttackHoldStarted;
             weapon.AttackHoldReleased -= OnAttackHoldReleased;
+            weapon.AttackResolved -= HandleAttackResolved;
             weapon.SetOpeningHoldEnabled(false);
             subscribed = false;
         }

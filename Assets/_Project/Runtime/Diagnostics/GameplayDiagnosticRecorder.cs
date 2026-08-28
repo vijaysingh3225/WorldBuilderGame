@@ -178,6 +178,9 @@ namespace WorldBuilder.Gameplay.Diagnostics
             enemyHealth = targetHealth;
             enemyBrain = targetBrain;
             gameplayCamera = targetCamera;
+            blockPresenter = targetAnimator != null
+                ? targetAnimator.GetComponent<ShortSwordBlockPresenter>()
+                : null;
             ResolveSceneReferences();
         }
 
@@ -485,7 +488,12 @@ namespace WorldBuilder.Gameplay.Diagnostics
         {
             if (motor == null)
             {
-                motor = FindFirstObjectByType<ThirdPersonMotor>();
+                GameObject taggedPlayer =
+                    GameObject.FindGameObjectWithTag("Player");
+                motor = taggedPlayer != null
+                    ? taggedPlayer.GetComponent<ThirdPersonMotor>()
+                    : null;
+                motor ??= FindFirstObjectByType<ThirdPersonMotor>();
             }
 
             player = motor != null ? motor.transform : null;

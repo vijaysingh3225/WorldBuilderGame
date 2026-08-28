@@ -114,7 +114,7 @@ namespace WorldBuilder.Gameplay.Presentation
 
         public bool BowAimLocked =>
             bowWeapon != null &&
-            bowWeapon.DrawInputHeld;
+            bowWeapon.PresentationAimLocked;
         public bool SwordGuardLocked =>
             blockPresenter != null &&
             blockPresenter.WeaponEquipped &&
@@ -188,6 +188,15 @@ namespace WorldBuilder.Gameplay.Presentation
             out Vector3 worldDirection)
         {
             worldDirection = Vector3.zero;
+            if (bowWeapon != null &&
+                bowWeapon.PostShotPresentationActive)
+            {
+                worldDirection = Vector3.ProjectOnPlane(
+                    bowWeapon.PresentationAimDirection,
+                    Vector3.up);
+                return worldDirection.sqrMagnitude > 0.001f;
+            }
+
             if (characterAimSource != null &&
                 characterAimSource.OverrideActive)
             {
@@ -242,7 +251,9 @@ namespace WorldBuilder.Gameplay.Presentation
             if (characterAimSource != null &&
                 !characterAimSource.OverrideActive &&
                 !characterAimSource.CameraFallbackAllowed &&
-                !presentationAimOverrideActive)
+                !presentationAimOverrideActive &&
+                (bowWeapon == null ||
+                 !bowWeapon.PostShotPresentationActive))
             {
                 currentYaw = 0f;
                 yawVelocity = 0f;
@@ -254,6 +265,8 @@ namespace WorldBuilder.Gameplay.Presentation
             if ((characterAimSource == null ||
                  !characterAimSource.OverrideActive) &&
                 !presentationAimOverrideActive &&
+                (bowWeapon == null ||
+                 !bowWeapon.PostShotPresentationActive) &&
                 aimCamera == null)
             {
                 aimCamera = Camera.main;
@@ -271,7 +284,10 @@ namespace WorldBuilder.Gameplay.Presentation
             Vector3 rootForward =
                 Vector3.ProjectOnPlane(characterRoot.forward, up).normalized;
             Vector3 aimDirection =
-                presentationAimOverrideActive
+                bowWeapon != null &&
+                bowWeapon.PostShotPresentationActive
+                    ? bowWeapon.PresentationAimDirection
+                    : presentationAimOverrideActive
                     ? presentationAimDirection
                     : characterAimSource != null &&
                 characterAimSource.OverrideActive
@@ -320,7 +336,7 @@ namespace WorldBuilder.Gameplay.Presentation
         {
             float drawProgress =
                 BowAimLocked && bowWeapon != null
-                    ? bowWeapon.DrawNormalized
+                    ? bowWeapon.PresentedDrawNormalized
                     : 0f;
             float targetYaw = CalculateBowTorsoYaw(
                 fullDrawTorsoYaw,

@@ -15,6 +15,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     public sealed class RaidPrototypeController : MonoBehaviour
     {
         [SerializeField] private Health playerHealth;
+        [SerializeField] private PlayerStamina playerStamina;
         [SerializeField, Min(0f)] private float extractionReturnDelay =
             0.85f;
         [SerializeField, Min(0f)] private float deathReturnDelay =
@@ -38,11 +39,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private bool showCompletionOverlay;
         private float returnAt;
         private float actorRefreshAt;
+        private float localLightSafetyRefreshAt;
         private int lootCollected;
         private int obelisksActivated;
         private string statusMessage =
             "Find and activate the four obelisks.";
         private string completionMessage = string.Empty;
+        private GUIStyle compactBarStyle;
 
         public GameSession Session => session;
         public bool RaidActive =>
@@ -80,6 +83,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             playerDeathSubscribed = false;
             playerRoot =
                 player != null ? player.transform : null;
+            ResolvePlayerStamina();
             if (Application.isPlaying &&
                 isActiveAndEnabled)
             {
@@ -92,8 +96,25 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Initialize();
         }
 
+        private void OnEnable()
+        {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
+            SubscribeToPlayerDeath();
+            SubscribeToEnemyDeaths();
+        }
+
         private void Update()
         {
+            if (Time.unscaledTime >= localLightSafetyRefreshAt)
+            {
+                DisableUnexpectedLocalLights();
+                localLightSafetyRefreshAt = Time.unscaledTime + 0.25f;
+            }
+
             if (!initialized)
             {
                 Initialize();
@@ -125,12 +146,36 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null &&
+            if (!BrowserRaidDemoController.IsEnabled &&
+                keyboard != null &&
                 keyboard.hKey.wasPressedThisFrame)
             {
                 CompleteRaid(
                     RaidCompletionReason.Abandoned,
                     0.1f);
+            }
+        }
+
+        // The raid is lit solely by its directional sun. Local lights have
+        // repeatedly arrived through generated props and pooled actors, and
+        // their HDR/bloom interaction can make the game unreadable. Keep the
+        // invariant in the live scene as a final safety net.
+        private static void DisableUnexpectedLocalLights()
+        {
+            Light[] lights = FindObjectsByType<Light>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+            for (int index = 0; index < lights.Length; index++)
+            {
+                Light light = lights[index];
+                if (light == null || light.type == LightType.Directional)
+                {
+                    continue;
+                }
+
+                light.intensity = 0f;
+                light.range = 0f;
+                light.enabled = false;
             }
         }
 
@@ -154,11 +199,48 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        private void SubscribeToEnemyDeaths()
+        {
+            for (int index = 0;
+                 index < enemyHealth.Count;
+                 index++)
+            {
+                Health health = enemyHealth[index];
+                if (health == null)
+                {
+                    continue;
+                }
+
+                // Make re-enabling the controller idempotent while restoring
+                // subscriptions that OnDisable deliberately removes.
+                health.Died -= HandleEnemyDied;
+                health.Died += HandleEnemyDied;
+            }
+        }
+
         private void OnGUI()
         {
-            DrawHealthBar(new Rect(24f, 40f, 300f, 18f));
+            CombatLabHud.CalculatePlayerBarRects(
+                Screen.height,
+                300f,
+                out Rect healthRect,
+                out Rect staminaRect,
+                out Rect chargeRect);
+            DrawHealthBar(healthRect);
+            DrawResourceBar(
+                staminaRect,
+                playerStamina != null
+                    ? playerStamina.Normalized
+                    : 1f,
+                new Color(0.12f, 0.10f, 0.045f, 0.95f),
+                new Color(0.78f, 0.70f, 0.30f, 0.96f),
+                "STAMINA");
             GUI.Label(
-                new Rect(24f, 63f, 180f, 20f),
+                new Rect(
+                    healthRect.xMax + 10f,
+                    healthRect.y - 1f,
+                    150f,
+                    healthRect.height + 2f),
                 $"ARROWS  {ArrowCount}",
                 LoopSceneGui.Muted);
             bowWeapon ??= FindFirstObjectByType<BowWeapon>();
@@ -172,12 +254,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 (bowWeapon.IsDrawing ||
                  bowWeapon.DrawNormalized > 0f))
             {
-                DrawBowCharge(new Rect(24f, 88f, 300f, 12f));
+                DrawBowCharge(chargeRect);
             }
             else if (shortSwordAttack != null &&
                      shortSwordAttack.IsHeavyCharging)
             {
-                DrawHeavyCharge(new Rect(24f, 88f, 300f, 12f));
+                DrawHeavyCharge(chargeRect);
             }
 
             if (completionPending && showCompletionOverlay)
@@ -250,8 +332,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     session.ActiveProfile);
                 lootCollected++;
                 statusMessage =
-                    $"Collected {pickup.DisplayName}. " +
-                    "Reach the extraction marker.";
+                    BrowserRaidDemoController.IsEnabled
+                        ? $"Collected {pickup.DisplayName}."
+                        : $"Collected {pickup.DisplayName}. " +
+                          "Reach the extraction marker.";
                 pickup.MarkCollected();
                 return true;
             }
@@ -421,7 +505,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         public bool TryExtract()
         {
-            if (!RaidActive)
+            if (!RaidActive || BrowserRaidDemoController.IsEnabled)
             {
                 return false;
             }
@@ -503,6 +587,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 playerRoot = playerHealth.transform;
                 SubscribeToPlayerDeath();
             }
+            ResolvePlayerStamina();
 
             EnemyBrain[] discoveredEnemies =
                 FindObjectsByType<EnemyBrain>(
@@ -547,7 +632,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
-        private static void EnsureProceduralSword(Transform actor)
+        private void EnsureProceduralSword(Transform actor)
         {
             if (actor == null)
             {
@@ -560,13 +645,42 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 : null;
             if (sword != null)
             {
+                int raidSeed = session != null &&
+                    session.ActiveRaid != null &&
+                    session.ActiveRaid.LaunchRequest != null
+                        ? session.ActiveRaid.LaunchRequest.Seed
+                        : 0;
+                int visualSeed = ResolveActorSwordSeed(
+                    raidSeed,
+                    actor == playerRoot ? "player" : actor.name);
+                RaidLootContainer loot =
+                    actor.GetComponent<RaidLootContainer>();
+                if (loot != null &&
+                    string.Equals(
+                        loot.SpawnedWeaponDefinitionId,
+                        ItemDefinitionIds.LootShortSword,
+                        StringComparison.Ordinal))
+                {
+                    visualSeed = loot.SpawnedWeaponVisualSeed;
+                }
                 RaidShortSwordPresentation presentation =
                     RaidShortSwordPresentation.Replace(
-                    sword,
-                    UnityEngine.Random.Range(int.MinValue, int.MaxValue));
+                        sword,
+                        visualSeed);
                 presentation?.ConfigureMeleeWeapon(
                     actor.GetComponent<MeleeWeapon>());
             }
+        }
+
+        public static int ResolveActorSwordSeed(
+            int raidSeed,
+            string actorIdentity)
+        {
+            return unchecked(
+                raidSeed * 486187739 ^
+                StableHash(string.IsNullOrWhiteSpace(actorIdentity)
+                    ? "raid-sword"
+                    : actorIdentity));
         }
 
         private void ActivateEnemiesForPatrol()
@@ -633,7 +747,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     weaponSlot,
                     5);
                 statusMessage =
-                    "Enemy defeated. Keep moving toward extraction.";
+                    BrowserRaidDemoController.IsEnabled
+                        ? "Enemy defeated. Keep exploring the raid."
+                        : "Enemy defeated. Keep moving toward extraction.";
             }
             catch (InvalidOperationException)
             {
@@ -659,6 +775,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         reason,
                         out RaidOutcomeReceipt receipt);
                 completionPending = true;
+                if (BrowserRaidDemoController.IsEnabled)
+                {
+                    showCompletionOverlay = false;
+                    returnAt = float.PositiveInfinity;
+                    completionMessage = string.Empty;
+                    BrowserRaidDemoController.NotifyRaidCompleted(
+                        result.CompletionReason,
+                        DefeatedCount,
+                        lootCollected);
+                    return;
+                }
                 showCompletionOverlay =
                     ShouldShowCompletionOverlay(
                         result.CompletionReason);
@@ -727,7 +854,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     : 0f;
             Color previous = GUI.color;
             GUI.color =
-                new Color(0.02f, 0.025f, 0.03f, 0.9f);
+                new Color(0.30f, 0.075f, 0.065f, 0.96f);
             GUI.DrawTexture(rect, Texture2D.whiteTexture);
             GUI.color =
                 new Color(0.35f, 0.72f, 0.46f, 0.95f);
@@ -752,6 +879,61 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 LoopSceneGui.Muted);
         }
 
+        private void ResolvePlayerStamina()
+        {
+            if (playerStamina != null || playerRoot == null)
+            {
+                return;
+            }
+
+            playerStamina = playerRoot.GetComponent<PlayerStamina>();
+            if (playerStamina == null)
+            {
+                playerStamina = playerRoot.gameObject
+                    .AddComponent<PlayerStamina>();
+            }
+        }
+
+        private void DrawResourceBar(
+            Rect rect,
+            float normalized,
+            Color missing,
+            Color fill,
+            string label)
+        {
+            Color previous = GUI.color;
+            GUI.color = missing;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = fill;
+            GUI.DrawTexture(
+                new Rect(
+                    rect.x + 1f,
+                    rect.y + 1f,
+                    (rect.width - 2f) * Mathf.Clamp01(normalized),
+                    rect.height - 2f),
+                Texture2D.whiteTexture);
+            GUI.color = previous;
+            compactBarStyle ??= new GUIStyle(LoopSceneGui.Muted)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 9,
+                fontStyle = FontStyle.Bold,
+                clipping = TextClipping.Clip,
+                normal =
+                {
+                    textColor = new Color(0.94f, 0.94f, 0.90f)
+                }
+            };
+            GUI.Label(
+                new Rect(
+                    rect.x + 5f,
+                    rect.y - 1f,
+                    rect.width - 10f,
+                    rect.height + 2f),
+                label,
+                compactBarStyle);
+        }
+
         private static int StableHash(string value)
         {
             unchecked
@@ -768,43 +950,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void DrawBowCharge(Rect rect)
         {
-            Color previous = GUI.color;
-            GUI.color =
-                new Color(0.02f, 0.025f, 0.03f, 0.9f);
-            GUI.DrawTexture(rect, Texture2D.whiteTexture);
-            GUI.color = bowWeapon.CanFire
-                ? new Color(0.90f, 0.64f, 0.20f)
-                : new Color(0.42f, 0.43f, 0.45f);
-            GUI.DrawTexture(
-                new Rect(
-                    rect.x + 2f,
-                    rect.y + 2f,
-                    (rect.width - 4f) *
-                        bowWeapon.DrawNormalized,
-                    rect.height - 4f),
-                Texture2D.whiteTexture);
-            GUI.color = previous;
+            DrawResourceBar(
+                rect,
+                bowWeapon.DrawNormalized,
+                new Color(0.075f, 0.065f, 0.045f, 0.96f),
+                bowWeapon.CanFire
+                    ? new Color(0.90f, 0.64f, 0.20f)
+                    : new Color(0.42f, 0.43f, 0.45f),
+                bowWeapon.CanFire ? "BOW  READY" : "BOW  DRAW");
         }
 
         private void DrawHeavyCharge(Rect rect)
         {
-            Color previous = GUI.color;
-            GUI.color = new Color(0.02f, 0.025f, 0.03f, 0.9f);
-            GUI.DrawTexture(rect, Texture2D.whiteTexture);
-            GUI.color = new Color(0.78f, 0.28f, 0.16f);
-            GUI.DrawTexture(
-                new Rect(
-                    rect.x + 2f,
-                    rect.y + 2f,
-                    (rect.width - 4f) *
-                    shortSwordAttack.HeavyChargeNormalized,
-                    rect.height - 4f),
-                Texture2D.whiteTexture);
-            GUI.color = previous;
-            GUI.Label(
-                new Rect(rect.x, rect.y + 12f, rect.width, 20f),
-                "HEAVY STRIKE",
-                LoopSceneGui.Muted);
+            DrawResourceBar(
+                rect,
+                shortSwordAttack.HeavyChargeNormalized,
+                new Color(0.11f, 0.045f, 0.035f, 0.96f),
+                new Color(0.78f, 0.28f, 0.16f),
+                "HEAVY STRIKE");
         }
     }
 }

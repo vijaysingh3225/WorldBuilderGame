@@ -499,10 +499,11 @@ namespace WorldBuilder.Gameplay.Loop
 
                 while (remaining > 0)
                 {
-                    int slot = FindAvailableCarriedSlot(
-                        incoming,
-                        profile);
-                    if (slot < 0)
+                    if (!TryFindAvailableCarriedPlacement(
+                            incoming,
+                            profile,
+                            out int slot,
+                            out int rotationQuarterTurns))
                     {
                         break;
                     }
@@ -512,6 +513,7 @@ namespace WorldBuilder.Gameplay.Loop
                             ? incoming.Clone()
                             : incoming.CreateSplitCopy(amount);
                     added.SetSlotIndex(slot);
+                    added.SetRotationQuarterTurns(rotationQuarterTurns);
                     collectedStorageEntries.Add(added);
                     remaining -= amount;
                     moved += amount;
@@ -557,33 +559,62 @@ namespace WorldBuilder.Gameplay.Loop
             return merged;
         }
 
-        private int FindAvailableCarriedSlot(
+        private bool TryFindAvailableCarriedPlacement(
             StorageEntry candidate,
-            PlayerProfile profile)
+            PlayerProfile profile,
+            out int slot,
+            out int rotationQuarterTurns)
         {
+            slot = -1;
+            rotationQuarterTurns = candidate != null
+                ? candidate.RotationQuarterTurns
+                : 0;
+            if (candidate == null)
+            {
+                return false;
+            }
+
             if (profile != null)
             {
-                return ItemGridPlacement.FindFirstAvailableSlot(
+                return ItemGridPlacement.
+                    TryFindFirstAvailableSlotWithRotation(
                     GetCarriedEntries(profile),
                     candidate,
                     PlayerProfile.InventoryColumns,
-                    PlayerProfile.InventoryRows);
+                    PlayerProfile.InventoryRows,
+                    out slot,
+                    out rotationQuarterTurns);
             }
-            for (int slot = launchRequest.CarriedStorageEntryIds.Count;
-                 slot < PlayerProfile.InventoryCapacity;
-                 slot++)
+
+            int startingRotation = rotationQuarterTurns;
+            for (int turns = 0; turns < 4; turns++)
             {
-                if (ItemGridPlacement.CanPlace(
-                        collectedStorageEntries,
-                        candidate,
-                        slot,
-                        PlayerProfile.InventoryColumns,
-                        PlayerProfile.InventoryRows))
+                rotationQuarterTurns =
+                    (startingRotation + turns) % 4;
+                StorageEntry oriented = turns == 0
+                    ? candidate
+                    : candidate.Clone();
+                oriented.SetRotationQuarterTurns(rotationQuarterTurns);
+                for (int candidateSlot =
+                         launchRequest.CarriedStorageEntryIds.Count;
+                     candidateSlot < PlayerProfile.InventoryCapacity;
+                     candidateSlot++)
                 {
-                    return slot;
+                    if (ItemGridPlacement.CanPlace(
+                            collectedStorageEntries,
+                            oriented,
+                            candidateSlot,
+                            PlayerProfile.InventoryColumns,
+                            PlayerProfile.InventoryRows))
+                    {
+                        slot = candidateSlot;
+                        return true;
+                    }
                 }
             }
-            return -1;
+
+            rotationQuarterTurns = startingRotation;
+            return false;
         }
 
         private int GetAvailableCarriedCapacity(
@@ -620,17 +651,20 @@ namespace WorldBuilder.Gameplay.Loop
             }
             while (true)
             {
-                int slot = ItemGridPlacement.FindFirstAvailableSlot(
-                    simulated,
-                    incoming,
-                    PlayerProfile.InventoryColumns,
-                    PlayerProfile.InventoryRows);
-                if (slot < 0)
+                if (!ItemGridPlacement.
+                        TryFindFirstAvailableSlotWithRotation(
+                            simulated,
+                            incoming,
+                            PlayerProfile.InventoryColumns,
+                            PlayerProfile.InventoryRows,
+                            out int slot,
+                            out int rotationQuarterTurns))
                 {
                     break;
                 }
                 StorageEntry placeholder = incoming.Clone();
                 placeholder.SetSlotIndex(slot);
+                placeholder.SetRotationQuarterTurns(rotationQuarterTurns);
                 simulated.Add(placeholder);
                 available += maximumStack;
             }

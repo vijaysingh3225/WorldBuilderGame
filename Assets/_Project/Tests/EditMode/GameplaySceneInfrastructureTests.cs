@@ -19,6 +19,7 @@ using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Tests.EditMode
 {
+    [Category("GameplayInfrastructure")]
     public sealed class GameplaySceneInfrastructureTests
     {
         [Test]
@@ -30,6 +31,9 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 (Color32)GameTypography.BorderColor,
                 Is.EqualTo(new Color32(0x82, 0x7b, 0x6c, 0xff)));
+            Assert.That(
+                (Color32)GameTypography.StorageBorderColor,
+                Is.EqualTo(new Color32(0x62, 0x5e, 0x54, 0xff)));
             Assert.That(
                 (Color32)GameTypography.InventoryBackgroundColor,
                 Is.EqualTo(new Color32(0x14, 0x19, 0x1b, 0xff)));
@@ -47,11 +51,28 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(
                     (Color32)GameTypography.InventoryBackgroundColor));
             Assert.That(
+                (Color32)GameTypography.StorageSectionTexture.GetPixel(4, 0),
+                Is.EqualTo((Color32)GameTypography.StorageBorderColor));
+            Assert.That(
+                (Color32)GameTypography.StorageDividerTexture.GetPixel(0, 0),
+                Is.EqualTo((Color32)GameTypography.StorageBorderColor));
+            Assert.That(
+                GameTypography.StorageGridFrameTexture.GetPixel(0, 0).a,
+                Is.EqualTo(1f));
+            Assert.That(
+                (Color32)GameTypography.StorageGridFrameTexture.GetPixel(0, 0),
+                Is.EqualTo((Color32)GameTypography.StorageBorderColor));
+            Assert.That(
                 HomeInventoryController.InventoryBackdropOpacity,
                 Is.EqualTo(0.72f));
             Assert.That(
                 HomeInventoryController.InventoryBackdropOpacity,
                 Is.InRange(0.01f, 0.99f));
+            Assert.That(
+                ThirdPersonMotor.MinimumTraversalStepOffset,
+                Is.GreaterThan(
+                    ProceduralRaidGenerator.BridgeDeckLift + 0.05f),
+                "Character controllers need clearance above the fitted bridge lip so guards can mount the deck without jumping.");
             Assert.That(
                 GameTypography.MinimalVerticalScrollbarWidth,
                 Is.EqualTo(6f));
@@ -136,8 +157,6 @@ namespace WorldBuilder.Tests.EditMode
             Animator animator = presenter.GetComponent<Animator>();
             Transform leftHand = animator.GetBoneTransform(
                 HumanBodyBones.LeftHand);
-            Transform rightHand = animator.GetBoneTransform(
-                HumanBodyBones.RightHand);
             Transform leftElbow = animator.GetBoneTransform(
                 HumanBodyBones.LeftLowerArm);
             Transform rightElbow = animator.GetBoneTransform(
@@ -148,7 +167,8 @@ namespace WorldBuilder.Tests.EditMode
             float maximumFrameTravel = 0f;
             float minimumVisualScale =
                 Mathf.Abs(rightSideVisualScale);
-            float closestHandGap = float.PositiveInfinity;
+            float maximumRightStringContactGap = 0f;
+            int rightStringContactSamples = 0;
             float closestBowCenterline = float.PositiveInfinity;
             float closestShoulderMidpoint = float.PositiveInfinity;
             float midpointElbowMirrorGap = float.PositiveInfinity;
@@ -169,11 +189,15 @@ namespace WorldBuilder.Tests.EditMode
                 minimumVisualScale = Mathf.Min(
                     minimumVisualScale,
                     Mathf.Abs(animator.transform.localScale.x));
-                closestHandGap = Mathf.Min(
-                    closestHandGap,
-                    Vector3.Distance(
-                        leftHand.position,
-                        rightHand.position));
+                float rightStringContactGap =
+                    presenter.PresentedRightStringContactGap;
+                if (rightStringContactGap < 90f)
+                {
+                    maximumRightStringContactGap = Mathf.Max(
+                        maximumRightStringContactGap,
+                        rightStringContactGap);
+                    rightStringContactSamples++;
+                }
                 closestBowCenterline = Mathf.Min(
                     closestBowCenterline,
                     Mathf.Abs(
@@ -220,6 +244,14 @@ namespace WorldBuilder.Tests.EditMode
                 cameraAimTarget.CurrentShoulderOffset.x,
                 Is.LessThan(-0.6f));
             Assert.That(
+                rightStringContactSamples,
+                Is.GreaterThan(0),
+                "The shoulder handoff must retain an authored drawing-finger contact.");
+            Assert.That(
+                maximumRightStringContactGap,
+                Is.LessThan(0.035f),
+                "The drawing fingers must remain locked to the string and fletching throughout the shoulder handoff.");
+            Assert.That(
                 rightSideVisualScale * leftSideVisualScale,
                 Is.LessThan(0f),
                 "The complete authored visual must change mirror orientation.");
@@ -237,10 +269,6 @@ namespace WorldBuilder.Tests.EditMode
                     Mathf.Abs(rightSideVisualScale) * 0.95f),
                 "The character must remain fully three-dimensional during the switch.");
             Assert.That(
-                closestHandGap,
-                Is.LessThan(0.06f),
-                "Both hands must meet at the bow handle before orientation changes.");
-            Assert.That(
                 closestBowCenterline,
                 Is.LessThan(0.05f),
                 "The bow must reach the character centerline before orientation changes.");
@@ -256,6 +284,506 @@ namespace WorldBuilder.Tests.EditMode
                 Mathf.Abs(midpointStanceYaw),
                 Is.LessThan(3f),
                 "The bow stance must reach neutral before the feet exchange sides.");
+
+            input.ClearDiagnosticOverride();
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
+        public IEnumerator BowDrawingFingersStayLockedToStringDuringShoulderSwitch()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            PlayerInputSource input = Object
+                .FindObjectsByType<PlayerInputSource>(
+                    FindObjectsSortMode.None)
+                .Single(candidate => candidate.CompareTag("Player"));
+            TwoSlotWeaponPresenter presenter =
+                input.GetComponentInChildren<TwoSlotWeaponPresenter>();
+            Assert.That(presenter, Is.Not.Null);
+
+            presenter.ConfigureBowOnlyLoadout();
+            input.SetDiagnosticOverride(new PlayerIntent(
+                Vector2.zero,
+                Vector2.zero,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true));
+            yield return new WaitForSeconds(1.5f);
+
+            float maximumContactGap = 0f;
+            int contactSamples = 0;
+            input.SetShoulderSideDiagnostic(-1);
+            float switchDeadline = Time.time + 1f;
+            while (Time.time < switchDeadline)
+            {
+                yield return null;
+                float gap = presenter.PresentedRightStringContactGap;
+                if (gap >= 90f)
+                {
+                    continue;
+                }
+
+                maximumContactGap = Mathf.Max(
+                    maximumContactGap,
+                    gap);
+                contactSamples++;
+            }
+
+            Assert.That(contactSamples, Is.GreaterThan(0));
+            Assert.That(
+                maximumContactGap,
+                Is.LessThan(0.035f),
+                "The presented string and fletching must remain at the solved drawing-finger contact throughout the switch.");
+
+            input.ClearDiagnosticOverride();
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
+        public IEnumerator SwordSwitchPathStaysContinuousInBothDirections()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            PlayerInputSource input = Object
+                .FindObjectsByType<PlayerInputSource>(
+                    FindObjectsSortMode.None)
+                .Single(candidate => candidate.CompareTag("Player"));
+            TwoSlotWeaponPresenter presenter =
+                input.GetComponentInChildren<TwoSlotWeaponPresenter>();
+            Animator animator = input.GetComponentInChildren<Animator>();
+            Assert.That(presenter, Is.Not.Null);
+            Assert.That(animator, Is.Not.Null);
+
+            presenter.ConfigureSwordOnlyLoadout();
+            yield return null;
+            Transform rightHand = animator.GetBoneTransform(
+                HumanBodyBones.RightHand);
+            Assert.That(rightHand, Is.Not.Null);
+
+            float maximumHandStep = 0f;
+            float maximumWristStep = 0f;
+            for (int requestedSlot = 1;
+                 requestedSlot >= 0;
+                 requestedSlot--)
+            {
+                Assert.That(
+                    presenter.RequestSlot(requestedSlot),
+                    Is.True);
+                Vector3 previousHandPosition = rightHand.position;
+                Quaternion previousHandRotation = rightHand.rotation;
+                float deadline = Time.time + 3f;
+                while (presenter.IsTransitioning &&
+                    Time.time < deadline)
+                {
+                    yield return null;
+                    maximumHandStep = Mathf.Max(
+                        maximumHandStep,
+                        Vector3.Distance(
+                            previousHandPosition,
+                            rightHand.position));
+                    maximumWristStep = Mathf.Max(
+                        maximumWristStep,
+                        Quaternion.Angle(
+                            previousHandRotation,
+                            rightHand.rotation));
+                    previousHandPosition = rightHand.position;
+                    previousHandRotation = rightHand.rotation;
+                }
+
+                Assert.That(presenter.IsTransitioning, Is.False);
+                Assert.That(presenter.ActiveSlot, Is.EqualTo(requestedSlot));
+                yield return null;
+            }
+
+            Assert.That(
+                maximumHandStep,
+                Is.LessThan(0.18f),
+                "The arm path must not introduce a one-frame positional snap in either direction.");
+            Assert.That(
+                maximumWristStep,
+                Is.LessThan(45f),
+                "The wrist must turn continuously without a one-frame rotational flip.");
+
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
+        public IEnumerator SwordSwitchKeepsCanonicalHandFacingAfterShoulderSwap()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            PlayerInputSource input = Object
+                .FindObjectsByType<PlayerInputSource>(
+                    FindObjectsSortMode.None)
+                .Single(candidate => candidate.CompareTag("Player"));
+            TwoSlotWeaponPresenter presenter =
+                input.GetComponentInChildren<TwoSlotWeaponPresenter>();
+            Animator animator = input.GetComponentInChildren<Animator>();
+            Transform rightHand = animator.GetBoneTransform(
+                HumanBodyBones.RightHand);
+            Assert.That(presenter, Is.Not.Null);
+            Assert.That(rightHand, Is.Not.Null);
+
+            presenter.ConfigureSwordOnlyLoadout();
+            Assert.That(presenter.RequestSlot(1), Is.True);
+            float setupDeadline = Time.time + 3f;
+            while (presenter.IsTransitioning &&
+                Time.time < setupDeadline)
+            {
+                yield return null;
+            }
+            Assert.That(presenter.ActiveSlot, Is.EqualTo(1));
+
+            float maximumHandStep = 0f;
+            float maximumWristStep = 0f;
+            for (int direction = 0;
+                 direction < 2;
+                 direction++)
+            {
+                int requestedSlot = direction == 0 ? 0 : 1;
+                Vector3 reflectedScale = presenter.transform.localScale;
+                reflectedScale.x = -Mathf.Abs(reflectedScale.x);
+                presenter.transform.localScale = reflectedScale;
+                Assert.That(
+                    presenter.transform.localScale.x,
+                    Is.LessThan(0f),
+                    "The test must begin each request from the reflected shoulder presentation.");
+                Assert.That(
+                    presenter.RequestSlot(requestedSlot),
+                    Is.True);
+                Assert.That(
+                    presenter.transform.localScale.x,
+                    Is.GreaterThan(0f),
+                    "A switched-shoulder request must capture the sword rig in its canonical, non-reflected frame.");
+                Vector3 previousHandPosition = rightHand.position;
+                Quaternion previousHandRotation = rightHand.rotation;
+                float deadline = Time.time + 3f;
+                while (presenter.IsTransitioning &&
+                    Time.time < deadline)
+                {
+                    yield return null;
+                    maximumHandStep = Mathf.Max(
+                        maximumHandStep,
+                        Vector3.Distance(
+                            previousHandPosition,
+                            rightHand.position));
+                    maximumWristStep = Mathf.Max(
+                        maximumWristStep,
+                        Quaternion.Angle(
+                            previousHandRotation,
+                            rightHand.rotation));
+                    previousHandPosition = rightHand.position;
+                    previousHandRotation = rightHand.rotation;
+                }
+
+                Assert.That(presenter.IsTransitioning, Is.False);
+                Assert.That(
+                    presenter.ActiveSlot,
+                    Is.EqualTo(requestedSlot));
+            }
+
+            Assert.That(maximumHandStep, Is.LessThan(0.18f));
+            Assert.That(
+                maximumWristStep,
+                Is.LessThan(45f),
+                "The reflected presentation must not introduce a wrist reversal or arm contortion.");
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
+        public IEnumerator CombatLabSkullHitboxCoversVisibleCrown()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            HumanoidDamageHitboxRig enemyHitboxes = Object
+                .FindObjectsByType<HumanoidDamageHitboxRig>(
+                    FindObjectsSortMode.None)
+                .First(candidate =>
+                    candidate.GetComponent<EnemyDamageProfile>() != null);
+            Transform skull = enemyHitboxes.transform.Find(
+                "Precise Humanoid Damage Hitboxes/" +
+                "Damage Hitbox - Skull");
+            Assert.That(skull, Is.Not.Null);
+            CapsuleCollider skullCollider =
+                skull.GetComponent<CapsuleCollider>();
+            HumanoidDamageZone damageZone =
+                skull.GetComponent<HumanoidDamageZone>();
+            Assert.That(skullCollider, Is.Not.Null);
+            Assert.That(damageZone, Is.Not.Null);
+            Assert.That(
+                damageZone.Region,
+                Is.EqualTo(HumanoidHitRegion.Head));
+
+            Ray crownRay = new Ray(
+                skull.TransformPoint(
+                    new Vector3(0.10f, 0.135f, -1f)),
+                skull.forward);
+            Assert.That(
+                skullCollider.Raycast(
+                    crownRay,
+                    out RaycastHit _,
+                    2f),
+                Is.True,
+                "The generated Combat Lab target must catch arrows crossing the visible upper forehead and crown.");
+
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
+        public IEnumerator BowStringContactDoesNotBobWithWalkCycle()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            PlayerInputSource input = Object
+                .FindObjectsByType<PlayerInputSource>(
+                    FindObjectsSortMode.None)
+                .Single(candidate => candidate.CompareTag("Player"));
+            TwoSlotWeaponPresenter presenter =
+                input.GetComponentInChildren<TwoSlotWeaponPresenter>();
+            Assert.That(presenter, Is.Not.Null);
+
+            presenter.ConfigureBowOnlyLoadout();
+            input.SetDiagnosticOverride(new PlayerIntent(
+                Vector2.left,
+                Vector2.zero,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true));
+            BowWeapon sampledBow = presenter.GetComponent<BowWeapon>();
+            float readyDeadline = Time.time + 4f;
+            while ((sampledBow.ReadyWeight < 0.999f ||
+                    sampledBow.DrawNormalized < 0.999f) &&
+                Time.time < readyDeadline)
+            {
+                yield return null;
+            }
+            Assert.That(sampledBow.ReadyWeight, Is.GreaterThan(0.999f));
+            Assert.That(sampledBow.DrawNormalized, Is.GreaterThan(0.999f));
+
+            float minimumRootHeight = float.PositiveInfinity;
+            float maximumRootHeight = float.NegativeInfinity;
+            float sampleDeadline = Time.time + 1.25f;
+            while (Time.time < sampleDeadline)
+            {
+                yield return null;
+                Vector3 localContact = input.transform.InverseTransformPoint(
+                    presenter.PresentedRightStringContactPosition);
+                minimumRootHeight = Mathf.Min(
+                    minimumRootHeight,
+                    localContact.y);
+                maximumRootHeight = Mathf.Max(
+                    maximumRootHeight,
+                    localContact.y);
+            }
+
+            Assert.That(
+                maximumRootHeight - minimumRootHeight,
+                Is.LessThan(0.005f),
+                "The drawn string, fletching, and drawing hand must not inherit vertical walk-cycle bob.");
+
+            input.ClearDiagnosticOverride();
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
+        public IEnumerator MirroredBowReleaseHoldsFollowThroughDuringBackwardSprintInput()
+        {
+            EditorSceneManager.OpenScene(
+                "Assets/_Project/Scenes/CombatLab.unity",
+                OpenSceneMode.Single);
+            yield return new EnterPlayMode();
+
+            PlayerInputSource input = Object
+                .FindObjectsByType<PlayerInputSource>(
+                    FindObjectsSortMode.None)
+                .Single(candidate => candidate.CompareTag("Player"));
+            TwoSlotWeaponPresenter presenter =
+                input.GetComponentInChildren<TwoSlotWeaponPresenter>();
+            BowWeapon bow = presenter.GetComponent<BowWeapon>();
+            UpperBodyAimPresenter upperBodyAim =
+                presenter.GetComponent<UpperBodyAimPresenter>();
+            ThirdPersonMotor motor = input.GetComponent<ThirdPersonMotor>();
+            Animator animator = presenter.GetComponent<Animator>();
+            Transform drawingHand = animator.GetBoneTransform(
+                HumanBodyBones.RightHand);
+
+            presenter.ConfigureBowOnlyLoadout();
+            input.SetShoulderSideDiagnostic(-1);
+            input.SetDiagnosticOverride(new PlayerIntent(
+                Vector2.zero,
+                Vector2.zero,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true));
+
+            float drawDeadline = Time.time + 4f;
+            while ((bow.DrawNormalized < 0.999f ||
+                    Mathf.Abs(
+                        Object.FindFirstObjectByType<CameraAimTarget>()
+                            .CurrentShoulderSideBlend + 1f) > 0.01f) &&
+                Time.time < drawDeadline)
+            {
+                yield return null;
+            }
+            Assert.That(bow.DrawNormalized, Is.GreaterThan(0.999f));
+            Transform upperBowTip = presenter.SecondaryWeaponRoot.Find(
+                "Upper Bow Tip");
+            Transform lowerBowTip = presenter.SecondaryWeaponRoot.Find(
+                "Lower Bow Tip");
+            Assert.That(upperBowTip, Is.Not.Null);
+            Assert.That(lowerBowTip, Is.Not.Null);
+            float drawnUpperTipDepth = upperBowTip.localPosition.z;
+            float drawnLowerTipDepth = lowerBowTip.localPosition.z;
+
+            int firedBefore = bow.FiredArrowCount;
+            input.SetDiagnosticOverride(new PlayerIntent(
+                Vector2.down,
+                Vector2.zero,
+                true,
+                false,
+                false,
+                false,
+                false));
+            float fireDeadline = Time.time + 1f;
+            while (bow.FiredArrowCount == firedBefore &&
+                Time.time < fireDeadline)
+            {
+                yield return null;
+            }
+
+            Assert.That(bow.FiredArrowCount, Is.EqualTo(firedBefore + 1));
+            Assert.That(bow.PostShotPresentationActive, Is.True);
+            Assert.That(
+                motor.BowSprintBuffered,
+                Is.True,
+                "Sprint pressed on the release frame must be queued through follow-through.");
+            input.SetDiagnosticOverride(new PlayerIntent(
+                Vector2.down,
+                Vector2.zero,
+                false,
+                false,
+                false,
+                false,
+                false));
+            Assert.That(
+                upperBowTip.localPosition.z,
+                Is.GreaterThan(drawnUpperTipDepth + 0.10f),
+                "The upper limb must snap out of its drawn bend on release.");
+            Assert.That(
+                lowerBowTip.localPosition.z,
+                Is.GreaterThan(drawnLowerTipDepth + 0.10f),
+                "The lower limb must snap out of its drawn bend on release.");
+            Assert.That(
+                presenter.PresentedRightStringContactGap,
+                Is.GreaterThan(0.25f),
+                "The string must snap forward while the release hand stays at the cheek.");
+
+            Vector3 releaseHand = input.transform.InverseTransformPoint(
+                drawingHand.position);
+            Vector3 previousHand = releaseHand;
+            float maximumReleaseHandDrift = 0f;
+            float maximumFrameTravel = 0f;
+            float minimumTorsoYaw = float.PositiveInfinity;
+            float maximumRecoverySpeed = 0f;
+            float minimumReleaseFingerClasp = 1f;
+            int followThroughSamples = 0;
+            float followThroughDeadline = Time.time + 0.6f;
+            while (bow.PostShotFollowThroughWeight > 0.99f &&
+                Time.time < followThroughDeadline)
+            {
+                yield return null;
+                Vector3 currentHand = input.transform.InverseTransformPoint(
+                    drawingHand.position);
+                maximumReleaseHandDrift = Mathf.Max(
+                    maximumReleaseHandDrift,
+                    Vector3.Distance(releaseHand, currentHand));
+                maximumFrameTravel = Mathf.Max(
+                    maximumFrameTravel,
+                    Vector3.Distance(previousHand, currentHand));
+                minimumTorsoYaw = Mathf.Min(
+                    minimumTorsoYaw,
+                    Mathf.Abs(upperBodyAim.BowDrawTorsoYaw));
+                maximumRecoverySpeed = Mathf.Max(
+                    maximumRecoverySpeed,
+                    motor.HorizontalSpeed);
+                minimumReleaseFingerClasp = Mathf.Min(
+                    minimumReleaseFingerClasp,
+                    presenter.PresentedRightFingerClaspWeight);
+                previousHand = currentHand;
+                followThroughSamples++;
+            }
+
+            Assert.That(followThroughSamples, Is.GreaterThan(5));
+            Assert.That(
+                maximumReleaseHandDrift,
+                Is.LessThan(0.08f),
+                "Backward travel must not pull the mirrored release hand through the torso.");
+            Assert.That(maximumFrameTravel, Is.LessThan(0.03f));
+            Assert.That(
+                minimumReleaseFingerClasp,
+                Is.LessThan(0.05f),
+                "The drawing fingers must visibly open while the released hand remains at the cheek.");
+            Assert.That(
+                minimumTorsoYaw,
+                Is.GreaterThan(60f),
+                "The drawn torso rotation must remain locked through the release hold.");
+            Assert.That(
+                maximumRecoverySpeed,
+                Is.LessThanOrEqualTo(motor.WalkSpeed + 0.15f),
+                "Sprint input must not reclaim locomotion during the bow follow-through.");
+
+            float sprintDeadline = Time.time + 1f;
+            while ((bow.PostShotPresentationActive ||
+                    motor.TargetHorizontalSpeed <
+                    motor.SprintSpeed - 0.05f) &&
+                Time.time < sprintDeadline)
+            {
+                yield return null;
+            }
+            Assert.That(bow.PostShotPresentationActive, Is.False);
+            Assert.That(
+                motor.TargetHorizontalSpeed,
+                Is.EqualTo(motor.SprintSpeed).Within(0.05f),
+                "The queued sprint must begin as soon as bow follow-through releases locomotion.");
+
+            float renockDeadline = Time.time + 0.5f;
+            while (!bow.ArrowReady && Time.time < renockDeadline)
+            {
+                yield return null;
+            }
+            Assert.That(bow.ArrowReady, Is.True);
+            Assert.That(
+                presenter.PresentedRightFingerClaspWeight,
+                Is.EqualTo(1f).Within(0.001f),
+                "The drawing fingers must reclasp as the replacement arrow becomes ready.");
 
             input.ClearDiagnosticOverride();
             yield return new ExitPlayMode();
@@ -339,9 +867,9 @@ namespace WorldBuilder.Tests.EditMode
                 (backpack.height - 56f - 5f * 5f) / 6f;
             float expectedScaledSize = Mathf.Max(
                 12f,
-                Mathf.Floor(Mathf.Min(
+                Mathf.Floor(Mathf.Floor(Mathf.Min(
                     previousWidthLimit,
-                    previousHeightLimit)) * 0.78f);
+                    previousHeightLimit)) * 0.78f));
             Assert.That(
                 sharedCellSize,
                 Is.EqualTo(expectedScaledSize).Within(0.001f));
@@ -454,13 +982,24 @@ namespace WorldBuilder.Tests.EditMode
             ProceduralShortSwordGenerator generator =
                 Object.FindFirstObjectByType<ProceduralShortSwordGenerator>(
                     FindObjectsInactive.Include);
+            ProceduralColumnBladeGenerator columnBladeGenerator =
+                Object.FindFirstObjectByType<ProceduralColumnBladeGenerator>(
+                    FindObjectsInactive.Include);
             ShortSwordGeneratorLabController controller =
                 Object.FindFirstObjectByType<ShortSwordGeneratorLabController>(
                     FindObjectsInactive.Include);
 
             Assert.That(generator, Is.Not.Null);
+            Assert.That(columnBladeGenerator, Is.Not.Null);
             Assert.That(controller, Is.Not.Null);
             Assert.That(controller.Generator, Is.SameAs(generator));
+            Assert.That(
+                controller.ColumnBladeGenerator,
+                Is.SameAs(columnBladeGenerator));
+            Assert.That(
+                controller.SelectedFamily,
+                Is.EqualTo(SwordGeneratorFamily.ShortSword));
+            Assert.That(columnBladeGenerator.gameObject.activeSelf, Is.False);
             Assert.That(Camera.main, Is.Not.Null);
             Assert.That(GameObject.Find("Sword Pedestal"), Is.Not.Null);
         }
@@ -499,6 +1038,11 @@ namespace WorldBuilder.Tests.EditMode
                 Object.FindFirstObjectByType<BootstrapMenuController>(
                     FindObjectsInactive.Include),
                 Is.Not.Null);
+            Assert.That(
+                Object.FindFirstObjectByType<BrowserRaidDemoController>(
+                    FindObjectsInactive.Include),
+                Is.Not.Null,
+                "Bootstrap must contain the Web-only raid demo entry point.");
 
             SerializedObject serialized =
                 new SerializedObject(bootstrap);
@@ -899,7 +1443,8 @@ namespace WorldBuilder.Tests.EditMode
                 allRaidEnemies.Count(
                     enemy => enemy.name.StartsWith(
                         "Camp Guard Pool ")),
-                Is.EqualTo(9));
+                Is.EqualTo(
+                    ProceduralRaidGenerator.MaximumCampGuardPoolSize));
             foreach (EnemyBrain enemy in enemies)
             {
                 SerializedObject perception =
@@ -1048,7 +1593,11 @@ namespace WorldBuilder.Tests.EditMode
                     enemy.name.StartsWith("Camp Guard Pool ") &&
                     enemy.gameObject.activeSelf)
                 .ToArray();
-            Assert.That(activeCampGuards.Length, Is.InRange(1, 9));
+            Assert.That(
+                activeCampGuards.Length,
+                Is.InRange(
+                    ProceduralRaidGenerator.MinimumCampCount,
+                    ProceduralRaidGenerator.MaximumCampGuardPoolSize));
             ProceduralRaidGenerator raidGenerator =
                 Object.FindFirstObjectByType<ProceduralRaidGenerator>();
             RaidLootContainer[] campChests =
@@ -1063,8 +1612,9 @@ namespace WorldBuilder.Tests.EditMode
                 campChests,
                 Has.Length.EqualTo(
                     raidGenerator.GeneratedCampCount +
-                    raidGenerator.GeneratedLevelTwoCampCount),
-                "Each Level One camp has one chest and each Level Two camp has two.");
+                    raidGenerator.GeneratedLevelTwoCampCount +
+                    raidGenerator.GeneratedWatchtowerCount),
+                "Each camp retains its chest allocation and every watchtower adds one chest.");
             Assert.That(
                 campChests.All(source =>
                     source.IsAvailable &&
@@ -1201,6 +1751,16 @@ namespace WorldBuilder.Tests.EditMode
                     entry.Quantity >= 1 &&
                     entry.Quantity <= 10),
                 Is.True);
+            string expectedCorpseWeapon =
+                enemies[0].ConfiguredWeaponLoadout ==
+                    EnemyBrain.WeaponLoadout.SwordOnly
+                    ? ItemDefinitionIds.LootShortSword
+                    : ItemDefinitionIds.LootHuntingBow;
+            Assert.That(
+                corpseLoot.Entries.Any(entry =>
+                    entry.DefinitionId == expectedCorpseWeapon),
+                Is.True,
+                "A defeated guard must expose the weapon matching its configured loadout.");
             yield return new ExitPlayMode();
         }
 
@@ -1400,7 +1960,8 @@ namespace WorldBuilder.Tests.EditMode
                 "Every supplied birch, broadleaf, and pine variant must drive runtime forest generation.");
             Assert.That(
                 serialized.FindProperty("campGuardPool").arraySize,
-                Is.EqualTo(9));
+                Is.EqualTo(
+                    ProceduralRaidGenerator.MaximumCampGuardPoolSize));
             string[] campPrefabFields =
             {
                 "campTentPrefab",
@@ -1484,20 +2045,26 @@ namespace WorldBuilder.Tests.EditMode
                     "Assets/_Project/Art/Environment/Skybox/" +
                     "Sky94/sky_94_2k.png"));
             Assert.That(
+                serialized.FindProperty("habitatFieldResolution")
+                    .intValue,
+                Is.EqualTo(205),
+                "The larger island should preserve the habitat field's spatial sampling density.");
+            Assert.That(
                 serialized.FindProperty("treeCount")
                     .intValue,
-                Is.EqualTo(1200),
-                "The Raid should retain the creator-requested 80% tree-density pass.");
+                Is.EqualTo(2100),
+                "The production Raid should use the requested 30-percent " +
+                "reduction from its former 3,000-tree population.");
             Assert.That(
                 serialized.FindProperty("treeScaleMultiplier")
                     .floatValue,
                 Is.EqualTo(1.75f).Within(0.001f));
             Assert.That(
                 serialized.FindProperty("grassCount").intValue,
-                Is.EqualTo(128000));
+                Is.EqualTo(320000));
             Assert.That(
                 serialized.FindProperty("undergrowthCount").intValue,
-                Is.EqualTo(4200));
+                Is.EqualTo(10500));
             Assert.That(
                 serialized.FindProperty("groundFloraStudyPrefabs")
                     .arraySize,
@@ -1505,7 +2072,7 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 serialized.FindProperty("groundFloraStudyCount")
                     .intValue,
-                Is.EqualTo(4800));
+                Is.EqualTo(12000));
             Assert.That(
                 serialized.FindProperty("groundFloraGeneralShare")
                     .floatValue,
@@ -1516,20 +2083,20 @@ namespace WorldBuilder.Tests.EditMode
                 Is.EqualTo(0.18f).Within(0.001f));
             Assert.That(
                 serialized.FindProperty("boulderCount").intValue,
-                Is.EqualTo(192));
+                Is.EqualTo(480));
             Assert.That(
                 serialized.FindProperty("trailStoneCount").intValue,
-                Is.EqualTo(168));
+                Is.EqualTo(266));
             Assert.That(
                 serialized.FindProperty("mapRadius")
                     .floatValue,
-                Is.EqualTo(144f).Within(0.01f),
-                "Doubling the old 72 m radius produces four times its playable area.");
+                Is.EqualTo(227.684f).Within(0.01f),
+                "Scaling the former 144 m radius by sqrt(2.5) produces 2.5 times its playable area.");
             Assert.That(
                 serialized.FindProperty("terrainResolution")
                     .intValue,
-                Is.EqualTo(256),
-                "The expanded disc should preserve the old terrain sampling scale.");
+                Is.EqualTo(405),
+                "The 2.5x-area island should preserve the former terrain sample spacing.");
         }
 
         private static Scene Open(string path)

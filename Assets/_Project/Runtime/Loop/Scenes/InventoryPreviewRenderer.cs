@@ -9,10 +9,39 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
     [DisallowMultipleComponent]
     public sealed class InventoryPreviewRenderer : MonoBehaviour
     {
+        private enum ItemPreviewKind
+        {
+            Sword,
+            Bow
+        }
+
+        private readonly struct ItemPreviewRequest
+        {
+            public ItemPreviewRequest(
+                ItemPreviewKind kind,
+                int seed,
+                int rotation,
+                string key)
+            {
+                Kind = kind;
+                Seed = seed;
+                Rotation = rotation;
+                Key = key;
+            }
+
+            public ItemPreviewKind Kind { get; }
+            public int Seed { get; }
+            public int Rotation { get; }
+            public string Key { get; }
+        }
+
         private const int PreviewLayer = 30;
         public const float DefaultCharacterYaw = 12f;
         public const float SecondaryThumbnailYaw = 90f;
         public const float SecondaryThumbnailRoll = -90f;
+        // The equipped-card bow is deliberately landscape, but the pack item
+        // must retain its natural upright silhouette inside its 2x3 footprint.
+        public const float LootBowFootprintRoll = 0f;
         public const int StudioLightCount = 3;
         public static Quaternion SecondaryThumbnailRotation =>
             Quaternion.AngleAxis(
@@ -46,6 +75,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private RenderTexture lootBowHorizontalTexture;
         private Material fallbackPreviewMaterial;
         private readonly List<Mesh> bakedMeshes = new List<Mesh>();
+        private readonly Dictionary<string, RenderTexture> itemPreviewSnapshots =
+            new Dictionary<string, RenderTexture>();
+        private readonly Queue<ItemPreviewRequest> pendingItemPreviews =
+            new Queue<ItemPreviewRequest>();
+        private readonly HashSet<string> pendingItemPreviewKeys =
+            new HashSet<string>();
         private float characterYaw = DefaultCharacterYaw;
         private float weaponYaw = 24f;
         private int selectedWeapon;
@@ -119,22 +154,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return null;
             }
 
-            if (lootWeaponProxy == null || renderedLootWeaponSeed != seed)
-            {
-                RebuildLootShortSword(seed);
-            }
             int rotation = ((rotationQuarterTurns % 4) + 4) % 4;
-            bool horizontal = rotation % 2 != 0;
-            RenderTexture target = horizontal
-                ? lootWeaponHorizontalTexture
-                : lootWeaponVerticalTexture;
-            RenderProxy(
-                lootWeaponProxy,
-                target,
-                0f,
-                1.06f,
-                rotation * 90f);
-            return target;
+            string snapshotKey = $"loot-sword-{seed}-{rotation}";
+            if (itemPreviewSnapshots.TryGetValue(
+                    snapshotKey,
+                    out RenderTexture existingSnapshot) &&
+                existingSnapshot != null)
+            {
+                return existingSnapshot;
+            }
+            QueueItemPreviewSet(ItemPreviewKind.Sword, seed);
+            return null;
         }
 
         /// <summary>
@@ -153,18 +183,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             int rotation = ((rotationQuarterTurns % 4) + 4) % 4;
-            bool horizontal = rotation % 2 != 0;
-            RenderTexture target = horizontal
-                ? lootBowHorizontalTexture
-                : lootBowVerticalTexture;
-            RenderProxy(
-                secondaryProxy,
-                target,
-                SecondaryThumbnailYaw,
-                1.04f,
-                SecondaryThumbnailRoll + rotation * 90f,
-                yawBeforeRoll: true);
-            return target;
+            string snapshotKey = $"loot-bow-{rotation}";
+            if (itemPreviewSnapshots.TryGetValue(
+                    snapshotKey,
+                    out RenderTexture existingSnapshot) &&
+                existingSnapshot != null)
+            {
+                return existingSnapshot;
+            }
+            QueueItemPreviewSet(ItemPreviewKind.Bow, 0);
+            return null;
         }
 
         private void LateUpdate()
@@ -172,6 +200,71 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (renderRequested)
             {
                 RenderPreviews();
+            }
+            RenderPendingItemPreviews();
+        }
+
+        private void QueueItemPreviewSet(ItemPreviewKind kind, int seed)
+        {
+            for (int rotation = 0; rotation < 4; rotation++)
+            {
+                string key = kind == ItemPreviewKind.Sword
+                    ? $"loot-sword-{seed}-{rotation}"
+                    : $"loot-bow-{rotation}";
+                if (itemPreviewSnapshots.ContainsKey(key) ||
+                    !pendingItemPreviewKeys.Add(key))
+                {
+                    continue;
+                }
+                pendingItemPreviews.Enqueue(
+                    new ItemPreviewRequest(kind, seed, rotation, key));
+            }
+        }
+
+        private void RenderPendingItemPreviews()
+        {
+            while (pendingItemPreviews.Count > 0)
+            {
+                ItemPreviewRequest request = pendingItemPreviews.Dequeue();
+                pendingItemPreviewKeys.Remove(request.Key);
+                if (!built || itemPreviewSnapshots.ContainsKey(request.Key))
+                {
+                    continue;
+                }
+
+                bool horizontal = request.Rotation % 2 != 0;
+                RenderTexture target;
+                if (request.Kind == ItemPreviewKind.Sword)
+                {
+                    if (lootWeaponProxy == null ||
+                        renderedLootWeaponSeed != request.Seed)
+                    {
+                        RebuildLootShortSword(request.Seed);
+                    }
+                    target = horizontal
+                        ? lootWeaponHorizontalTexture
+                        : lootWeaponVerticalTexture;
+                    RenderProxy(
+                        lootWeaponProxy,
+                        target,
+                        0f,
+                        1.06f,
+                        request.Rotation * 90f);
+                }
+                else
+                {
+                    target = horizontal
+                        ? lootBowHorizontalTexture
+                        : lootBowVerticalTexture;
+                    RenderProxy(
+                        secondaryProxy,
+                        target,
+                        SecondaryThumbnailYaw,
+                        1.04f,
+                        LootBowFootprintRoll + request.Rotation * 90f,
+                        yawBeforeRoll: true);
+                }
+                SnapshotItemPreview(target, request.Key);
             }
         }
 
@@ -371,10 +464,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             if (lootWeaponProxy != null)
             {
+                // Destroy is deferred until the end of the frame. Disable the
+                // outgoing proxy first so a second loot sword rendered during
+                // this LateUpdate cannot capture both models at once.
+                lootWeaponProxy.SetActive(false);
                 Destroy(lootWeaponProxy);
             }
             if (lootWeaponSource != null)
             {
+                lootWeaponSource.SetActive(false);
                 Destroy(lootWeaponSource);
             }
 
@@ -390,8 +488,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 ResolveEquippedWeaponMaterial("blade") ?? fallbackPreviewMaterial,
                 ResolveEquippedWeaponMaterial("guard", "pommel") ?? fallbackPreviewMaterial,
                 ResolveEquippedWeaponMaterial("handle", "grip") ?? fallbackPreviewMaterial,
-                ResolveEquippedWeaponMaterial("hilt", "pommel", "guard") ?? fallbackPreviewMaterial);
-            generator.Generate(seed);
+                ResolveEquippedWeaponMaterial("hilt", "pommel", "guard") ?? fallbackPreviewMaterial,
+                useProceduralPalette: true);
+            generator.GenerateUnrestricted(seed);
             Renderer[] sourceRenderers =
                 lootWeaponSource.GetComponentsInChildren<Renderer>(true);
             for (int index = 0; index < sourceRenderers.Length; index++)
@@ -653,6 +752,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 part.AddComponent<MeshFilter>().sharedMesh = mesh;
                 MeshRenderer renderer = part.AddComponent<MeshRenderer>();
                 renderer.sharedMaterials = source.sharedMaterials;
+                var properties = new MaterialPropertyBlock();
+                source.GetPropertyBlock(properties);
+                renderer.SetPropertyBlock(properties);
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
             }
@@ -672,52 +774,123 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return;
             }
 
-            characterProxy.SetActive(proxy == characterProxy);
-            primaryProxy.SetActive(proxy == primaryProxy);
-            secondaryProxy.SetActive(proxy == secondaryProxy);
-            if (lootWeaponProxy != null)
-            {
-                lootWeaponProxy.SetActive(proxy == lootWeaponProxy);
-            }
-            proxy.transform.localRotation = yawBeforeRoll
-                ? Quaternion.AngleAxis(roll, Vector3.forward) *
-                    Quaternion.AngleAxis(yaw, Vector3.up)
-                : Quaternion.Euler(0f, yaw, roll);
-            Renderer[] renderers = proxy.GetComponentsInChildren<Renderer>(true);
-            if (!TryGetBounds(renderers, out Bounds bounds))
-            {
-                return;
-            }
-
-            float aspect = target.width / (float)target.height;
-            previewCamera.aspect = aspect;
-            previewCamera.orthographicSize = Mathf.Max(
-                bounds.extents.y,
-                bounds.extents.x / Mathf.Max(0.1f, aspect)) *
-                padding;
-            Vector3 center = bounds.center;
-            previewCamera.transform.position =
-                center + new Vector3(0f, 0f, 12f);
-            previewCamera.transform.rotation =
-                Quaternion.LookRotation(Vector3.back, Vector3.up);
-            previewCamera.targetTexture = target;
-            List<Light> suspendedSceneLights =
-                SuspendSceneLights();
-            RenderEnvironmentSnapshot environment =
-                RenderEnvironmentSnapshot.Capture();
-            ApplyStudioEnvironment();
-            SetStudioLightsEnabled(true);
+            SetProxyActive(characterProxy, proxy == characterProxy);
+            SetProxyActive(primaryProxy, proxy == primaryProxy);
+            SetProxyActive(secondaryProxy, proxy == secondaryProxy);
+            SetProxyActive(lootWeaponProxy, proxy == lootWeaponProxy);
             try
             {
-                previewCamera.Render();
+                proxy.transform.localRotation = yawBeforeRoll
+                    ? Quaternion.AngleAxis(roll, Vector3.forward) *
+                        Quaternion.AngleAxis(yaw, Vector3.up)
+                    : Quaternion.Euler(0f, yaw, roll);
+                ClearPreviewTarget(target);
+                Renderer[] renderers =
+                    proxy.GetComponentsInChildren<Renderer>(true);
+                if (!TryGetBounds(renderers, out Bounds bounds))
+                {
+                    return;
+                }
+
+                float aspect = target.width / (float)target.height;
+                previewCamera.aspect = aspect;
+                previewCamera.orthographicSize = Mathf.Max(
+                    bounds.extents.y,
+                    bounds.extents.x / Mathf.Max(0.1f, aspect)) *
+                    padding;
+                Vector3 center = bounds.center;
+                previewCamera.transform.position =
+                    center + new Vector3(0f, 0f, 12f);
+                previewCamera.transform.rotation =
+                    Quaternion.LookRotation(Vector3.back, Vector3.up);
+                previewCamera.targetTexture = target;
+                RenderTexture previousActiveTarget = RenderTexture.active;
+                List<Light> suspendedSceneLights =
+                    SuspendSceneLights();
+                RenderEnvironmentSnapshot environment =
+                    RenderEnvironmentSnapshot.Capture();
+                ApplyStudioEnvironment();
+                SetStudioLightsEnabled(true);
+                try
+                {
+                    previewCamera.Render();
+                }
+                finally
+                {
+                    SetStudioLightsEnabled(false);
+                    environment.Restore();
+                    RestoreSceneLights(suspendedSceneLights);
+                    previewCamera.targetTexture = null;
+                    RenderTexture.active = previousActiveTarget;
+                }
             }
             finally
             {
-                SetStudioLightsEnabled(false);
-                environment.Restore();
-                RestoreSceneLights(suspendedSceneLights);
-                previewCamera.targetTexture = null;
+                // A preview object is only ever visible for its own camera
+                // render. This also protects the next request if the object is
+                // replaced and Unity has not processed Destroy yet.
+                SetProxyActive(proxy, false);
             }
+        }
+
+        private static void SetProxyActive(GameObject proxy, bool active)
+        {
+            if (proxy != null)
+            {
+                proxy.SetActive(active);
+            }
+        }
+
+        private static void ClearPreviewTarget(RenderTexture target)
+        {
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = target;
+            GL.Clear(true, true, Color.clear);
+            RenderTexture.active = previous;
+        }
+
+        private RenderTexture SnapshotItemPreview(
+            RenderTexture source,
+            string key)
+        {
+            if (source == null || string.IsNullOrEmpty(key))
+            {
+                return null;
+            }
+            if (itemPreviewSnapshots.TryGetValue(
+                    key,
+                    out RenderTexture existingSnapshot) &&
+                existingSnapshot != null)
+            {
+                return existingSnapshot;
+            }
+
+            // Keep an immutable GPU-side copy per unique weapon and
+            // orientation. The source RenderTextures are shared working
+            // surfaces, so returning them directly lets a later weapon render
+            // overwrite an earlier icon. A half-resolution, depthless target
+            // is still comfortably above the on-screen grid resolution while
+            // using only a quarter of the color memory and no CPU readback.
+            int width = Mathf.Max(1, source.width / 2);
+            int height = Mathf.Max(1, source.height / 2);
+            var snapshot = new RenderTexture(
+                width,
+                height,
+                0,
+                RenderTextureFormat.ARGB32)
+            {
+                name = $"{key} GPU Snapshot",
+                antiAliasing = 1,
+                useMipMap = false,
+                autoGenerateMips = false,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            snapshot.Create();
+            Graphics.Blit(source, snapshot);
+            itemPreviewSnapshots[key] = snapshot;
+            return snapshot;
         }
 
         private List<Light> SuspendSceneLights()
@@ -927,6 +1100,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Destroy(fallbackPreviewMaterial);
                 fallbackPreviewMaterial = null;
             }
+            foreach (RenderTexture snapshot in itemPreviewSnapshots.Values)
+            {
+                if (snapshot != null)
+                {
+                    snapshot.Release();
+                    Destroy(snapshot);
+                }
+            }
+            itemPreviewSnapshots.Clear();
+            pendingItemPreviews.Clear();
+            pendingItemPreviewKeys.Clear();
             lootWeaponSource = null;
             lootWeaponProxy = null;
             renderedLootWeaponSeed = int.MinValue;

@@ -174,7 +174,10 @@ namespace WorldBuilder.Gameplay.Combat
                     amount,
                     request.HitPoint,
                     request.Direction,
-                    request.SourceId));
+                    request.SourceId,
+                    request.StaggerDuration,
+                    request.HitPauseDuration,
+                    request.ImpactStrength));
         }
 
         public void ConfigureDormantTrainingDummy()

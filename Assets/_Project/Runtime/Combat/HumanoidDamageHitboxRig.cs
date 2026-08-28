@@ -11,6 +11,10 @@ namespace WorldBuilder.Gameplay.Combat
     [DisallowMultipleComponent]
     public sealed class HumanoidDamageHitboxRig : MonoBehaviour
     {
+        public const float SkullHitboxRadius = 0.16f;
+        public const float SkullHitboxHeight = 0.36f;
+        public const float SkullHitboxCenterDistance = 0.115f;
+
         private sealed class TrackedCapsule
         {
             public Transform Start;
@@ -29,12 +33,25 @@ namespace WorldBuilder.Gameplay.Combat
             public float Radius;
         }
 
+        private sealed class TrackedBoneCapsule
+        {
+            public Transform Bone;
+            public Transform Hitbox;
+            public CapsuleCollider Collider;
+            public Vector3 BoneLocalCenter;
+            public Vector3 BoneLocalAxis;
+            public float Radius;
+            public float Height;
+        }
+
         private readonly List<TrackedCapsule> capsules = new();
         private readonly List<TrackedSphere> spheres = new();
+        private readonly List<TrackedBoneCapsule> boneCapsules = new();
         private Transform hitboxRoot;
         private Animator animator;
 
-        public int HitboxCount => capsules.Count + spheres.Count;
+        public int HitboxCount =>
+            capsules.Count + spheres.Count + boneCapsules.Count;
 
         public static bool IsRedundantMovementCollider(
             Collider candidate)
@@ -122,11 +139,16 @@ namespace WorldBuilder.Gameplay.Combat
                 rightUpperArm,
                 0.13f);
             AddCapsule("Neck And Head", neck, head, 0.135f);
-            AddSphere(
+            Vector3 headAxisLocal = ResolveHeadAxisLocal(
+                head,
+                neck);
+            AddBoneCapsule(
                 "Skull",
                 head,
-                ResolveHeadCenterOffset(head, neck),
-                0.145f);
+                headAxisLocal * SkullHitboxCenterDistance,
+                headAxisLocal,
+                SkullHitboxRadius,
+                SkullHitboxHeight);
             AddCapsule(
                 "Pelvis",
                 leftUpperLeg,
@@ -229,23 +251,23 @@ namespace WorldBuilder.Gameplay.Combat
                 : null;
         }
 
-        private static Vector3 ResolveHeadCenterOffset(
+        private static Vector3 ResolveHeadAxisLocal(
             Transform head,
             Transform neck)
         {
             if (head == null || neck == null)
             {
-                return Vector3.zero;
+                return Vector3.up;
             }
 
             Vector3 neckToHead = head.position - neck.position;
             if (neckToHead.sqrMagnitude < 0.0001f)
             {
-                return Vector3.zero;
+                return Vector3.up;
             }
 
-            return head.InverseTransformVector(
-                neckToHead.normalized * 0.10f);
+            return head.InverseTransformDirection(
+                neckToHead.normalized).normalized;
         }
 
         private void AddCapsule(
@@ -317,6 +339,46 @@ namespace WorldBuilder.Gameplay.Combat
             });
         }
 
+        private void AddBoneCapsule(
+            string name,
+            Transform bone,
+            Vector3 boneLocalCenter,
+            Vector3 boneLocalAxis,
+            float radius,
+            float height)
+        {
+            if (bone == null)
+            {
+                return;
+            }
+
+            GameObject hitboxObject =
+                new GameObject($"Damage Hitbox - {name}");
+            hitboxObject.layer = gameObject.layer;
+            hitboxObject.transform.SetParent(hitboxRoot, false);
+            CapsuleCollider collider =
+                hitboxObject.AddComponent<CapsuleCollider>();
+            collider.direction = 1;
+            collider.center = Vector3.zero;
+            HumanoidDamageZone zone =
+                hitboxObject.AddComponent<HumanoidDamageZone>();
+            zone.Configure(
+                ResolveRegion(name),
+                bone);
+            boneCapsules.Add(new TrackedBoneCapsule
+            {
+                Bone = bone,
+                Hitbox = hitboxObject.transform,
+                Collider = collider,
+                BoneLocalCenter = boneLocalCenter,
+                BoneLocalAxis = boneLocalAxis.sqrMagnitude > 0.0001f
+                    ? boneLocalAxis.normalized
+                    : Vector3.up,
+                Radius = radius,
+                Height = Mathf.Max(height, radius * 2f)
+            });
+        }
+
         private static HumanoidHitRegion ResolveRegion(string name)
         {
             if (name.Contains("Head") || name.Contains("Skull"))
@@ -381,6 +443,29 @@ namespace WorldBuilder.Gameplay.Combat
                     tracked.Bone.rotation);
                 tracked.Hitbox.localScale = Vector3.one;
                 tracked.Collider.radius = tracked.Radius;
+            }
+
+            for (int index = 0;
+                 index < boneCapsules.Count;
+                 index++)
+            {
+                TrackedBoneCapsule tracked = boneCapsules[index];
+                if (tracked.Bone == null ||
+                    tracked.Hitbox == null)
+                {
+                    continue;
+                }
+
+                tracked.Hitbox.SetPositionAndRotation(
+                    tracked.Bone.TransformPoint(
+                        tracked.BoneLocalCenter),
+                    tracked.Bone.rotation *
+                        Quaternion.FromToRotation(
+                            Vector3.up,
+                            tracked.BoneLocalAxis));
+                tracked.Hitbox.localScale = Vector3.one;
+                tracked.Collider.radius = tracked.Radius;
+                tracked.Collider.height = tracked.Height;
             }
         }
     }

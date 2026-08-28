@@ -13,6 +13,7 @@ namespace WorldBuilder.Gameplay.Combat
     public sealed class BowWeapon : MonoBehaviour
     {
         private const float MinimumNpcReleaseCharge = 0.995f;
+        public const float PlayerPostShotHoldDuration = 0.235f;
         private const string ReleaseAudioResourcePath =
             "Audio/SFX/Bow Release";
         [SerializeField] private PlayerInputSource input;
@@ -59,6 +60,7 @@ namespace WorldBuilder.Gameplay.Combat
         private bool playerOwned;
         private bool pendingRelease;
         private float pendingReleaseCharge;
+        private float releasedDrawPresentationWeight;
         private bool pendingReleaseAimLocked;
         private Ray pendingReleaseAimRay;
         private int releasePlaybackCount;
@@ -86,6 +88,44 @@ namespace WorldBuilder.Gameplay.Combat
             raidController.ArrowCount > 0;
         public float HeldDuration => heldDuration;
         public float ReadyWeight => readyWeight;
+        private bool PlayerShotRecoveryPending =>
+            weaponEquipped &&
+            playerOwned &&
+            (pendingRelease ||
+             (!arrowReady && reloadRemaining > 0f) ||
+             (drawHeldLastFrame && !DrawInputHeld && CanFire));
+        public float PostShotPoseDuration =>
+            PlayerPostShotHoldDuration + readyBlendDuration;
+        public float PostShotPoseRemaining =>
+            PlayerShotRecoveryPending
+                ? CalculatePostShotPoseRemaining(
+                    pendingRelease || arrowReady
+                        ? EffectiveReloadDuration
+                        : reloadRemaining,
+                    EffectiveReloadDuration,
+                    PostShotPoseDuration)
+                : 0f;
+        public bool PostShotPresentationActive =>
+            PostShotPoseRemaining > 0f;
+        public float PostShotFollowThroughWeight =>
+            PostShotPresentationActive
+                ? CalculatePostShotReadyWeight(
+                    PostShotPoseRemaining,
+                    PostShotPoseDuration,
+                    readyBlendDuration)
+                : 0f;
+        public float PresentedDrawNormalized =>
+            IsDrawing
+                ? DrawNormalized
+                : releasedDrawPresentationWeight *
+                  PostShotFollowThroughWeight;
+        public bool PresentationAimLocked =>
+            DrawInputHeld || PostShotPresentationActive;
+        public Vector3 PresentationAimDirection =>
+            PostShotPresentationActive &&
+            LastAimDirection.sqrMagnitude > 0.0001f
+                ? LastAimDirection
+                : CurrentAimDirection;
         public float DrawNormalized =>
             weaponEquipped && drawHeldLastFrame
                 ? Mathf.InverseLerp(
@@ -216,6 +256,7 @@ namespace WorldBuilder.Gameplay.Combat
             weaponEquipped = equipped;
             CancelDraw(false);
             reloadRemaining = 0f;
+            releasedDrawPresentationWeight = 0f;
             ResolveRaidController();
             arrowReady = equipped && HasAmmunition;
             SetNockedArrowVisible(arrowReady);
@@ -345,17 +386,38 @@ namespace WorldBuilder.Gameplay.Combat
 
         private void UpdateReadyPresentation(bool drawHeld)
         {
+            bool recoveringFromPlayerShot =
+                playerOwned &&
+                (pendingRelease || reloadRemaining > 0f);
             readyWeight = CalculateReadyWeight(
                 readyWeight,
                 drawHeld,
                 Time.deltaTime,
                 readyBlendDuration,
-                EffectiveReloadDuration,
-                pendingRelease
-                    ? EffectiveReloadDuration
-                    : reloadRemaining,
-                playerOwned &&
-                (pendingRelease || reloadRemaining > 0f));
+                recoveringFromPlayerShot
+                    ? PostShotPoseDuration
+                    : EffectiveReloadDuration,
+                recoveringFromPlayerShot
+                    ? PostShotPoseRemaining
+                    : pendingRelease
+                        ? EffectiveReloadDuration
+                        : reloadRemaining,
+                recoveringFromPlayerShot);
+        }
+
+        public static float CalculatePostShotPoseRemaining(
+            float reloadRemaining,
+            float reloadDuration,
+            float poseDuration)
+        {
+            float elapsed = Mathf.Max(
+                0f,
+                Mathf.Max(0.01f, reloadDuration) -
+                Mathf.Clamp(
+                    reloadRemaining,
+                    0f,
+                    Mathf.Max(0.01f, reloadDuration)));
+            return Mathf.Max(0f, poseDuration - elapsed);
         }
 
         public static float CalculateReadyWeight(
@@ -412,6 +474,7 @@ namespace WorldBuilder.Gameplay.Combat
             if (reloadRemaining <= 0f)
             {
                 arrowReady = HasAmmunition;
+                releasedDrawPresentationWeight = 0f;
                 SetNockedArrowVisible(arrowReady);
             }
         }
@@ -425,6 +488,7 @@ namespace WorldBuilder.Gameplay.Combat
                 releaseCharge >= MinimumNpcReleaseCharge;
             if (CanFire && npcCommittedRelease)
             {
+                releasedDrawPresentationWeight = releaseCharge;
                 PlayReleaseAudio();
                 // Preserve charge now, but resolve the rendered camera ray at
                 // the end of the frame after Cinemachine has updated it.
@@ -571,6 +635,7 @@ namespace WorldBuilder.Gameplay.Combat
             LastShotDirection = direction;
             arrowReady = false;
             reloadRemaining = EffectiveReloadDuration;
+            releasedDrawPresentationWeight = charge;
             SetNockedArrowVisible(false);
             GameplayEventLog.Publish(
                 "bow-arrow-fired",
@@ -880,6 +945,7 @@ namespace WorldBuilder.Gameplay.Combat
             drawHeldLastFrame = false;
             pendingRelease = false;
             pendingReleaseAimLocked = false;
+            releasedDrawPresentationWeight = 0f;
             heldDuration = 0f;
             readyWeight = 0f;
             StopPullbackAudio();

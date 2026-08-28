@@ -108,7 +108,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private static GUIStyle centered;
         private static GUIStyle cellSurface;
         private static GUIStyle sectionSurface;
+        private static GUIStyle storageSectionSurface;
         private static GUIStyle weaponGridCellSurface;
+        private static GUIStyle minimalClose;
+
+        public static readonly Color MinimalCloseColor =
+            new Color(0.58f, 0.62f, 0.64f, 0.78f);
+        public static readonly Color MinimalCloseHoverColor =
+            new Color(0.98f, 0.99f, 1f, 1f);
 
         public static GUIStyle Title
         {
@@ -222,6 +229,88 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GUI.color = previous;
         }
 
+        public static void DrawStorageSection(Rect rect)
+        {
+            EnsureStyles();
+            Color previous = GUI.color;
+            GUI.color = Color.white;
+            GUI.Box(rect, GUIContent.none, storageSectionSurface);
+            GUI.color = previous;
+        }
+
+        public static void DrawStorageGridFrame(Rect rect)
+        {
+            EnsureStyles();
+            Color previous = GUI.color;
+            GUI.color = Color.white;
+            GUI.DrawTexture(rect, GameTypography.StorageGridFrameTexture);
+            GUI.color = previous;
+        }
+
+        public static void DrawStorageCornerIndents(Rect rect)
+        {
+            Color previous = GUI.color;
+            GUI.color = GameTypography.InventoryBackgroundColor;
+
+            DrawCornerIndent(rect.xMin, rect.yMin, 1f, 1f);
+            DrawCornerIndent(rect.xMax, rect.yMin, -1f, 1f);
+            DrawCornerIndent(rect.xMin, rect.yMax, 1f, -1f);
+            DrawCornerIndent(rect.xMax, rect.yMax, -1f, -1f);
+
+            // The background cuts the square frame away. Redraw the exposed
+            // stepped diagonal so the outline follows the indentation rather
+            // than disappearing at each corner.
+            GUI.color = GameTypography.StorageBorderColor;
+            DrawCornerIndentBorder(rect.xMin, rect.yMin, 1f, 1f);
+            DrawCornerIndentBorder(rect.xMax, rect.yMin, -1f, 1f);
+            DrawCornerIndentBorder(rect.xMin, rect.yMax, 1f, -1f);
+            DrawCornerIndentBorder(rect.xMax, rect.yMax, -1f, -1f);
+
+            GUI.color = previous;
+        }
+
+        private static void DrawCornerIndent(
+            float cornerX,
+            float cornerY,
+            float horizontalDirection,
+            float verticalDirection)
+        {
+            for (int depth = 0; depth < 3; depth++)
+            {
+                float width = 3f - depth;
+                float x = horizontalDirection > 0f
+                    ? cornerX
+                    : cornerX - width;
+                float y = verticalDirection > 0f
+                    ? cornerY + depth
+                    : cornerY - depth - 1f;
+                GUI.DrawTexture(
+                    new Rect(x, y, width, 1f),
+                    Texture2D.whiteTexture);
+            }
+        }
+
+        private static void DrawCornerIndentBorder(
+            float cornerX,
+            float cornerY,
+            float horizontalDirection,
+            float verticalDirection)
+        {
+            for (int depth = 0; depth < 3; depth++)
+            {
+                float inset = 3f - depth;
+                float x = horizontalDirection > 0f
+                    ? cornerX + inset
+                    : cornerX - inset - 1f;
+                float y = verticalDirection > 0f
+                    ? cornerY + depth
+                    : cornerY - depth - 1f;
+                GUI.DrawTexture(
+                    new Rect(x, y, 1f, 1f),
+                    Texture2D.whiteTexture);
+            }
+        }
+
         public static void DrawWeaponGridCell(Rect rect)
         {
             EnsureStyles();
@@ -239,6 +328,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new Rect(0f, 0f, Screen.width, Screen.height),
                 Texture2D.whiteTexture);
             GUI.color = previous;
+        }
+
+        public static bool DrawMinimalCloseButton(Rect rect)
+        {
+            EnsureStyles();
+            bool hovered = rect.Contains(Event.current.mousePosition);
+            Color previous = GUI.color;
+            GUI.color = hovered
+                ? MinimalCloseHoverColor
+                : MinimalCloseColor;
+            GUI.Label(rect, "X", minimalClose);
+            GUI.color = previous;
+            return GUI.Button(rect, GUIContent.none, GUIStyle.none);
         }
 
         private static void EnsureStyles()
@@ -324,6 +426,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 border = new RectOffset(6, 6, 6, 6),
                 normal = { background = GameTypography.SectionTexture }
             };
+            storageSectionSurface = new GUIStyle(GUI.skin.box)
+            {
+                border = new RectOffset(6, 6, 6, 6),
+                normal =
+                {
+                    background = GameTypography.StorageSectionTexture
+                }
+            };
             weaponGridCellSurface = new GUIStyle(GUI.skin.box)
             {
                 border = new RectOffset(6, 6, 6, 6),
@@ -331,6 +441,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 {
                     background = GameTypography.WeaponGridCellTexture
                 }
+            };
+            minimalClose = new GUIStyle(GUI.skin.label)
+            {
+                font = GameTypography.UiFont,
+                fontSize = 18,
+                fontStyle = FontStyle.Normal,
+                alignment = TextAnchor.MiddleCenter,
+                padding = new RectOffset(0, 0, 0, 0),
+                margin = new RectOffset(0, 0, 0, 0),
+                normal = { textColor = Color.white }
             };
         }
     }

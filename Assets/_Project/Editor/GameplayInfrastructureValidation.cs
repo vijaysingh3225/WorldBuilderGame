@@ -13,6 +13,10 @@ namespace WorldBuilder.Editor
             "Temp/WorldBuilder.RunInfrastructureTests";
         public const string ResultPath =
             "Temp/WorldBuilder.InfrastructureTestResults.txt";
+        public const string FullRequestPath =
+            "Temp/WorldBuilder.RunFullEditModeTests";
+        public const string FullResultPath =
+            "Temp/WorldBuilder.FullEditModeTestResults.txt";
 
         private static TestRunnerApi runner;
         private static ResultCallbacks callbacks;
@@ -25,29 +29,58 @@ namespace WorldBuilder.Editor
         [MenuItem("WorldBuilder/Validate Gameplay Infrastructure")]
         public static void Run()
         {
+            RunScope(
+                new Filter
+                {
+                    testMode = TestMode.EditMode,
+                    categoryNames = new[] { "GameplayInfrastructure" }
+                },
+                ResultPath,
+                "Gameplay infrastructure");
+        }
+
+        [MenuItem("WorldBuilder/Validate Full EditMode Suite")]
+        public static void RunFullSuite()
+        {
+            RunScope(
+                new Filter
+                {
+                    testMode = TestMode.EditMode,
+                    assemblyNames =
+                        new[] { "WorldBuilder.Tests.EditMode" }
+                },
+                FullResultPath,
+                "Full EditMode suite");
+        }
+
+        private static void RunScope(
+            Filter filter,
+            string resultPath,
+            string label)
+        {
             if (EditorApplication.isCompiling ||
                 EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                EditorApplication.delayCall += Run;
+                EditorApplication.delayCall += () =>
+                    RunScope(filter, resultPath, label);
                 return;
             }
 
             runner = ScriptableObject.CreateInstance<TestRunnerApi>();
-            callbacks = new ResultCallbacks();
+            callbacks = new ResultCallbacks(resultPath, label);
             runner.RegisterCallbacks(callbacks);
-            runner.Execute(
-                new ExecutionSettings(
-                    new Filter
-                    {
-                        testMode = TestMode.EditMode,
-                        assemblyNames =
-                            new[] { "WorldBuilder.Tests.EditMode" }
-                    }));
+            runner.Execute(new ExecutionSettings(filter));
         }
 
         [InitializeOnLoadMethod]
         private static void RunIfRequested()
         {
+            if (File.Exists(FullRequestPath))
+            {
+                File.Delete(FullRequestPath);
+                EditorApplication.delayCall += RunFullSuite;
+                return;
+            }
             if (!File.Exists(RequestPath))
             {
                 return;
@@ -61,11 +94,20 @@ namespace WorldBuilder.Editor
         {
             private readonly List<string> failures =
                 new List<string>();
+            private readonly string resultPath;
+            private readonly string label;
+
+            public ResultCallbacks(string resultPath, string label)
+            {
+                this.resultPath = resultPath;
+                this.label = label;
+            }
 
             public void RunStarted(ITestAdaptor testsToRun)
             {
                 Debug.Log(
-                    "WorldBuilder EditMode infrastructure validation started.");
+                    $"WorldBuilder {label} validation started: " +
+                    $"{testsToRun.TestCaseCount} tests selected.");
             }
 
             public void RunFinished(ITestResultAdaptor result)
@@ -84,10 +126,10 @@ namespace WorldBuilder.Editor
                 }
 
                 Directory.CreateDirectory(
-                    Path.GetDirectoryName(ResultPath));
-                File.WriteAllText(ResultPath, summary);
+                    Path.GetDirectoryName(resultPath));
+                File.WriteAllText(resultPath, summary);
                 Debug.Log(
-                    "WorldBuilder EditMode infrastructure validation " +
+                    $"WorldBuilder {label} validation " +
                     $"finished: {result.TestStatus}, " +
                     $"{result.PassCount} passed, " +
                     $"{result.FailCount} failed.");

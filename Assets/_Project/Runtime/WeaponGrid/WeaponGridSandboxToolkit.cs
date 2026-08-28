@@ -26,6 +26,10 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         [SerializeField] private bool initializeSandboxIfPristine = true;
         [SerializeField] private Rect windowRect = new Rect(0f, 0f, 1080f, 620f);
 
+        private const float DefaultBoardZoom = 1f;
+        private const float MinimumBoardZoom = 0.55f;
+        private const float MaximumBoardZoom = 1.85f;
+
         private readonly Dictionary<GridCoordinate, Rect> cellRects =
             new Dictionary<GridCoordinate, Rect>();
 
@@ -37,6 +41,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
         private bool capturedCursorVisible;
         private bool capturedInputCaptureState;
         private bool sandboxInitializationChecked;
+        private float boardZoom = DefaultBoardZoom;
         private GUIStyle titleStyle;
         private GUIStyle headingStyle;
         private GUIStyle bodyStyle;
@@ -50,6 +55,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
         public bool IsOpen => isOpen;
         public WeaponGridRuntime Runtime => gridRuntime;
+        public float BoardZoom => boardZoom;
 
         private void Awake()
         {
@@ -169,6 +175,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
             EnsureRuntime();
             EnsurePreview();
+            ResetViewState();
             isOpen = true;
             CapturePresentationState();
         }
@@ -191,6 +198,7 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             }
 
             isOpen = false;
+            ResetViewState();
             RestorePresentationState();
         }
 
@@ -204,12 +212,11 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 titleStyle);
             GUI.Label(
                 new Rect(18f, 38f, windowRect.width - 76f, 20f),
-                "Drag title bar to move  |  drag weapon to rotate  |  Esc closes",
+                "Mouse wheel zooms grid  |  drag weapon to rotate  |  Esc closes",
                 mutedStyle);
 
             var closeRect = new Rect(windowRect.width - 40f, 10f, 26f, 26f);
-            DrawInventoryButtonSurface(closeRect, false);
-            if (GUI.Button(closeRect, "X", tabStyle))
+            if (LoopSceneGui.DrawMinimalCloseButton(closeRect))
             {
                 Close();
                 return;
@@ -375,7 +382,35 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                 area.y + 52f,
                 area.width - 36f,
                 area.height - 70f);
-            DrawBoard(boardArea);
+            Event current = Event.current;
+            if (current.type == EventType.ScrollWheel &&
+                boardArea.Contains(current.mousePosition))
+            {
+                boardZoom = CalculateZoom(
+                    boardZoom,
+                    current.delta.y);
+                current.Use();
+            }
+            GUI.BeginGroup(boardArea);
+            DrawBoard(new Rect(0f, 0f, boardArea.width, boardArea.height));
+            GUI.EndGroup();
+        }
+
+        public static float CalculateZoom(
+            float currentZoom,
+            float scrollDelta)
+        {
+            float zoom = currentZoom * Mathf.Exp(-scrollDelta * 0.08f);
+            return Mathf.Clamp(
+                zoom,
+                MinimumBoardZoom,
+                MaximumBoardZoom);
+        }
+
+        private void ResetViewState()
+        {
+            boardZoom = DefaultBoardZoom;
+            windowPositionInitialized = false;
         }
 
         private void DrawBoard(Rect area)
@@ -401,12 +436,13 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
             int columns = maxX - minX + 1;
             int rows = maxY - minY + 1;
-            float cellSize = Mathf.Clamp(
+            float fittedCellSize = Mathf.Clamp(
                 Mathf.Min(
                     (area.width - 30f) / Mathf.Max(3, columns + 1),
                     (area.height - 30f) / Mathf.Max(3, rows + 1)),
                 27f,
                 58f);
+            float cellSize = fittedCellSize * boardZoom;
             const float gap = 2f;
             float boardWidth = columns * cellSize;
             float boardHeight = rows * cellSize;
@@ -442,22 +478,26 @@ namespace WorldBuilder.Gameplay.WeaponGrid
             }
 
             LoopSceneGui.DrawWeaponGridCell(rect);
-            string label = definition != null
-                ? GetInitials(definition.DisplayName)
-                : string.Empty;
             if (definition != null)
             {
-                Color previous = GUI.color;
-                GUI.color = new Color(
-                    definition.DisplayColor.r,
-                    definition.DisplayColor.g,
-                    definition.DisplayColor.b,
-                    0.78f);
-                GUI.DrawTexture(Inset(rect, 4f), whiteTexture);
-                GUI.color = previous;
+                if (!InventoryItemPresentation.DrawSingleCellIcon(
+                        rect,
+                        placement.Artifact.DefinitionId))
+                {
+                    Color previous = GUI.color;
+                    GUI.color = new Color(
+                        definition.DisplayColor.r,
+                        definition.DisplayColor.g,
+                        definition.DisplayColor.b,
+                        0.78f);
+                    GUI.DrawTexture(Inset(rect, 4f), whiteTexture);
+                    GUI.color = previous;
+                    GUI.Label(
+                        rect,
+                        GetInitials(definition.DisplayName),
+                        centeredStyle);
+                }
             }
-
-            GUI.Label(rect, label, centeredStyle);
         }
 
         private void DrawSidebar(Rect area)
@@ -484,8 +524,12 @@ namespace WorldBuilder.Gameplay.WeaponGrid
 
                 DrawStatLine(area.x, ref y, area.width, "DAMAGE", $"{meleeWeapon.Damage:0.#}");
                 DrawStatLine(area.x, ref y, area.width, "ATTACK COOLDOWN", $"{meleeWeapon.Cooldown:0.00} s");
+                DrawStatLine(area.x, ref y, area.width, "ATTACK RATE", $"×{meleeWeapon.AttackSpeedMultiplier:0.000}");
                 DrawStatLine(area.x, ref y, area.width, "BLADE REACH", $"{meleeWeapon.Reach:0.00} m");
                 DrawStatLine(area.x, ref y, area.width, "HIT RADIUS", $"{meleeWeapon.Radius:0.00} m");
+                DrawStatLine(area.x, ref y, area.width, "HEFT / HANDLING", $"{meleeWeapon.Heft * 100f:0} / {meleeWeapon.Handling * 100f:0}");
+                DrawStatLine(area.x, ref y, area.width, "IMPACT PAUSE", $"{meleeWeapon.HitPauseDuration * 1000f:0} ms");
+                DrawStatLine(area.x, ref y, area.width, "STAGGER", $"{meleeWeapon.StaggerDuration:0.000} s");
                 return;
             }
 

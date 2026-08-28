@@ -134,6 +134,15 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 throw new InvalidOperationException(
                     "The Combat Lab diagnostic suite could not find every required production component.");
             }
+
+            recorder.Configure(
+                motor,
+                input,
+                motor.GetComponentInChildren<Animator>(true),
+                playerHealth,
+                enemyHealth,
+                enemyBrain,
+                Camera.main);
             if (!bowWeapon.AudioConfigured)
             {
                 throw new InvalidOperationException(
@@ -268,7 +277,10 @@ namespace WorldBuilder.Gameplay.Diagnostics
         private void ResolveReferences()
         {
             recorder ??= FindFirstObjectByType<GameplayDiagnosticRecorder>();
-            motor = FindFirstObjectByType<ThirdPersonMotor>();
+            GameObject player = GameObject.FindGameObjectWithTag("Player");
+            motor = player != null
+                ? player.GetComponent<ThirdPersonMotor>()
+                : FindFirstObjectByType<ThirdPersonMotor>();
             input = motor != null ? motor.GetComponent<PlayerInputSource>() : null;
             playerHealth = motor != null ? motor.GetComponent<Health>() : null;
             enemyBrain = FindFirstObjectByType<EnemyBrain>();
@@ -278,16 +290,21 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     ? enemyBrain.GetComponent<HitReactionPresenter>()
                     : null;
             enemyController = enemyBrain != null ? enemyBrain.GetComponent<CharacterController>() : null;
-            weaponSlots =
-                FindFirstObjectByType<TwoSlotWeaponPresenter>();
-            bowWeapon = FindFirstObjectByType<BowWeapon>();
+            weaponSlots = motor != null
+                ? motor.GetComponentInChildren<TwoSlotWeaponPresenter>(true)
+                : null;
+            bowWeapon = motor != null
+                ? motor.GetComponentInChildren<BowWeapon>(true)
+                : null;
             cameraAimTarget =
                 FindFirstObjectByType<CameraAimTarget>();
-            aimPresenter =
-                FindFirstObjectByType<UpperBodyAimPresenter>();
-            stancePresenter =
-                FindFirstObjectByType<
-                    AimStanceLocomotionPresenter>();
+            aimPresenter = motor != null
+                ? motor.GetComponentInChildren<UpperBodyAimPresenter>(true)
+                : null;
+            stancePresenter = motor != null
+                ? motor.GetComponentInChildren<
+                    AimStanceLocomotionPresenter>(true)
+                : null;
         }
 
         private void BuildScenarioSteps()
@@ -643,14 +660,27 @@ namespace WorldBuilder.Gameplay.Diagnostics
                 }
             });
             EnqueueFixed("combat", "bow-reload", 30, default);
-            EnqueueFixed(
-                "combat",
-                "bow-full-draw",
-                66,
-                Intent(Vector2.zero, attackHeld: true),
-                screenshot: true,
-                onEnd: () =>
+            EnqueueStep(new DiagnosticStep
+            {
+                Scenario = "combat",
+                Phase = "bow-full-draw",
+                FrameCount = 120,
+                Screenshot = true,
+                Intent = _ =>
+                    Intent(Vector2.zero, attackHeld: true),
+                CompleteBeforeFrame = frame =>
+                    frame > 2 &&
+                    bowWeapon.DrawNormalized >= 0.99f,
+                OnEnd = () =>
                 {
+                    if (bowWeapon.DrawNormalized < 0.99f)
+                    {
+                        throw new InvalidOperationException(
+                            "The full bow draw did not reach the configured " +
+                            "draw duration before the diagnostic timeout: " +
+                            $"draw={bowWeapon.DrawNormalized:0.000}.");
+                    }
+
                     if (aimPresenter.BowDrawTorsoYaw < 70f)
                     {
                         throw new InvalidOperationException(
@@ -666,7 +696,8 @@ namespace WorldBuilder.Gameplay.Diagnostics
                     recorder.MarkLastFrame(
                         "bow-fully-drawn",
                         true);
-                });
+                }
+            });
             Vector3 inspectionFacingStart = Vector3.forward;
             Vector3 inspectionAimStart = Vector3.forward;
             Vector3 inspectionCameraStart = Vector3.forward;

@@ -193,12 +193,14 @@ namespace WorldBuilder.Gameplay.Loop
                 while (remaining > 0)
                 {
                     entries = resolveEntries();
-                    int slot = ItemGridPlacement.FindFirstAvailableSlot(
-                        entries,
-                        incoming,
-                        columns,
-                        rows);
-                    if (slot < 0)
+                    if (!ItemGridPlacement.
+                            TryFindFirstAvailableSlotWithRotation(
+                                entries,
+                                incoming,
+                                columns,
+                                rows,
+                                out int slot,
+                                out int rotationQuarterTurns))
                     {
                         break;
                     }
@@ -208,7 +210,8 @@ namespace WorldBuilder.Gameplay.Loop
                             incoming,
                             amount,
                             slot,
-                            assignOwnership))
+                            assignOwnership,
+                            rotationQuarterTurns))
                     {
                         break;
                     }
@@ -245,7 +248,8 @@ namespace WorldBuilder.Gameplay.Loop
                     incoming,
                     amount,
                     targetSlot,
-                    assignOwnership)
+                    assignOwnership,
+                    incoming.RotationQuarterTurns)
                         ? amount
                         : 0;
             }
@@ -265,12 +269,14 @@ namespace WorldBuilder.Gameplay.Loop
             StorageEntry incoming,
             int quantity,
             int slot,
-            Func<StorageEntry, int, bool> assignOwnership)
+            Func<StorageEntry, int, bool> assignOwnership,
+            int rotationQuarterTurns)
         {
             StorageEntry added = quantity == incoming.Quantity
                 ? incoming.Clone()
                 : incoming.CreateSplitCopy(quantity);
             added.SetSlotIndex(slot);
+            added.SetRotationQuarterTurns(rotationQuarterTurns);
             profile.AddToStorage(added);
             StorageEntry stored = profile.FindStorageEntry(added.EntryId);
             if (stored != null && assignOwnership(stored, slot))

@@ -376,8 +376,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             EnsureDrawingResources();
+            Camera camera = Camera.main;
             Vector3 aimPoint =
                 LootInteractionPresentation.CalculateAimPoint(
+                    camera,
+                    player,
                     Screen.width,
                     Screen.height);
             float guiAimY = Screen.height - aimPoint.y;
@@ -433,6 +436,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             Ray ray = camera.ScreenPointToRay(
                 LootInteractionPresentation.CalculateAimPoint(
+                    camera,
+                    player,
                     Screen.width,
                     Screen.height));
             int hitCount = Physics.RaycastNonAlloc(

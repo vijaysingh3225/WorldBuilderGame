@@ -90,7 +90,10 @@ namespace WorldBuilder.Gameplay.Combat
                 appliedAmount,
                 request.HitPoint,
                 request.Direction,
-                request.SourceId);
+                request.SourceId,
+                request.StaggerDuration,
+                request.HitPauseDuration,
+                request.ImpactStrength);
             current = Mathf.Max(minimum, current - appliedAmount);
             Changed?.Invoke(current, maximum);
             Damaged?.Invoke(appliedRequest);

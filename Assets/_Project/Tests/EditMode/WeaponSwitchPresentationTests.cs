@@ -71,6 +71,57 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void SheatheHandDampingConvergesAndMeetsBothEndpoints()
+        {
+            MethodInfo damping =
+                typeof(TwoSlotWeaponPresenter).GetMethod(
+                    "DampSheatheHandRotation",
+                    BindingFlags.NonPublic |
+                    BindingFlags.Static);
+            Assert.That(damping, Is.Not.Null);
+
+            Quaternion target = Quaternion.Euler(-62f, 118f, 37f);
+            Quaternion current = Quaternion.identity;
+            float priorError = Quaternion.Angle(current, target);
+            for (int frame = 0; frame < 30; frame++)
+            {
+                current = (Quaternion)damping.Invoke(
+                    null,
+                    new object[]
+                    {
+                        current,
+                        target,
+                        1f / 60f,
+                        0f
+                    });
+                float error = Quaternion.Angle(current, target);
+                Assert.That(
+                    error,
+                    Is.LessThanOrEqualTo(priorError + 0.0001f),
+                    "Wrist filtering must converge without a reversal or rotational twitch.");
+                if (priorError > 0.01f)
+                {
+                    Assert.That(error, Is.LessThan(priorError));
+                }
+                priorError = error;
+            }
+
+            Quaternion exactEndpoint = (Quaternion)damping.Invoke(
+                null,
+                new object[]
+                {
+                    current,
+                    target,
+                    1f / 60f,
+                    1f
+                });
+            Assert.That(
+                Quaternion.Angle(exactEndpoint, target),
+                Is.LessThan(0.001f),
+                "Both traversal directions must still meet their authored endpoint exactly.");
+        }
+
+        [Test]
         public void BowHoldingHandFrameTracksHandleAndStableBowSide()
         {
             MethodInfo calculate =
@@ -381,6 +432,86 @@ namespace WorldBuilder.Tests.EditMode
                         1f,
                         false),
                 Is.EqualTo(1f).Within(0.001f));
+        }
+
+        [Test]
+        public void BowStringHandOpensAfterReleaseAndClaspsForRenock()
+        {
+            const float ReloadDuration = 0.65f;
+
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateBowStringHandClaspWeight(
+                    true,
+                    0f,
+                    ReloadDuration),
+                Is.EqualTo(1f).Within(0.001f));
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateBowStringHandClaspWeight(
+                    false,
+                    ReloadDuration,
+                    ReloadDuration),
+                Is.EqualTo(1f).Within(0.001f),
+                "The fingers should begin opening from their exact release pose.");
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateBowStringHandClaspWeight(
+                    false,
+                    ReloadDuration - 0.08f,
+                    ReloadDuration),
+                Is.EqualTo(0f).Within(0.001f),
+                "The string hand should visibly open immediately after release.");
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateBowStringHandClaspWeight(
+                    false,
+                    0.07f,
+                    ReloadDuration),
+                Is.InRange(0.45f, 0.55f),
+                "The fingers should be halfway back to their clasp midway through the renock blend.");
+            Assert.That(
+                TwoSlotWeaponPresenter.CalculateBowStringHandClaspWeight(
+                    false,
+                    0f,
+                    ReloadDuration),
+                Is.EqualTo(1f).Within(0.001f),
+                "The hand must be clasped when the replacement arrow becomes ready.");
+        }
+
+        [Test]
+        public void BowStringHandFingerBlendMovesBetweenOpenAndClaspedPoses()
+        {
+            GameObject fingerObject = new GameObject("Bow String Finger");
+            try
+            {
+                Quaternion open = Quaternion.Euler(0f, 0f, 0f);
+                Quaternion clasped = Quaternion.Euler(0f, 0f, 60f);
+
+                TwoSlotWeaponPresenter.ApplyBlendedFingerPose(
+                    new[] { fingerObject.transform },
+                    new[] { open },
+                    new[] { clasped },
+                    0f,
+                    1f);
+                Assert.That(
+                    Quaternion.Angle(
+                        fingerObject.transform.localRotation,
+                        open),
+                    Is.LessThan(0.001f));
+
+                TwoSlotWeaponPresenter.ApplyBlendedFingerPose(
+                    new[] { fingerObject.transform },
+                    new[] { open },
+                    new[] { clasped },
+                    1f,
+                    1f);
+                Assert.That(
+                    Quaternion.Angle(
+                        fingerObject.transform.localRotation,
+                        clasped),
+                    Is.LessThan(0.001f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(fingerObject);
+            }
         }
 
         [Test]

@@ -22,15 +22,12 @@ namespace WorldBuilder.Gameplay.Loop
         public const string IronIngot = "iron-ingot";
         public const string Coal = "coal";
         public const string CopperCoin = "copper-coin";
+        public const string Rope = "rope";
         public const string OwlEyeSeal = "owl-eye-seal";
+        public const string WingedSeal = "winged-seal";
+        public const string ObsidianShard = "obsidian-shard";
         public const string LootShortSword = "loot-short-sword";
         public const string LootHuntingBow = "loot-hunting-bow";
-        public const string ArtifactPowerShard = "artifact-power-shard";
-        public const string KeenShard = "keen-shard";
-        public const string IronBond = "iron-bond";
-        public const string WindStep = "wind-step";
-        public const string RazorLine = "razor-line";
-        public const string WayfarerKnot = "wayfarer-knot";
     }
 
     public static class ItemDefinitionCatalog
@@ -40,7 +37,11 @@ namespace WorldBuilder.Gameplay.Loop
         private static Texture2D ironIngotIcon;
         private static Texture2D coalIcon;
         private static Texture2D copperCoinIcon;
+        private static Texture2D ropeIcon;
         private static Texture2D owlEyeSealIcon;
+        private static Texture2D wingedSealIcon;
+        private static Texture2D obsidianShardIcon;
+        private static Texture2D backpackIcon;
 
         public static string DisplayName(string definitionId)
         {
@@ -51,15 +52,12 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.IronIngot => "Iron Ingot",
                 ItemDefinitionIds.Coal => "Coal",
                 ItemDefinitionIds.CopperCoin => "Copper Coin",
+                ItemDefinitionIds.Rope => "Rope",
                 ItemDefinitionIds.OwlEyeSeal => "Owl Eye Seal",
+                ItemDefinitionIds.WingedSeal => "Winged Seal",
+                ItemDefinitionIds.ObsidianShard => "Obsidian Shard",
                 ItemDefinitionIds.LootShortSword => "Raider Short Sword",
                 ItemDefinitionIds.LootHuntingBow => "Raider Hunting Bow",
-                ItemDefinitionIds.ArtifactPowerShard => "Power Shard",
-                ItemDefinitionIds.KeenShard => "Keen Shard",
-                ItemDefinitionIds.IronBond => "Iron Bond",
-                ItemDefinitionIds.WindStep => "Wind Step",
-                ItemDefinitionIds.RazorLine => "Razor Line",
-                ItemDefinitionIds.WayfarerKnot => "Wayfarer Knot",
                 _ => string.IsNullOrWhiteSpace(definitionId)
                     ? "Unknown Item"
                     : definitionId.Trim()
@@ -75,15 +73,12 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.IronIngot => ItemCategory.Material,
                 ItemDefinitionIds.Coal => ItemCategory.Material,
                 ItemDefinitionIds.CopperCoin => ItemCategory.Currency,
+                ItemDefinitionIds.Rope => ItemCategory.Material,
                 ItemDefinitionIds.OwlEyeSeal => ItemCategory.Artifact,
+                ItemDefinitionIds.WingedSeal => ItemCategory.Artifact,
+                ItemDefinitionIds.ObsidianShard => ItemCategory.Artifact,
                 ItemDefinitionIds.LootShortSword => ItemCategory.Weapon,
                 ItemDefinitionIds.LootHuntingBow => ItemCategory.Weapon,
-                ItemDefinitionIds.ArtifactPowerShard => ItemCategory.Artifact,
-                ItemDefinitionIds.KeenShard => ItemCategory.Artifact,
-                ItemDefinitionIds.IronBond => ItemCategory.Artifact,
-                ItemDefinitionIds.WindStep => ItemCategory.Artifact,
-                ItemDefinitionIds.RazorLine => ItemCategory.Artifact,
-                ItemDefinitionIds.WayfarerKnot => ItemCategory.Artifact,
                 _ => ItemCategory.Unknown
             };
         }
@@ -115,6 +110,10 @@ namespace WorldBuilder.Gameplay.Loop
                 string.Equals(
                     definitionId,
                     ItemDefinitionIds.CopperCoin,
+                    StringComparison.Ordinal) ||
+                string.Equals(
+                    definitionId,
+                    ItemDefinitionIds.Rope,
                     StringComparison.Ordinal);
         }
 
@@ -126,6 +125,7 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.HealthPack => 64,
                 ItemDefinitionIds.Coal => 10,
                 ItemDefinitionIds.CopperCoin => 100,
+                ItemDefinitionIds.Rope => 24,
                 _ => 1
             };
         }
@@ -252,18 +252,59 @@ namespace WorldBuilder.Gameplay.Loop
                 ItemDefinitionIds.CopperCoin =>
                     copperCoinIcon ??= Resources.Load<Texture2D>(
                         "Inventory Icons/Copper Tree Coin Icon"),
+                ItemDefinitionIds.Rope =>
+                    ropeIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Rope Icon"),
                 ItemDefinitionIds.OwlEyeSeal =>
                     owlEyeSealIcon ??= Resources.Load<Texture2D>(
                         "Inventory Icons/Owl I Seal Icon") ??
                     Resources.Load<Texture2D>(
                         "Inventory Icons/Owl Eye Seal Icon"),
+                ItemDefinitionIds.WingedSeal =>
+                    wingedSealIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Winged Seal Icon"),
+                ItemDefinitionIds.ObsidianShard =>
+                    obsidianShardIcon ??= Resources.Load<Texture2D>(
+                        "Inventory Icons/Obsidian Shard Icon"),
                 _ => null
             };
+        }
+
+        public static Texture2D LoadBackpackIcon()
+        {
+            return backpackIcon ??= Resources.Load<Texture2D>(
+                "Inventory Icons/Leather Traveler Backpack Icon");
         }
     }
 
     public static class ItemGridPlacement
     {
+        public static bool TryCalculateAnchorSlot(
+            int hoveredSlot,
+            int grabbedColumnOffset,
+            int grabbedRowOffset,
+            int columns,
+            int rows,
+            out int anchorSlot)
+        {
+            anchorSlot = -1;
+            if (columns <= 0 || rows <= 0 ||
+                hoveredSlot < 0 || hoveredSlot >= columns * rows)
+            {
+                return false;
+            }
+
+            int column = hoveredSlot % columns - grabbedColumnOffset;
+            int row = hoveredSlot / columns - grabbedRowOffset;
+            if (column < 0 || column >= columns || row < 0 || row >= rows)
+            {
+                return false;
+            }
+
+            anchorSlot = row * columns + column;
+            return true;
+        }
+
         public static StorageEntry GetEntryAtSlot(
             IReadOnlyList<StorageEntry> entries,
             int slotIndex,
@@ -384,6 +425,59 @@ namespace WorldBuilder.Gameplay.Loop
                 }
             }
             return -1;
+        }
+
+        public static bool TryFindFirstAvailableSlotWithRotation(
+            IReadOnlyList<StorageEntry> entries,
+            StorageEntry candidate,
+            int columns,
+            int rows,
+            out int slot,
+            out int rotationQuarterTurns)
+        {
+            slot = -1;
+            rotationQuarterTurns = candidate != null
+                ? candidate.RotationQuarterTurns
+                : 0;
+            if (candidate == null)
+            {
+                return false;
+            }
+
+            // Preserve the player's current orientation whenever it has a
+            // valid home. Only fall back to clockwise alternatives after the
+            // complete grid has been checked at that orientation.
+            slot = FindFirstAvailableSlot(
+                entries,
+                candidate,
+                columns,
+                rows);
+            if (slot >= 0)
+            {
+                return true;
+            }
+
+            int startingRotation = rotationQuarterTurns;
+            for (int turns = 1; turns < 4; turns++)
+            {
+                rotationQuarterTurns =
+                    (startingRotation + turns) % 4;
+                StorageEntry rotated = candidate.Clone();
+                rotated.SetRotationQuarterTurns(rotationQuarterTurns);
+                slot = FindFirstAvailableSlot(
+                    entries,
+                    rotated,
+                    columns,
+                    rows);
+                if (slot >= 0)
+                {
+                    return true;
+                }
+            }
+
+            slot = -1;
+            rotationQuarterTurns = startingRotation;
+            return false;
         }
 
         public static bool TryGetOccupiedSlots(

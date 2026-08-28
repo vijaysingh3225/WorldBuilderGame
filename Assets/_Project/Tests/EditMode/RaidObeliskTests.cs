@@ -32,7 +32,7 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
-        public void FourActivationsGlowAndRaiseTheFutureObjectiveHook()
+        public void FourActivationsRemainNonEmissiveAndRaiseObjectiveHook()
         {
             GameObject controllerObject =
                 new GameObject("Obelisk Test Controller");
@@ -81,9 +81,15 @@ namespace WorldBuilder.Tests.EditMode
                         controller.TryActivateObelisk(obelisk),
                         Is.True);
                     Assert.That(obelisk.IsActivated, Is.True);
-                    Assert.That(glow.enabled, Is.True);
-                    Assert.That(glow.intensity, Is.EqualTo(18f));
-                    Assert.That(glow.range, Is.EqualTo(20f));
+                    Assert.That(glow.enabled, Is.False);
+                    Assert.That(glow.intensity, Is.Zero);
+                    Assert.That(glow.range, Is.Zero);
+                    var properties = new MaterialPropertyBlock();
+                    visual.GetComponent<Renderer>().GetPropertyBlock(
+                        properties);
+                    Assert.That(
+                        properties.GetColor("_EmissionColor"),
+                        Is.EqualTo(Color.black));
                 }
 
                 Assert.That(controller.ObeliskCount, Is.EqualTo(4));

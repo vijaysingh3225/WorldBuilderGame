@@ -1,0 +1,21 @@
+{
+  "name": "WorldBuilder.Tests.PlayMode",
+  "rootNamespace": "WorldBuilder.Tests.PlayMode",
+  "references": [
+    "WorldBuilder.Gameplay"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

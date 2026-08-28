@@ -12,6 +12,7 @@ namespace WorldBuilder.Editor
     public static class HumanoidAnimationSetup
     {
         public const float CrouchTransitionDuration = 0.32f;
+        public const float SprintPlaybackSpeed = 1.18f;
         public const string ModelPath =
             "Assets/_Project/Art/Prototype/Humanoid/AnimationLibrary_Unity_Standard.fbx";
         public const string LowPolyMannequinPath =
@@ -243,6 +244,11 @@ namespace WorldBuilder.Editor
                 groundedWalk.name != GroundedWalkClipName || correctedJog.name != CorrectedJogClipName ||
                 correctedSprint.name != CorrectedSprintClipName;
             AnimationClip shortSwordReady = FindClip(ShortSwordReadyClipName);
+            AnimationClip swordHitStagger =
+                FindClip(HitReactionPresenter.StaggerClipName);
+            AnimationClip ladderClimb = FindClipAtPath(
+                SwordComboModelPath,
+                LadderClimbPresenter.ClipName);
             AnimationClip swordComboHit1 =
                 FindClipAtPath(SwordComboModelPath, SwordComboHit1ClipName);
             AnimationClip swordComboHit1Recovery =
@@ -283,6 +289,8 @@ namespace WorldBuilder.Editor
                 swordComboHit2 == null ||
                 swordComboHit2Recovery == null ||
                 swordComboHit3 == null ||
+                swordHitStagger == null ||
+                ladderClimb == null ||
                 shortSwordMask == null ||
                 shortSwordBlockOutdated;
             if (forceControllerRebuild || tacticalCrouchOutdated)
@@ -340,10 +348,13 @@ namespace WorldBuilder.Editor
 
         private static bool IsCurrentController(AnimatorController controller)
         {
-            if (controller == null || controller.layers.Length != 4 ||
+            if (controller == null || controller.layers.Length != 6 ||
                 controller.layers[1].name != ShortSwordGripLayerName ||
                 controller.layers[2].name != ShortSwordBlockLayerName ||
-                controller.layers[3].name != ShortSwordLayerName)
+                controller.layers[3].name != ShortSwordLayerName ||
+                controller.layers[4].name != LadderClimbPresenter.LayerName ||
+                controller.layers[5].name !=
+                    HitReactionPresenter.StaggerLayerName)
             {
                 return false;
             }
@@ -351,6 +362,10 @@ namespace WorldBuilder.Editor
             ChildAnimatorState[] states = controller.layers[0].stateMachine.states;
             ChildAnimatorState[] blockStates = controller.layers[2].stateMachine.states;
             ChildAnimatorState[] comboStates = controller.layers[3].stateMachine.states;
+            ChildAnimatorState[] ladderStates =
+                controller.layers[4].stateMachine.states;
+            ChildAnimatorState[] staggerStates =
+                controller.layers[5].stateMachine.states;
             AnimatorState standingState = states
                 .Select(child => child.state)
                 .FirstOrDefault(state =>
@@ -374,6 +389,11 @@ namespace WorldBuilder.Editor
                         HumanoidAnimatorPresenter.GaitPlaybackParameter &&
                     parameter.type ==
                         AnimatorControllerParameterType.Float) &&
+                controller.parameters.Any(parameter =>
+                    parameter.name ==
+                        ShortSwordAttackPresenter.AttackSpeedParameterName &&
+                    parameter.type ==
+                        AnimatorControllerParameterType.Float) &&
                 expectedGripMask != null &&
                 controller.layers[1].avatarMask == expectedGripMask &&
                 controller.layers[2].avatarMask ==
@@ -395,6 +415,28 @@ namespace WorldBuilder.Editor
                 comboStates.Any(state =>
                     state.state.name == ShortSwordAttackPresenter.Hit3StateName) &&
                 comboStates.Length == 5 &&
+                controller.layers[4].avatarMask == null &&
+                controller.layers[4].defaultWeight == 0f &&
+                !controller.layers[4].iKPass &&
+                ladderStates.Length == 1 &&
+                ladderStates[0].state.name ==
+                    LadderClimbPresenter.StateName &&
+                ladderStates[0].state.motion != null &&
+                ladderStates[0].state.motion.name ==
+                    LadderClimbPresenter.ClipName &&
+                controller.layers[5].avatarMask == null &&
+                controller.layers[5].defaultWeight == 0f &&
+                !controller.layers[5].iKPass &&
+                staggerStates.Length == 1 &&
+                staggerStates[0].state.name ==
+                    HitReactionPresenter.StaggerStateName &&
+                staggerStates[0].state.motion != null &&
+                staggerStates[0].state.motion.name ==
+                    HitReactionPresenter.StaggerClipName &&
+                Mathf.Abs(
+                    staggerStates[0].state.speed -
+                    staggerStates[0].state.motion.averageDuration /
+                    HitReactionPresenter.SwordStaggerDuration) < 0.001f &&
                 HasStateSpeed(
                     comboStates,
                     ShortSwordAttackPresenter.Hit1StateName,
@@ -406,7 +448,11 @@ namespace WorldBuilder.Editor
                 HasStateSpeed(
                     comboStates,
                     ShortSwordAttackPresenter.Hit3StateName,
-                    SwordStrikePlaybackSpeed);
+                    SwordStrikePlaybackSpeed) &&
+                comboStates.All(child =>
+                    child.state.speedParameterActive &&
+                    child.state.speedParameter ==
+                        ShortSwordAttackPresenter.AttackSpeedParameterName);
         }
 
         private static bool HasStateSpeed(
@@ -487,11 +533,20 @@ namespace WorldBuilder.Editor
             for (int index = 0; index < clips.Length; index++)
             {
                 ModelImporterClipAnimation clip = clips[index];
-                if (clip.loopTime || !clip.lockRootRotation || !clip.lockRootHeightY ||
+                bool shouldLoop = string.Equals(
+                    clip.name,
+                    LadderClimbPresenter.ClipName,
+                    StringComparison.OrdinalIgnoreCase) ||
+                    clip.name.EndsWith(
+                        "|ClimbUp_1m",
+                        StringComparison.OrdinalIgnoreCase);
+                if (clip.loopTime != shouldLoop ||
+                    clip.loopPose != shouldLoop ||
+                    !clip.lockRootRotation || !clip.lockRootHeightY ||
                     !clip.lockRootPositionXZ || !clip.heightFromFeet)
                 {
-                    clip.loopTime = false;
-                    clip.loopPose = false;
+                    clip.loopTime = shouldLoop;
+                    clip.loopPose = shouldLoop;
                     clip.lockRootRotation = true;
                     clip.lockRootHeightY = true;
                     clip.lockRootPositionXZ = true;
@@ -583,6 +638,12 @@ namespace WorldBuilder.Editor
                 type = AnimatorControllerParameterType.Float,
                 defaultFloat = 1f
             });
+            controller.AddParameter(new AnimatorControllerParameter
+            {
+                name = ShortSwordAttackPresenter.AttackSpeedParameterName,
+                type = AnimatorControllerParameterType.Float,
+                defaultFloat = 1f
+            });
             controller.AddParameter(HumanoidAnimatorPresenter.VerticalSpeedParameter, AnimatorControllerParameterType.Float);
             controller.AddParameter(HumanoidAnimatorPresenter.GroundedParameter, AnimatorControllerParameterType.Bool);
             controller.AddParameter(HumanoidAnimatorPresenter.CrouchedParameter, AnimatorControllerParameterType.Bool);
@@ -597,6 +658,11 @@ namespace WorldBuilder.Editor
             AnimationClip movingJumpRise = AssetDatabase.LoadAssetAtPath<AnimationClip>(NaturalJumpMovingRisePath);
             AnimationClip jumpFall = AssetDatabase.LoadAssetAtPath<AnimationClip>(NaturalJumpFallPath);
             AnimationClip shortSwordReady = FindClip(ShortSwordReadyClipName);
+            AnimationClip swordHitStagger =
+                FindClip(HitReactionPresenter.StaggerClipName);
+            AnimationClip ladderClimb = FindClipAtPath(
+                SwordComboModelPath,
+                LadderClimbPresenter.ClipName);
             AnimationClip swordComboHit1 =
                 FindClipAtPath(SwordComboModelPath, SwordComboHit1ClipName);
             AnimationClip swordComboHit1Recovery =
@@ -620,7 +686,7 @@ namespace WorldBuilder.Editor
                 movingJumpRise, jumpFall, shortSwordReady,
                 swordComboHit1, swordComboHit1Recovery,
                 swordComboHit2, swordComboHit2Recovery, swordComboHit3,
-                swordBlock
+                swordBlock, ladderClimb, swordHitStagger
             };
             if (requiredClips.Any(clip => clip == null) ||
                 shortSwordMask == null ||
@@ -764,6 +830,20 @@ namespace WorldBuilder.Editor
             swordHit1.speed = SwordStrikePlaybackSpeed;
             swordHit2.speed = SwordHit2PlaybackSpeed;
             swordHit3.speed = SwordStrikePlaybackSpeed;
+            AnimatorState[] speedScaledSwordStates =
+            {
+                swordHit1,
+                swordHit1Recovery,
+                swordHit2,
+                swordHit2Recovery,
+                swordHit3
+            };
+            foreach (AnimatorState state in speedScaledSwordStates)
+            {
+                state.speedParameterActive = true;
+                state.speedParameter =
+                    ShortSwordAttackPresenter.AttackSpeedParameterName;
+            }
             swordStateMachine.defaultState = swordHit1;
 
             AnimatorControllerLayer swordLayer = new AnimatorControllerLayer
@@ -777,6 +857,63 @@ namespace WorldBuilder.Editor
                 stateMachine = swordStateMachine
             };
             controller.AddLayer(swordLayer);
+
+            AnimatorStateMachine ladderStateMachine =
+                new AnimatorStateMachine
+                {
+                    name = LadderClimbPresenter.LayerName
+                };
+            AssetDatabase.AddObjectToAsset(
+                ladderStateMachine,
+                controller);
+            AnimatorState ladderState = ladderStateMachine.AddState(
+                LadderClimbPresenter.StateName,
+                new Vector3(240f, 80f));
+            ladderState.motion = ladderClimb;
+            ladderState.speed = 1f;
+            ladderStateMachine.defaultState = ladderState;
+            AnimatorControllerLayer ladderLayer =
+                new AnimatorControllerLayer
+                {
+                    name = LadderClimbPresenter.LayerName,
+                    avatarMask = null,
+                    blendingMode = AnimatorLayerBlendingMode.Override,
+                    defaultWeight = 0f,
+                    iKPass = false,
+                    syncedLayerIndex = -1,
+                    stateMachine = ladderStateMachine
+                };
+            controller.AddLayer(ladderLayer);
+
+            AnimatorStateMachine staggerStateMachine =
+                new AnimatorStateMachine
+                {
+                    name = HitReactionPresenter.StaggerLayerName
+                };
+            AssetDatabase.AddObjectToAsset(
+                staggerStateMachine,
+                controller);
+            AnimatorState staggerState = staggerStateMachine.AddState(
+                HitReactionPresenter.StaggerStateName,
+                new Vector3(240f, 80f));
+            staggerState.motion = swordHitStagger;
+            staggerState.speed = Mathf.Max(
+                0.01f,
+                swordHitStagger.length /
+                HitReactionPresenter.SwordStaggerDuration);
+            staggerStateMachine.defaultState = staggerState;
+            AnimatorControllerLayer staggerLayer =
+                new AnimatorControllerLayer
+                {
+                    name = HitReactionPresenter.StaggerLayerName,
+                    avatarMask = null,
+                    blendingMode = AnimatorLayerBlendingMode.Override,
+                    defaultWeight = 0f,
+                    iKPass = false,
+                    syncedLayerIndex = -1,
+                    stateMachine = staggerStateMachine
+                };
+            controller.AddLayer(staggerLayer);
 
             AssetDatabase.SaveAssets();
         }
@@ -802,7 +939,7 @@ namespace WorldBuilder.Editor
             tree.AddChild(sprint, ThirdPersonMotor.DefaultSprintSpeed);
             SetChildTimeScale(tree, 1, WalkPlaybackSpeed);
             SetChildTimeScale(tree, 2, 0.95f);
-            SetChildTimeScale(tree, 3, 1.25f);
+            SetChildTimeScale(tree, 3, SprintPlaybackSpeed);
             return tree;
         }
 

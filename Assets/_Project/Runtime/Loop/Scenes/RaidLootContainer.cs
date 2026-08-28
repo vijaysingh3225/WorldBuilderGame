@@ -15,7 +15,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public const float GuardCoinChance = 0.40f;
         public const int GuardMinimumCoins = 1;
         public const int GuardMaximumCoins = 5;
+        public const float GuardRopeChance = 0.10f;
+        public const float ChestRopeChance = 0.10f;
         public const float ChestArtifactChance = 0.30f;
+        public const int ChestArtifactRollCount = 2;
+
+        private static readonly string[] ChestArtifactDefinitionIds =
+        {
+            ItemDefinitionIds.OwlEyeSeal,
+            ItemDefinitionIds.WingedSeal,
+            ItemDefinitionIds.ObsidianShard
+        };
 
         public enum LootSourceKind
         {
@@ -31,6 +41,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private List<StorageEntry> entries =
             new List<StorageEntry>();
         [SerializeField] private bool available;
+        [SerializeField] private string spawnedWeaponDefinitionId;
+        [SerializeField] private int spawnedWeaponVisualSeed;
 
         private Health ownerHealth;
         private Transform player;
@@ -44,6 +56,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public bool IsAvailable => available;
         public bool IsEmpty => entries.Count == 0;
         public IReadOnlyList<StorageEntry> Entries => entries;
+        public static IReadOnlyList<string> ChestArtifactPool =>
+            ChestArtifactDefinitionIds;
+        public string SpawnedWeaponDefinitionId => spawnedWeaponDefinitionId;
+        public int SpawnedWeaponVisualSeed => spawnedWeaponVisualSeed;
         public bool PlayerInRange =>
             available &&
             player != null &&
@@ -66,6 +82,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public void ConfigureChest(string label, int seed)
         {
             DetachHealth();
+            spawnedWeaponDefinitionId = string.Empty;
+            spawnedWeaponVisualSeed = 0;
             sourceKind = LootSourceKind.Chest;
             displayName = string.IsNullOrWhiteSpace(label)
                 ? "Camp Chest"
@@ -106,6 +124,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             LootWeaponData weaponData = LootWeaponData.Create(
                 weaponDefinitionId,
                 seed ^ 0x5F3759DF);
+            spawnedWeaponDefinitionId = weaponDefinitionId;
+            spawnedWeaponVisualSeed = weaponData.VisualSeed;
             AddGeneratedEntry(StorageEntry.Create(
                 weaponDefinitionId,
                 customStateJson: JsonUtility.ToJson(weaponData)));
@@ -209,8 +229,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
                 while (remaining > 0)
                 {
-                    int slot = FindAvailableSlot(incoming);
-                    if (slot < 0)
+                    if (!ItemGridPlacement.
+                            TryFindFirstAvailableSlotWithRotation(
+                                entries,
+                                incoming,
+                                columns,
+                                rows,
+                                out int slot,
+                                out int rotationQuarterTurns))
                     {
                         break;
                     }
@@ -220,6 +246,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                             ? incoming.Clone()
                             : incoming.CreateSplitCopy(amount);
                     added.SetSlotIndex(slot);
+                    added.SetRotationQuarterTurns(rotationQuarterTurns);
                     entries.Add(added);
                     remaining -= amount;
                     moved += amount;
@@ -309,7 +336,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void OnGUI()
         {
-            if (!CanInteract ||
+            if (Event.current == null ||
+                Event.current.type != EventType.Repaint ||
+                !CanInteract ||
                 inventory == null ||
                 inventory.IsOpen)
             {
@@ -349,6 +378,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             entries.Clear();
             var random = new System.Random(seed);
+            System.Random placementRandom = includeChestMaterials
+                ? random
+                : null;
             if (includeArrows)
             {
                 StorageEntry arrows = StorageEntry.Create(
@@ -356,21 +388,41 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     random.Next(
                         Mathf.Max(1, minimumArrows),
                         Mathf.Max(minimumArrows, maximumArrows) + 1));
-                arrows.SetSlotIndex(0);
-                entries.Add(arrows);
+                AddGeneratedEntry(arrows, placementRandom);
             }
             if (random.NextDouble() < 0.5d)
             {
                 StorageEntry healthPack = StorageEntry.Create(
                     ItemDefinitionIds.HealthPack);
-                healthPack.SetSlotIndex(includeArrows ? 1 : 0);
-                entries.Add(healthPack);
+                AddGeneratedEntry(healthPack, placementRandom);
             }
-            if (includeChestMaterials &&
-                random.NextDouble() < ChestArtifactChance)
+            if (includeChestMaterials)
+            {
+                for (int roll = 0;
+                     roll < ChestArtifactRollCount;
+                     roll++)
+                {
+                    if (random.NextDouble() >= ChestArtifactChance)
+                    {
+                        continue;
+                    }
+
+                    string artifactDefinitionId =
+                        ChestArtifactDefinitionIds[random.Next(
+                            ChestArtifactDefinitionIds.Length)];
+                    AddGeneratedEntry(
+                        StorageEntry.Create(artifactDefinitionId),
+                        random);
+                }
+            }
+            float ropeChance = includeChestMaterials
+                ? ChestRopeChance
+                : GuardRopeChance;
+            if (random.NextDouble() < ropeChance)
             {
                 AddGeneratedEntry(
-                    StorageEntry.Create(ItemDefinitionIds.OwlEyeSeal));
+                    StorageEntry.Create(ItemDefinitionIds.Rope),
+                    placementRandom);
             }
             if (!includeChestMaterials)
             {
@@ -391,7 +443,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 for (int index = 0; index < ingotCount; index++)
                 {
                     AddGeneratedEntry(
-                        StorageEntry.Create(ItemDefinitionIds.IronIngot));
+                        StorageEntry.Create(ItemDefinitionIds.IronIngot),
+                        random);
                 }
             }
             if (random.NextDouble() < 0.5d)
@@ -399,20 +452,26 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 AddGeneratedEntry(
                     StorageEntry.Create(
                         ItemDefinitionIds.Coal,
-                        random.Next(1, 11)));
+                        random.Next(1, 11)),
+                    random);
             }
             if (random.NextDouble() < 0.5d)
             {
                 AddGeneratedEntry(
                     StorageEntry.Create(
                         ItemDefinitionIds.CopperCoin,
-                        random.Next(1, 11)));
+                        random.Next(1, 11)),
+                    random);
             }
         }
 
-        private void AddGeneratedEntry(StorageEntry entry)
+        private void AddGeneratedEntry(
+            StorageEntry entry,
+            System.Random random = null)
         {
-            int slot = FindAvailableSlot(entry);
+            int slot = random == null
+                ? FindAvailableSlot(entry)
+                : FindRandomAvailableSlot(entry, random);
             if (slot < 0)
             {
                 return;
@@ -428,6 +487,34 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 candidate,
                 columns,
                 rows);
+        }
+
+        private int FindRandomAvailableSlot(
+            StorageEntry candidate,
+            System.Random random)
+        {
+            int selectedSlot = -1;
+            int availableCount = 0;
+            int capacity = columns * rows;
+            for (int slot = 0; slot < capacity; slot++)
+            {
+                if (!ItemGridPlacement.CanPlace(
+                        entries,
+                        candidate,
+                        slot,
+                        columns,
+                        rows))
+                {
+                    continue;
+                }
+
+                availableCount++;
+                if (random.Next(availableCount) == 0)
+                {
+                    selectedSlot = slot;
+                }
+            }
+            return selectedSlot;
         }
 
         private static bool CanStack(

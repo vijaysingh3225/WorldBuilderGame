@@ -55,4 +55,10 @@ Before making a design-affecting change, read the relevant note in the sibling v
 
 A change is done when scripts compile, relevant tests pass, the affected scene has been played or otherwise exercised, and the result is documented briefly enough for another contributor to continue. If Unity cannot run locally, say exactly what remains unverified.
 
+## Validation scope
+
+Run the smallest suite that covers the changed ownership boundary. Column Blade-only work uses `WorldBuilder/Validate Column Blade Generator` or `Temp/WorldBuilder.RunColumnBladeTests`. Gameplay scene-builder and shared scene-infrastructure work uses `WorldBuilder/Validate Gameplay Infrastructure` or `Temp/WorldBuilder.RunInfrastructureTests`. Neither command is a full-project suite.
+
+Use `WorldBuilder/Validate Full EditMode Suite` or `Temp/WorldBuilder.RunFullEditModeTests` only for cross-cutting runtime changes, release checkpoints, test-framework changes, or when explicitly requested. Do not run raid, combat-lab, inventory, or unrelated weapon tests for an isolated generator/material/presentation edit. Compilation plus focused tests and affected-scene exercise is the normal iteration loop.
+
 For movement, animation, camera, or combat changes, "otherwise exercised" means the appropriate diagnostic capture completed and its AI report and baseline comparison were reviewed. This is in addition to creator playtesting for subjective feel.

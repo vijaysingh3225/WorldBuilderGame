@@ -40,6 +40,8 @@ namespace WorldBuilder.Editor
             CampModelFolder + "/camp_constructing";
         private const string CampItemsModelFolder =
             CampModelFolder + "/camp_items";
+        private const string CampTowersModelFolder =
+            CampModelFolder + "/camp_towers";
         private const string CampWoodenBoxModelPath =
             CampItemsModelFolder + "/Wooden_Box.blend";
         private const string CampStructureMaterialPath =
@@ -157,6 +159,14 @@ namespace WorldBuilder.Editor
                 "Bootstrap",
                 GameplaySceneRegistry.BootstrapScenePath,
                 BuildBootstrap);
+        }
+
+        public static void BuildBootstrapFromCommandLine()
+        {
+            EnsureSceneFolder();
+            BuildBootstrap();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
         }
 
         [MenuItem("WorldBuilder/Build/Home Base")]
@@ -519,6 +529,7 @@ namespace WorldBuilder.Editor
             GameObject systems =
                 new GameObject(InfrastructureMarkerName);
             systems.AddComponent<BootstrapMenuController>();
+            systems.AddComponent<BrowserRaidDemoController>();
             SaveScene(scene, GameplaySceneRegistry.BootstrapScenePath);
         }
 
@@ -894,8 +905,8 @@ namespace WorldBuilder.Editor
                     0.36f,
                     0.34f,
                     1f);
-            RenderSettings.fogStartDistance = 21f;
-            RenderSettings.fogEndDistance = 90f;
+            RenderSettings.fogStartDistance = 28f;
+            RenderSettings.fogEndDistance = 110f;
             RenderSettings.ambientMode =
                 UnityEngine.Rendering.AmbientMode.Trilight;
             RenderSettings.ambientSkyColor =
@@ -1070,9 +1081,8 @@ namespace WorldBuilder.Editor
                 }
             }
 
-            const int MaximumCampGuardPoolSize = 9;
             var campGuards = new EnemyBrain[
-                MaximumCampGuardPoolSize];
+                ProceduralRaidGenerator.MaximumCampGuardPoolSize];
             for (int index = 0;
                  index < campGuards.Length;
                  index++)
@@ -1167,6 +1177,7 @@ namespace WorldBuilder.Editor
                 plantDetails,
                 rocks,
                 raidSkybox);
+            generator.SetAdvancedLandformsEnabled(true);
             generator.ConfigureForestFloorTextures(
                 AssetDatabase.LoadAssetAtPath<Texture2D>(
                     RaidHabitatTextureFolder +
@@ -1185,6 +1196,16 @@ namespace WorldBuilder.Editor
                     "ForestStonyLichenSoil_BaseColor_2048.png"));
             generator.ConfigureGroundFloraStudies(
                 GroundFloraStudyAssetBuilder.BuildOrLoadStudies());
+            generator.ConfigureRaidLandmarks(
+                FallenTreeStudyAssetBuilder.BuildOrLoadStudies(),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampTowersModelFolder + "/01_big_tower.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampTowersModelFolder + "/03_tall_tower.blend"),
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    CampTowersModelFolder + "/02_stairs.blend"),
+                AssetDatabase.LoadAssetAtPath<Material>(
+                    ShortSwordMaterialFolder + "/CampTowers.mat"));
             generator.ConfigureForestCamps(
                 campGuards,
                 AssetDatabase.LoadAssetAtPath<GameObject>(
@@ -1305,6 +1326,10 @@ namespace WorldBuilder.Editor
             Transform floraStudiesRoot =
                 new GameObject(
                     GroundFloraStudyAssetBuilder.GalleryRootName)
+                    .transform;
+            Transform fallenTreesRoot =
+                new GameObject(
+                    FallenTreeStudyAssetBuilder.GalleryRootName)
                     .transform;
 
             GameObject[] treePrefabs =
@@ -1447,6 +1472,28 @@ namespace WorldBuilder.Editor
                         0f);
                 instance.transform.localScale =
                     Vector3.one * 1.8f;
+            }
+
+            GameObject[] fallenTrees =
+                FallenTreeStudyAssetBuilder.BuildOrLoadStudies();
+            for (int index = 0; index < fallenTrees.Length; index++)
+            {
+                GameObject instance = PrefabUtility.InstantiatePrefab(
+                    fallenTrees[index],
+                    scene) as GameObject;
+                instance.name =
+                    $"{index + 1:00} - " +
+                    FallenTreeStudyAssetBuilder.StudyDisplayName(index) +
+                    $" ({FallenTreeStudyAssetBuilder.StudyLength(index):0.0}m)";
+                instance.transform.SetParent(fallenTreesRoot, true);
+                instance.transform.position = new Vector3(
+                    -33f + index * 22f,
+                    0f,
+                    18.5f);
+                instance.transform.rotation = Quaternion.Euler(
+                    0f,
+                    index % 2 == 0 ? 20f : -18f,
+                    0f);
             }
 
             CreateCampAssetGallery(scene);

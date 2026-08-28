@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
@@ -13,7 +14,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 {
     [DefaultExecutionOrder(-5000)]
     [DisallowMultipleComponent]
-    public sealed class ProceduralRaidGenerator : MonoBehaviour
+    public sealed partial class ProceduralRaidGenerator : MonoBehaviour
     {
         public enum ForestHabitat
         {
@@ -22,6 +23,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             MossCarpet,
             CreepingGroundcover,
             StonyLichenSoil
+        }
+
+        public enum TreeDensityBiome
+        {
+            OpenPlain,
+            MediumWoodland,
+            DenseForest
         }
 
         public enum ForestFloorDebugMode
@@ -51,6 +59,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public Vector3[] BranchRoadA;
             public Vector3[] BranchRoadB;
             public Vector3[] BranchRoadC;
+            public Vector3[][] BranchRoads;
             public Vector3[] River;
             public Vector3 PlayerSpawn;
             public Vector3 ExtractionPoint;
@@ -69,6 +78,32 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        public readonly struct EnemyBridgeApproachStep
+        {
+            internal EnemyBridgeApproachStep(
+                Vector3 bridgeEntry,
+                Vector3 bridgeExit,
+                Vector3 waypoint,
+                int riverSampleIndex,
+                int remainingRiverSamples,
+                bool canCommitBridge)
+            {
+                BridgeEntry = bridgeEntry;
+                BridgeExit = bridgeExit;
+                Waypoint = waypoint;
+                RiverSampleIndex = riverSampleIndex;
+                RemainingRiverSamples = remainingRiverSamples;
+                CanCommitBridge = canCommitBridge;
+            }
+
+            public Vector3 BridgeEntry { get; }
+            public Vector3 BridgeExit { get; }
+            public Vector3 Waypoint { get; }
+            public int RiverSampleIndex { get; }
+            public int RemainingRiverSamples { get; }
+            public bool CanCommitBridge { get; }
+        }
+
         [Header("Scene References")]
         [SerializeField] private Transform player;
         [SerializeField] private EnemyBrain[] enemies;
@@ -79,6 +114,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private GameObject[] groundFloraStudyPrefabs;
         [SerializeField] private GameObject[] rockPrefabs;
         [SerializeField] private GameObject bridgePrefab;
+        [Header("Raid Landmarks")]
+        [SerializeField] private GameObject[] fallenTreePrefabs;
+        [SerializeField] private GameObject wideWatchtowerPrefab;
+        [SerializeField] private GameObject skinnyWatchtowerPrefab;
+        [SerializeField] private GameObject watchtowerLadderPrefab;
         [Header("Forest Camps")]
         [SerializeField] private EnemyBrain[] campGuardPool;
         [SerializeField] private GameObject campTentPrefab;
@@ -100,6 +140,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private Material campSwordGripMaterial;
         [SerializeField] private Material campStructureMaterial;
         [SerializeField] private Material campItemMaterial;
+        [SerializeField] private Material watchtowerMaterial;
         [Header("Materials")]
         [SerializeField] private Material forestGroundMaterial;
         [SerializeField] private Material bareGroundMaterial;
@@ -121,7 +162,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField] private Texture2D creepingGroundcoverTexture;
         [SerializeField] private Texture2D stonyLichenSoilTexture;
         [Header("Forest Habitat Field")]
-        [SerializeField, Range(65, 257)] private int habitatFieldResolution = 129;
+        [SerializeField, Range(65, 257)] private int habitatFieldResolution = 205;
         [SerializeField, Range(8f, 28f)] private float macroPatchScale = 17f;
         [SerializeField, Range(4f, 14f)] private float secondaryPatchScale = 7.5f;
         [SerializeField, Range(3f, 10f)] private float canopyInfluenceRadius = 6.4f;
@@ -130,48 +171,79 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         [SerializeField, Range(1f, 12f)] private float habitatTextureTiling = 6.5f;
         [SerializeField, Range(0.5f, 2.5f)] private float habitatBrightness = 1.55f;
         [SerializeField, Range(1f, 3f)] private float habitatBlendContrast = 1.35f;
+        [SerializeField, Range(0f, 1f)] private float forestGroundSaturation =
+            DefaultForestGroundSaturation;
         [SerializeField] private ForestFloorDebugMode forestFloorDebugMode;
         [Header("Generation")]
-        [SerializeField, Min(30f)] private float mapRadius = 144f;
-        [SerializeField, Range(24, 384)] private int terrainResolution = 256;
+        [SerializeField]
+        [Tooltip(
+            "Enables the validated deterministic three-tier landform graph. " +
+            "Disable only when intentionally reviewing the legacy fallback.")]
+        private bool enableAdvancedLandforms = true;
+        [SerializeField, Min(30f)] private float mapRadius = 227.684f;
+        [SerializeField, Range(24, 512)] private int terrainResolution = 405;
         [SerializeField, Range(2f, 10f)] private float regionalElevationAmplitude = 6.2f;
         [SerializeField, Range(1f, 7f)] private float directionalElevationRise = 4.2f;
-        [SerializeField, Range(80, 1800)] private int treeCount = 1200;
+        [SerializeField, Range(80, 4000)] private int treeCount = 2100;
         [SerializeField, Range(0.5f, 3f)] private float treeScaleMultiplier = 1.75f;
-        [SerializeField, Range(8000, 140000)] private int grassCount = 128000;
-        [SerializeField, Range(40, 6000)] private int undergrowthCount = 4200;
-        [SerializeField, Range(400, 8000)] private int groundFloraStudyCount = 4800;
+        [SerializeField, Range(8000, 400000)] private int grassCount = 320000;
+        [SerializeField, Range(40, 14000)] private int undergrowthCount = 10500;
+        [SerializeField, Range(400, 16000)] private int groundFloraStudyCount = 12000;
         [SerializeField, Range(3f, 9f)] private float groundFloraColonySpacing = 5.4f;
         [SerializeField, Range(0.45f, 0.8f)] private float groundFloraGeneralShare = 0.70f;
         [SerializeField, Range(0.05f, 0.3f)] private float groundFloraTreePocketShare = 0.18f;
-        [SerializeField, Range(10, 260)] private int boulderCount = 192;
-        [SerializeField, Range(10, 240)] private int trailStoneCount = 168;
+        [SerializeField, Range(10, 600)] private int boulderCount = 480;
+        [SerializeField, Range(10, 520)] private int trailStoneCount = 266;
         [SerializeField, Min(1f)] private float roadHalfWidth = 1.8f;
         [SerializeField, Min(1f)] private float riverHalfWidth = 3.1f;
         [SerializeField, Min(0.5f)] private float treeClearance = 5.8f;
         [SerializeField] private int fallbackSeed = 20260730;
 
         private const float RoadIndentation = 0.18f;
+        // Keep authored trails comfortably below the player's 45-degree
+        // CharacterController limit so mesh sampling and shoulder blending
+        // cannot turn a nominally valid trail into an impassable face.
+        public const float MaximumTrailGrade = 0.82f;
         private const float RoadShoulderWidth = 2.2f;
         private const float GrassRoadInteriorLimit = -1.35f;
         private const float GrassRiverClearance = 0.78f;
         private const float RiverWaterBankOverlap = 1.15f;
         private const int IslandCoastSampleCount = 256;
+        private const float OpenPlainTreeBoundary = -0.24f;
+        private const float MediumWoodlandStart = -0.10f;
+        private const float MediumWoodlandEnd = 0.12f;
+        private const float DenseForestBoundary = 0.26f;
+        public const float MediumWoodlandTreeDensity = 0.42f;
         private const float CoastSandWidth = 8.5f;
         private const float CoastPlacementInset = 3.2f;
         private const float CoastBarrierInset = 0.65f;
         private const float OceanDepthBelowShore = 0.72f;
         private const float OceanVisualRadiusMultiplier = 5f;
         private const float OceanShoreOverlap = 1.15f;
-        private const int CoastBarrierSegments = 128;
+        private const int CoastBarrierSegments = 256;
         private const int IslandShapeSeedSalt = 0x35a91c7;
+        private const float BaselineIslandRadius = 144f;
+        private const int BaselineGroundFogGridResolution = 114;
+        public const float ExpandedIslandAreaMultiplier = 2.5f;
+        public const float RaisedUplandHeight = 15.5f;
+        private const float EscarpmentOffsetRatio = 0.055f;
+        private const float EscarpmentCliffHalfWidth = 3.4f;
+        private const float EscarpmentPassHalfWidth = 23f;
+        private const float EscarpmentPassRadius = 26f;
+        private const float CombinedTraversalNavigationPadding = 0.25f;
+        private const float RiverGorgeHalfWidth = 18f;
+        private const float RiverGorgeRadius = 22f;
+        private const float GrassTintGridSpacing = 0.45f;
         private const float BridgeCrossSectionScale = 0.46f;
         private const float BridgeExtraWidthScale = 1.65f;
-        private const float BridgeDeckLift = 0.35f;
+        public const float BridgeDeckLift = 0.35f;
         private const float MinimumBridgeSeparation = 26f;
+        public const float MinimumBridgeCoastClearance = 10f;
+        private const int BridgeBankApproachSampleLookAhead = 12;
+        private const float BridgeBankApproachNavigationPadding = 0.25f;
         private const float MinimumForkRiverClearance = 18f;
-        private const float MinimumRouteDestinationSeparation = 52f;
-        private const float MinimumDestinationAngle = 0.52f;
+        private const float MinimumRouteDestinationSeparation = 44f;
+        private const float MinimumDestinationAngle = 0.44f;
         private const float MinimumBranchDepartureAngle = 0.58f;
         private const float ParallelRouteClearance = 15f;
         private const float CrossingStraightHalfLength = 8f;
@@ -193,10 +265,32 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private const float SpawnSolidSceneryClearance = 7.5f;
         private const float ExtractionOppositeArc = 0.70f;
         private const int OuterSpawnPlacementAttempts = 64;
-        private const int MinimumCampCount = 2;
-        private const int MaximumCampCount = 4;
+        public const int MinimumCampCount = 5;
+        public const int MaximumCampCount = 8;
         private const int MaximumCampGuardCount = 3;
-        private const int CampPlacementAttempts = 320;
+        public const int WatchtowerCount = 3;
+        public const int SkinnyWatchtowerCount = 2;
+        // The source meshes lift only their roof geometry. Include that lift in
+        // normalization so the platform, footprint, and lower structure retain
+        // their original world scale and placement.
+        private const float WatchtowerRoofClearanceIncrease = 1.25f;
+        private const float WideWatchtowerOriginalHeight = 9f;
+        private const float SkinnyWatchtowerOriginalHeight = 8f;
+        public const float WideWatchtowerRailingHeight = 0.90f;
+        private const float WideWatchtowerRailingBaseHeightRatio =
+            3.545f / 7.674f;
+        private const float WideWatchtowerRailingTopHeightRatio =
+            4.824f / 7.674f;
+        public const float TowerGuardSightRange = 44f;
+        public const float TowerGuardForestSightRange = 28f;
+        public const float TowerGuardViewAngle = 115f;
+        public const int MaximumCampGuardPoolSize =
+            MaximumCampCount * MaximumCampGuardCount + WatchtowerCount;
+        public const float ArcherGuardShare = 0.25f;
+        public const float DefaultForestGroundSaturation = 0.86f;
+        private const float LegacyForestGroundSaturation = 0.62f;
+        private const float PreviousForestGroundSaturation = 0.78f;
+        private const int CampPlacementAttempts = 480;
         private const float MinimumCampSeparation = 34f;
         private const float CampTrailMinimumDistance = 9f;
         private const float CampTrailMaximumDistance = 34f;
@@ -249,6 +343,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             public bool IsLevelTwo;
             public bool[] BowGuards;
             public int WoodenBoxCount;
+        }
+
+        private sealed class WatchtowerSite
+        {
+            public Vector2 Center;
+            public float Rotation;
+            public bool IsWide;
+            public bool IsCreated;
+            public float PlatformHeight;
+            public Vector3 GuardPosition;
+            public Vector3[] GuardPatrolRoute;
+            public Vector3[] GuardPatrolLookDirections;
+            public Vector3 GuardLookDirection;
         }
 
         private struct HabitatSample
@@ -460,6 +567,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 public Vector2 A;
                 public Vector2 Delta;
+                public float HeightA;
+                public float HeightDelta;
                 public float LengthSquared;
                 public float MinimumX;
                 public float MaximumX;
@@ -482,7 +591,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 segments.Clear();
                 cells.Clear();
-                visitStamp = 0;
+                // Keep the generation stamp monotonic. Resetting it while
+                // retaining visitStamps lets a rebuilt query reuse a stale
+                // stamp and silently skip the matching segment.
             }
 
             public void Add(List<Vector3> line)
@@ -506,6 +617,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         {
                             A = a,
                             Delta = delta,
+                            HeightA = line[index].y,
+                            HeightDelta =
+                                line[index + 1].y - line[index].y,
                             LengthSquared = lengthSquared,
                             MinimumX = Mathf.Min(a.x, b.x),
                             MaximumX = Mathf.Max(a.x, b.x),
@@ -716,6 +830,54 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 distance = Mathf.Sqrt(bestDistanceSquared);
                 return true;
             }
+
+            public bool TryClosestPointWithin(
+                Vector2 point,
+                float maximumDistance,
+                out Vector2 closest,
+                out float distance,
+                out float height)
+            {
+                closest = Vector2.zero;
+                distance = float.PositiveInfinity;
+                height = 0f;
+                if (segments.Count == 0 || maximumDistance < 0f)
+                {
+                    return false;
+                }
+
+                float bestDistanceSquared =
+                    maximumDistance * maximumDistance;
+                bool found = false;
+                for (int index = 0; index < segments.Count; index++)
+                {
+                    Segment segment = segments[index];
+                    float progress = segment.LengthSquared > 0.0001f
+                        ? Mathf.Clamp01(Vector2.Dot(
+                            point - segment.A,
+                            segment.Delta) / segment.LengthSquared)
+                        : 0f;
+                    Vector2 candidate =
+                        segment.A + segment.Delta * progress;
+                    float candidateDistanceSquared =
+                        (point - candidate).sqrMagnitude;
+                    if (candidateDistanceSquared >= bestDistanceSquared)
+                    {
+                        continue;
+                    }
+                    bestDistanceSquared = candidateDistanceSquared;
+                    found = true;
+                    closest = candidate;
+                    height = segment.HeightA +
+                        segment.HeightDelta * progress;
+                }
+                if (!found)
+                {
+                    return false;
+                }
+                distance = Mathf.Sqrt(bestDistanceSquared);
+                return true;
+            }
         }
 
         private readonly List<Vector3> mainRoadSamples =
@@ -743,13 +905,23 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private readonly List<Vector2>
             generatedFireflyZoneCenters =
                 new List<Vector2>();
+        private readonly List<Vector2>
+            escarpmentPassCenters =
+                new List<Vector2>();
+        private readonly List<Vector2>
+            riverGorgeCenters =
+                new List<Vector2>();
         private readonly List<CampSite> campSites =
             new List<CampSite>();
+        private readonly List<WatchtowerSite> watchtowerSites =
+            new List<WatchtowerSite>();
         private readonly List<BridgeNavigationRoute>
             bridgeNavigationRoutes =
                 new List<BridgeNavigationRoute>();
         private readonly RaycastHit[] bridgeSupportHits =
             new RaycastHit[16];
+        private readonly RaycastHit[] watchtowerDeckHits =
+            new RaycastHit[64];
         private readonly Dictionary<Mesh, Mesh>
             treeCollisionMeshCache =
                 new Dictionary<Mesh, Mesh>();
@@ -773,6 +945,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private RaidLayout layout;
         private Transform generatedRoot;
         private int generatedTreeCount;
+        private int generatedTreeTarget;
+        private int generatedMediumWoodlandTreeCount;
+        private int generatedDenseForestTreeCount;
+        private float generatedTreeDensityCoverage;
         private int generatedGrassCount;
         private int[] generatedGrassVariantCounts =
             Array.Empty<int>();
@@ -803,6 +979,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private int generatedCampSwordGuardCount;
         private int generatedCampWoodenBoxCount;
         private int generatedBridgeCount;
+        private int generatedFallenTreeCrossingCount;
+        private int generatedWatchtowerCount;
+        private int generatedWideWatchtowerCount;
+        private int generatedTowerGuardCount;
         private int generatedFireflyZoneCount;
         private int generatedRendererCount;
         private int generatedColliderCount;
@@ -819,6 +999,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private Material terrainRuntimeMaterial;
         private PointSpatialHash treeSpatialHash;
         private PointSpatialHash foliageSpatialHash;
+        private bool runtimeGenerationStarted;
         private double lastGenerationMilliseconds;
         private double grassChunkCombineMilliseconds;
         private double grassChunkTintMilliseconds;
@@ -829,6 +1010,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             ? layout.Seed
             : fallbackSeed;
         public int GeneratedTreeCount => generatedTreeCount;
+        public int GeneratedTreeTarget => generatedTreeTarget;
+        public int GeneratedMediumWoodlandTreeCount =>
+            generatedMediumWoodlandTreeCount;
+        public int GeneratedDenseForestTreeCount =>
+            generatedDenseForestTreeCount;
+        public float GeneratedTreeDensityCoverage =>
+            generatedTreeDensityCoverage;
         public int TreeVariantCount =>
             treePrefabs != null
                 ? treePrefabs.Length
@@ -912,6 +1100,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             generatedCampSwordGuardCount;
         public int GeneratedCampWoodenBoxCount =>
             generatedCampWoodenBoxCount;
+        public int GeneratedFallenTreeCrossingCount =>
+            generatedFallenTreeCrossingCount;
+        public int GeneratedWatchtowerCount => generatedWatchtowerCount;
+        public int GeneratedWideWatchtowerCount =>
+            generatedWideWatchtowerCount;
+        public int GeneratedTowerGuardCount => generatedTowerGuardCount;
         public int GeneratedLevelTwoCampCount
         {
             get
@@ -965,6 +1159,23 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 ? campSites[campIndex].WoodenBoxCount
                 : 0;
         }
+        public bool IsInsideEnemyBridgeLane(
+            Vector3 worldPoint,
+            float padding = 0f)
+        {
+            return IsInsideBridgeNavigationLane(
+                ToXZ(worldPoint),
+                padding);
+        }
+
+        public bool IsInsideEnemyEscarpmentPassLane(
+            Vector3 worldPoint,
+            float padding = 0f)
+        {
+            Vector2 point = ToXZ(worldPoint);
+            return IsInsideEscarpmentPassLane(point, padding) ||
+                IsInsideAdvancedTraversalLane(point, padding);
+        }
         public bool IsInsideEnemyRiverExclusion(
             Vector3 worldPoint,
             float padding = 0f)
@@ -974,8 +1185,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return false;
             }
-            return DistanceToRiverExact(point) <
-                riverHalfWidth + 0.55f + Mathf.Max(0f, padding);
+            return IsWithinRiverDistance(
+                point,
+                riverHalfWidth + 0.55f + Mathf.Max(0f, padding));
         }
 
         public bool IsEnemyNavigationPositionSafe(
@@ -983,52 +1195,184 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float padding = 0f)
         {
             Vector2 point = ToXZ(worldPoint);
+            float requiredRiverClearance =
+                riverHalfWidth + 0.55f + Mathf.Max(0f, padding);
             for (int index = 0;
                  index < bridgeNavigationRoutes.Count;
                  index++)
             {
                 BridgeNavigationRoute route =
                     bridgeNavigationRoutes[index];
-                if (!IsInsideBridgeNavigationLane(
+                // Real bridge collision is authoritative over the river
+                // exclusion. Check the full authored lane here rather than
+                // its capsule-shrunken center strip: a guard whose feet are
+                // supported by the deck is not in the water merely because it
+                // is near a rail or the bank transition.
+                if (IsInsideBridgeNavigationLane(point, route, 0f) &&
+                    TryGetSupportedBridgeDeckHeight(
+                        worldPoint,
+                        route,
+                        Mathf.Max(0f, padding),
+                        out _))
+                {
+                    return true;
+                }
+
+                // CharacterController contact can momentarily disappear at
+                // the sloped deck/bank handoff: the ray misses the narrow
+                // deck while the controller is stepping up, causing the
+                // enemy's river failsafe to teleport it back to the bank.
+                // The bridge lane is an explicitly authored crossing, so
+                // retain it as safe while the guard remains close enough to
+                // the registered deck height to be mounting or leaving it.
+                // A guard that actually falls into the river is well below
+                // this threshold and is still restored normally.
+                if (IsInsideBridgeNavigationLane(
                         point,
                         route,
-                        -Mathf.Max(0f, padding)))
+                        -Mathf.Max(0f, padding)) &&
+                    IsAtBridgeTraversalHeight(worldPoint, route))
                 {
-                    continue;
+                    return true;
                 }
-                int hitCount = Physics.RaycastNonAlloc(
-                    new Vector3(
-                        worldPoint.x,
-                        route.ReferenceDeckHeight + 5f,
-                        worldPoint.z),
+
+                // The authored bridge lane extends onto the two banks so an
+                // enemy can line up before crossing. Those dry approach
+                // sections do not need to be at deck height yet. Requiring
+                // bridge support there made LateUpdate restore a pursuing
+                // guard to its previous position every frame, which looked
+                // like jittering at the foot of the bridge.
+                if (IsInsideBridgeNavigationLane(
+                        point,
+                        route,
+                        -Mathf.Max(0f, padding)) &&
+                    !IsWithinRiverDistance(
+                        point,
+                        requiredRiverClearance))
+                {
+                    return true;
+                }
+            }
+            return !IsWithinRiverDistance(
+                point,
+                requiredRiverClearance);
+        }
+
+        private bool TryGetSupportedBridgeDeckHeight(
+            Vector3 worldPoint,
+            BridgeNavigationRoute route,
+            float footprintRadius,
+            out float deckHeight)
+        {
+            deckHeight = float.NegativeInfinity;
+            if (route.BridgeRoot == null)
+            {
+                return false;
+            }
+
+            if (TryGetSupportedBridgeDeckHeightAtPoint(
+                    worldPoint,
+                    route,
+                    out deckHeight))
+            {
+                return true;
+            }
+
+            // A bridge's deck and rails share one non-convex MeshCollider.
+            // Near a rail, a vertical ray can report only that nearer rail
+            // triangle and hide the walkable deck below it. A controller at
+            // the same position still has an inward portion of its footprint
+            // supported by the deck, so probe that bounded footprint before
+            // classifying the actor as being in the river.
+            float radius = Mathf.Max(0f, footprintRadius);
+            if (radius <= 0.001f)
+            {
+                return false;
+            }
+            Vector2 point = ToXZ(worldPoint);
+            Vector2 lateralAxis = new Vector2(
+                -route.AcrossDirection.y,
+                route.AcrossDirection.x);
+            float signedLateral = Vector2.Dot(
+                point - route.Center,
+                lateralAxis);
+            if (Mathf.Abs(signedLateral) <= 0.001f)
+            {
+                return false;
+            }
+            Vector2 inwardPoint = point -
+                lateralAxis *
+                Mathf.Sign(signedLateral) *
+                Mathf.Min(radius, Mathf.Abs(signedLateral));
+            return TryGetSupportedBridgeDeckHeightAtPoint(
+                new Vector3(
+                    inwardPoint.x,
+                    worldPoint.y,
+                    inwardPoint.y),
+                route,
+                out deckHeight);
+        }
+
+        private bool TryGetSupportedBridgeDeckHeightAtPoint(
+            Vector3 worldPoint,
+            BridgeNavigationRoute route,
+            out float deckHeight)
+        {
+            deckHeight = float.NegativeInfinity;
+
+            const float maximumStepUp = 0.65f;
+            Vector3 origin = new Vector3(
+                worldPoint.x,
+                route.ReferenceDeckHeight + 5f,
+                worldPoint.z);
+            RaycastHit[] hits = bridgeSupportHits;
+            int hitCount = Physics.RaycastNonAlloc(
+                origin,
+                Vector3.down,
+                hits,
+                14f,
+                ~0,
+                QueryTriggerInteraction.Ignore);
+            // A full non-alloc buffer does not guarantee that the supporting
+            // deck hit was retained. Preserve complete-query behavior only in
+            // that rare dense-overlap case.
+            if (hitCount == hits.Length)
+            {
+                hits = Physics.RaycastAll(
+                    origin,
                     Vector3.down,
-                    bridgeSupportHits,
                     14f,
                     ~0,
                     QueryTriggerInteraction.Ignore);
-                float deckHeight = float.NegativeInfinity;
-                for (int hitIndex = 0;
-                     hitIndex < hitCount;
-                     hitIndex++)
-                {
-                    Collider collider =
-                        bridgeSupportHits[hitIndex].collider;
-                    if (collider == null ||
-                        route.BridgeRoot == null ||
-                        !collider.transform.IsChildOf(
-                            route.BridgeRoot))
-                    {
-                        continue;
-                    }
-                    deckHeight = Mathf.Max(
-                        deckHeight,
-                        bridgeSupportHits[hitIndex].point.y);
-                }
-                return !float.IsNegativeInfinity(deckHeight) &&
-                    worldPoint.y >= deckHeight - 0.65f;
+                hitCount = hits.Length;
             }
-            return DistanceToRiverExact(point) >=
-                riverHalfWidth + 0.55f + Mathf.Max(0f, padding);
+            float maximumSupportHeight =
+                worldPoint.y + maximumStepUp;
+            for (int hitIndex = 0;
+                 hitIndex < hitCount;
+                 hitIndex++)
+            {
+                RaycastHit hit = hits[hitIndex];
+                Collider collider = hit.collider;
+                if (collider == null ||
+                    !collider.transform.IsChildOf(route.BridgeRoot) ||
+                    hit.normal.y < 0.50f ||
+                    hit.point.y > maximumSupportHeight)
+                {
+                    continue;
+                }
+                deckHeight = Mathf.Max(deckHeight, hit.point.y);
+            }
+            return !float.IsNegativeInfinity(deckHeight);
+        }
+
+        private static bool IsAtBridgeTraversalHeight(
+            Vector3 worldPoint,
+            BridgeNavigationRoute route)
+        {
+            const float maximumTransitionDrop = 0.85f;
+            return worldPoint.y >=
+                route.ReferenceDeckHeight - maximumTransitionDrop;
         }
 
         public bool TryResolveEnemyRiverWaypoint(
@@ -1037,6 +1381,40 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             out Vector3 waypoint)
         {
             waypoint = destination;
+            if (!TryResolveEnemyBridgeRoute(
+                    from,
+                    destination,
+                    out Vector3 entry,
+                    out Vector3 exit))
+            {
+                return false;
+            }
+
+            Vector2 entryPoint = ToXZ(entry);
+            Vector2 route = ToXZ(exit) - entryPoint;
+            float routeProgress = route.sqrMagnitude > 0.001f
+                ? Vector2.Dot(
+                    ToXZ(from) - entryPoint,
+                    route.normalized)
+                : 0f;
+            bool reachedEntry =
+                Vector2.Distance(ToXZ(from), entryPoint) <= 1.05f ||
+                (routeProgress >= -0.20f &&
+                 IsInsideBridgeNavigationLane(ToXZ(from), 0.10f));
+            waypoint = reachedEntry
+                ? exit
+                : entry;
+            return true;
+        }
+
+        public bool TryResolveEnemyBridgeRoute(
+            Vector3 from,
+            Vector3 destination,
+            out Vector3 entryWaypoint,
+            out Vector3 exitWaypoint)
+        {
+            entryWaypoint = destination;
+            exitWaypoint = destination;
             if (bridgeNavigationRoutes.Count == 0)
             {
                 return false;
@@ -1069,13 +1447,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Vector2 exit = activeRoute.Center +
                     activeRoute.AcrossDirection *
                     destinationSide * activeRoute.HalfLength;
-                waypoint = SurfacePoint(
+                Vector2 entry = activeRoute.Center -
+                    activeRoute.AcrossDirection *
+                    destinationSide * activeRoute.HalfLength;
+                entryWaypoint = SurfacePoint(
+                    new Vector3(entry.x, 0f, entry.y),
+                    1f);
+                exitWaypoint = SurfacePoint(
                     new Vector3(exit.x, 0f, exit.y),
                     1f);
                 return true;
             }
 
-            if (!PathTouchesRiverOutsideBridge(
+            if (!PathTouchesRiver(
                     fromPoint,
                     destinationPoint))
             {
@@ -1085,44 +1469,404 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float bestScore = float.PositiveInfinity;
             Vector2 bestEntry = fromPoint;
             Vector2 bestExit = destinationPoint;
+            bool foundRoute = false;
             for (int index = 0;
                  index < bridgeNavigationRoutes.Count;
                  index++)
             {
                 BridgeNavigationRoute route =
                     bridgeNavigationRoutes[index];
-                float fromSide = Mathf.Sign(
-                    Vector2.Dot(
-                        fromPoint - route.Center,
-                        route.AcrossDirection));
-                if (Mathf.Approximately(fromSide, 0f))
+                Vector2 endpointA = route.Center +
+                    route.AcrossDirection * route.HalfLength;
+                Vector2 endpointB = route.Center -
+                    route.AcrossDirection * route.HalfLength;
+                for (int orientation = 0;
+                     orientation < 2;
+                     orientation++)
                 {
-                    fromSide = 1f;
+                    Vector2 entry = orientation == 0
+                        ? endpointA
+                        : endpointB;
+                    Vector2 exit = orientation == 0
+                        ? endpointB
+                        : endpointA;
+                    if (PathTouchesRiver(fromPoint, entry) ||
+                        PathCrossesEscarpmentOutsidePass(
+                            fromPoint,
+                            entry) ||
+                        !PathStaysInsideIsland(fromPoint, entry, 0.6f) ||
+                        PathCrossesEscarpmentOutsidePass(entry, exit) ||
+                        !PathStaysInsideIsland(entry, exit, 0.6f))
+                    {
+                        continue;
+                    }
+
+                    float score = Vector2.Distance(fromPoint, entry) +
+                        Vector2.Distance(exit, destinationPoint);
+                    if (score >= bestScore)
+                    {
+                        continue;
+                    }
+                    bestScore = score;
+                    bestEntry = entry;
+                    bestExit = exit;
+                    foundRoute = true;
                 }
-                Vector2 entry = route.Center +
-                    route.AcrossDirection *
-                    fromSide * route.HalfLength;
-                Vector2 exit = route.Center -
-                    route.AcrossDirection *
-                    fromSide * route.HalfLength;
+            }
+            if (!foundRoute)
+            {
+                return false;
+            }
+
+            entryWaypoint = SurfacePoint(
+                new Vector3(bestEntry.x, 0f, bestEntry.y),
+                1f);
+            exitWaypoint = SurfacePoint(
+                new Vector3(bestExit.x, 0f, bestExit.y),
+                1f);
+            return true;
+        }
+
+        public bool TryResolveEnemyBridgeBankApproach(
+            Vector3 from,
+            Vector3 destination,
+            out EnemyBridgeApproachStep approach)
+        {
+            return TryResolveEnemyBridgeBankApproach(
+                from,
+                destination,
+                float.PositiveInfinity,
+                out approach);
+        }
+
+        public bool TryResolveEnemyBridgeBankApproach(
+            Vector3 from,
+            Vector3 destination,
+            float maximumBridgeEntryDistance,
+            out EnemyBridgeApproachStep approach)
+        {
+            approach = default;
+            if (bridgeNavigationRoutes.Count == 0 ||
+                riverSamples.Count < 2 ||
+                TryResolveEnemyBridgeRoute(
+                    from,
+                    destination,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+
+            Vector2 fromPoint = ToXZ(from);
+            Vector2 destinationPoint = ToXZ(destination);
+            float maximumEntryDistanceSquared =
+                maximumBridgeEntryDistance >= 0f
+                    ? maximumBridgeEntryDistance *
+                        maximumBridgeEntryDistance
+                    : 0f;
+            if (!PathTouchesRiver(fromPoint, destinationPoint))
+            {
+                return false;
+            }
+
+            float bestScore = float.PositiveInfinity;
+            Vector2 bestEntry = default;
+            Vector2 bestExit = default;
+            Vector2 bestWaypoint = default;
+            int bestSampleIndex = -1;
+            int bestRemainingSamples = int.MaxValue;
+            for (int routeIndex = 0;
+                 routeIndex < bridgeNavigationRoutes.Count;
+                 routeIndex++)
+            {
+                BridgeNavigationRoute route =
+                    bridgeNavigationRoutes[routeIndex];
+                Vector2 endpointA = route.Center +
+                    route.AcrossDirection * route.HalfLength;
+                Vector2 endpointB = route.Center -
+                    route.AcrossDirection * route.HalfLength;
+                for (int orientation = 0;
+                     orientation < 2;
+                     orientation++)
+                {
+                    Vector2 entry = orientation == 0
+                        ? endpointA
+                        : endpointB;
+                    Vector2 exit = orientation == 0
+                        ? endpointB
+                        : endpointA;
+                    if ((entry - fromPoint).sqrMagnitude >
+                            maximumEntryDistanceSquared ||
+                        PathCrossesEscarpmentOutsidePass(entry, exit) ||
+                        !PathStaysInsideIsland(entry, exit, 0.6f) ||
+                        !TryBuildEnemyBridgeBankApproach(
+                            fromPoint,
+                            destinationPoint,
+                            route,
+                            entry,
+                            exit,
+                            out Vector2 firstWaypoint,
+                            out int firstSampleIndex,
+                            out int remainingSamples,
+                            out float score) ||
+                        score >= bestScore)
+                    {
+                        continue;
+                    }
+
+                    bestScore = score;
+                    bestEntry = entry;
+                    bestExit = exit;
+                    bestWaypoint = firstWaypoint;
+                    bestSampleIndex = firstSampleIndex;
+                    bestRemainingSamples = remainingSamples;
+                }
+            }
+
+            if (bestSampleIndex < 0)
+            {
+                return false;
+            }
+
+            approach = new EnemyBridgeApproachStep(
+                SurfacePoint(
+                    new Vector3(bestEntry.x, 0f, bestEntry.y),
+                    1f),
+                SurfacePoint(
+                    new Vector3(bestExit.x, 0f, bestExit.y),
+                    1f),
+                SurfacePoint(
+                    new Vector3(
+                        bestWaypoint.x,
+                        0f,
+                        bestWaypoint.y),
+                    1f),
+                bestSampleIndex,
+                bestRemainingSamples,
+                false);
+            return true;
+        }
+
+        public bool TryAdvanceEnemyBridgeBankApproach(
+            Vector3 from,
+            EnemyBridgeApproachStep current,
+            out EnemyBridgeApproachStep next)
+        {
+            next = default;
+            if (!TryGetCommittedBridgeRoute(
+                    ToXZ(current.BridgeEntry),
+                    ToXZ(current.BridgeExit),
+                    out BridgeNavigationRoute route,
+                    out Vector2 entry,
+                    out Vector2 exit))
+            {
+                return false;
+            }
+
+            Vector2 fromPoint = ToXZ(from);
+            if (IsEnemyBridgeApproachSegmentSafe(
+                    fromPoint,
+                    entry,
+                    BridgeBankApproachNavigationPadding))
+            {
+                next = new EnemyBridgeApproachStep(
+                    current.BridgeEntry,
+                    current.BridgeExit,
+                    current.BridgeEntry,
+                    current.RiverSampleIndex,
+                    0,
+                    true);
+                return true;
+            }
+
+            if (!TryGetBridgeRiverBank(
+                    route,
+                    entry,
+                    out int bridgeSampleIndex,
+                    out float bankSide) ||
+                !TrySelectNextEnemyBridgeBankWaypoint(
+                    fromPoint,
+                    current.RiverSampleIndex,
+                    bridgeSampleIndex,
+                    bankSide,
+                    route,
+                    out Vector2 waypoint,
+                    out int sampleIndex))
+            {
+                return false;
+            }
+
+            int remainingSamples = Mathf.Abs(
+                sampleIndex - bridgeSampleIndex);
+            if (remainingSamples >= current.RemainingRiverSamples)
+            {
+                return false;
+            }
+
+            next = new EnemyBridgeApproachStep(
+                current.BridgeEntry,
+                current.BridgeExit,
+                SurfacePoint(
+                    new Vector3(waypoint.x, 0f, waypoint.y),
+                    1f),
+                sampleIndex,
+                remainingSamples,
+                false);
+            return true;
+        }
+
+        public bool IsEnemyBridgeBankApproachDestinationCompatible(
+            EnemyBridgeApproachStep current,
+            Vector3 destination)
+        {
+            if (!TryGetCommittedBridgeRoute(
+                    ToXZ(current.BridgeEntry),
+                    ToXZ(current.BridgeExit),
+                    out BridgeNavigationRoute route,
+                    out _,
+                    out Vector2 exit) ||
+                !TryGetRiverBankSample(
+                    ToXZ(destination),
+                    out _,
+                    out float destinationBankSide) ||
+                !TryGetBridgeRiverBank(
+                    route,
+                    exit,
+                    out _,
+                    out float exitBankSide))
+            {
+                return false;
+            }
+
+            return destinationBankSide * exitBankSide > 0f;
+        }
+
+        public bool IsEnemyBridgeApproachSegmentSafe(
+            Vector3 from,
+            Vector3 destination,
+            float padding = 0f)
+        {
+            return IsEnemyBridgeApproachSegmentSafe(
+                ToXZ(from),
+                ToXZ(destination),
+                padding);
+        }
+
+        public bool TryResolveEnemyEscarpmentRoute(
+            Vector3 from,
+            Vector3 destination,
+            out Vector3 entryWaypoint,
+            out Vector3 exitWaypoint)
+        {
+            entryWaypoint = destination;
+            exitWaypoint = destination;
+            if (enableAdvancedLandforms &&
+                TryResolveAdvancedLandformRoute(
+                    from,
+                    destination,
+                    out entryWaypoint,
+                    out exitWaypoint))
+            {
+                return true;
+            }
+            if (escarpmentPassCenters.Count == 0)
+            {
+                return false;
+            }
+
+            Vector2 fromPoint = ToXZ(from);
+            Vector2 destinationPoint = ToXZ(destination);
+            float fromDistance = EscarpmentSignedDistance(fromPoint);
+            float destinationDistance =
+                EscarpmentSignedDistance(destinationPoint);
+            const float stableSideDistance = 2.25f;
+            bool crossesEscarpment =
+                (fromDistance <= -stableSideDistance &&
+                 destinationDistance >= stableSideDistance) ||
+                (fromDistance >= stableSideDistance &&
+                 destinationDistance <= -stableSideDistance);
+            if (!crossesEscarpment)
+            {
+                return false;
+            }
+
+            float endpointOffset =
+                EscarpmentPassHalfWidth + 6f;
+            float fromSide = Mathf.Sign(fromDistance);
+            float bestScore = float.PositiveInfinity;
+            Vector2 bestEntry = fromPoint;
+            Vector2 bestExit = destinationPoint;
+            for (int index = 0;
+                 index < escarpmentPassCenters.Count;
+                 index++)
+            {
+                Vector2 center = escarpmentPassCenters[index];
+                Vector2 highEndpoint = center +
+                    elevationDirection * endpointOffset;
+                Vector2 lowEndpoint = center -
+                    elevationDirection * endpointOffset;
+                Vector2 entry = fromSide > 0f
+                    ? highEndpoint
+                    : lowEndpoint;
+                Vector2 exit = fromSide > 0f
+                    ? lowEndpoint
+                    : highEndpoint;
+                Vector2 passRoute = exit - entry;
+                float passLength = passRoute.magnitude;
+                float sourceProgress = passLength > 0.001f
+                    ? Vector2.Dot(
+                        fromPoint - entry,
+                        passRoute / passLength)
+                    : 0f;
+                bool sourceAlreadyInsideThisPass =
+                    sourceProgress > 0f &&
+                    sourceProgress < passLength &&
+                    IsInsideEscarpmentPassLane(
+                        fromPoint,
+                        center,
+                        CombinedTraversalNavigationPadding) &&
+                    !PathTouchesRiverOutsideBridgeLane(
+                        fromPoint,
+                        exit,
+                        CombinedTraversalNavigationPadding);
+                // A road can place its bridge and escarpment pass on one
+                // overlapping corridor. Only accept that composition when
+                // every river contact is covered by a fitted bridge lane.
+                // After the bridge clears, do not send an actor backward to
+                // the pass entry it has already traversed.
+                if ((PathTouchesRiver(fromPoint, entry) &&
+                     !sourceAlreadyInsideThisPass) ||
+                    !PathStaysInsideIsland(fromPoint, entry, 0.6f) ||
+                    PathTouchesRiverOutsideBridgeLane(
+                        entry,
+                        exit,
+                        CombinedTraversalNavigationPadding) ||
+                    !PathStaysInsideIsland(entry, exit, 0.6f))
+                {
+                    continue;
+                }
                 float score = Vector2.Distance(fromPoint, entry) +
                     Vector2.Distance(exit, destinationPoint);
                 if (score >= bestScore)
                 {
                     continue;
                 }
+
                 bestScore = score;
                 bestEntry = entry;
                 bestExit = exit;
             }
 
-            Vector2 selected = Vector2.Distance(
-                    fromPoint,
-                    bestEntry) > 1.05f
-                ? bestEntry
-                : bestExit;
-            waypoint = SurfacePoint(
-                new Vector3(selected.x, 0f, selected.y),
+            if (float.IsPositiveInfinity(bestScore))
+            {
+                return false;
+            }
+
+            entryWaypoint = SurfacePoint(
+                new Vector3(bestEntry.x, 0f, bestEntry.y),
+                1f);
+            exitWaypoint = SurfacePoint(
+                new Vector3(bestExit.x, 0f, bestExit.y),
                 1f);
             return true;
         }
@@ -1145,6 +1889,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public GameObject BridgePrefab => bridgePrefab;
         public Material SkyboxMaterial => skyboxMaterial;
         public float MapRadius => mapRadius;
+        public bool AdvancedLandformsEnabled => enableAdvancedLandforms;
+        public Vector2 UplandDirection => elevationDirection;
+        public IReadOnlyList<Vector2> EscarpmentPassCenters =>
+            escarpmentPassCenters;
         public ForestFloorDebugMode HabitatDebugMode =>
             forestFloorDebugMode;
         public IReadOnlyList<Vector2> ObeliskPositions =>
@@ -1167,6 +1915,36 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     : 0f;
         }
 
+        public static Vector4 VisibleForestGroundWeightsForValidation(
+            Vector4 primaryWeights,
+            float stonyWeight,
+            float campBlend)
+        {
+            HabitatSample habitat = new HabitatSample
+            {
+                PrimaryWeights = primaryWeights,
+                StonyWeight = stonyWeight
+            };
+            return ApplyVisibleForestGroundPalette(
+                habitat,
+                campBlend).PrimaryWeights;
+        }
+
+        public static float ResolveForestGroundSaturation(
+            float serializedValue)
+        {
+            bool missingOrLegacy = serializedValue <= 0.001f ||
+                Mathf.Abs(
+                    serializedValue -
+                    LegacyForestGroundSaturation) <= 0.001f ||
+                Mathf.Abs(
+                    serializedValue -
+                    PreviousForestGroundSaturation) <= 0.001f;
+            return missingOrLegacy
+                ? DefaultForestGroundSaturation
+                : Mathf.Clamp01(serializedValue);
+        }
+
         public float DistanceToNearestTrail(
             Vector3 worldPoint)
         {
@@ -1179,6 +1957,39 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public float SampleTerrainHeight(float x, float z)
         {
             return TerrainHeight(x, z);
+        }
+
+        public static int CalculateGroundFogGridResolution(
+            float radius)
+        {
+            float linearScale = Mathf.Max(
+                1f,
+                radius / BaselineIslandRadius);
+            return Mathf.Max(
+                BaselineGroundFogGridResolution,
+                Mathf.RoundToInt(
+                    BaselineGroundFogGridResolution *
+                    linearScale));
+        }
+
+        public Vector3 SampleTerrainNormal(float x, float z)
+        {
+            return TerrainNormalAt(x, z);
+        }
+
+        public float SampleCliffCoastInfluence(float x, float z)
+        {
+            return CliffCoastInfluence(new Vector2(x, z));
+        }
+
+        public float SampleCliffTerrainInfluence(float x, float z)
+        {
+            return CliffFaceInfluence(new Vector2(x, z));
+        }
+
+        public void SetAdvancedLandformsEnabled(bool enabled)
+        {
+            enableAdvancedLandforms = enabled;
         }
 
         public void Configure(
@@ -1248,6 +2059,20 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             groundFloraStudyPrefabs = studyPrefabs;
         }
 
+        public void ConfigureRaidLandmarks(
+            GameObject[] riverFallenTrees,
+            GameObject wideTower,
+            GameObject skinnyTower,
+            GameObject towerLadder,
+            Material towerSurfaceMaterial)
+        {
+            fallenTreePrefabs = riverFallenTrees;
+            wideWatchtowerPrefab = wideTower;
+            skinnyWatchtowerPrefab = skinnyTower;
+            watchtowerLadderPrefab = towerLadder;
+            watchtowerMaterial = towerSurfaceMaterial;
+        }
+
         public void ConfigureForestCamps(
             EnemyBrain[] guardPool,
             GameObject tent,
@@ -1301,26 +2126,36 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private void Start()
         {
-            Generate();
+            EnsureRuntimeGeneration();
         }
 
         private void OnEnable()
         {
-            if (Application.isPlaying &&
-                FindExistingGeneratedRoot() != null)
+            Transform existingRoot = FindExistingGeneratedRoot();
+            DisableCampVisualEffects(existingRoot);
+            if (Application.isPlaying && existingRoot != null)
             {
-                Generate();
+                EnsureRuntimeGeneration();
             }
+        }
+
+        private void EnsureRuntimeGeneration()
+        {
+            if (runtimeGenerationStarted)
+            {
+                return;
+            }
+
+            runtimeGenerationStarted = true;
+            if (BrowserRaidDemoController.TryBeginStagedGeneration(this))
+            {
+                return;
+            }
+            EnsureGeneratedWithSeed(ResolveSeed());
         }
 
         private void OnDestroy()
         {
-            if (!Application.isPlaying)
-            {
-                // Edit-mode previews can be serialized with the review scene.
-                // Their inline meshes must survive script-domain reloads.
-                return;
-            }
             ReleaseGeneratedRuntimeResources();
             foreach (Mesh collisionMesh in
                      treeCollisionMeshCache.Values)
@@ -1342,6 +2177,29 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         public void GenerateWithSeed(int seed)
         {
+            IEnumerator routine = GenerateWithSeedRoutine(seed, null);
+            while (routine.MoveNext())
+            {
+                // The normal game and editor tools retain synchronous
+                // generation. Browser demo builds consume the same routine as
+                // a coroutine so their loading presentation can repaint.
+            }
+        }
+
+        public IEnumerator GenerateStaged(
+            Action<string, float> reportProgress = null)
+        {
+            return GenerateWithSeedRoutine(
+                ResolveSeed(),
+                reportProgress);
+        }
+
+        private IEnumerator GenerateWithSeedRoutine(
+            int seed,
+            Action<string, float> reportProgress)
+        {
+            reportProgress?.Invoke("Planning the island.", 0f);
+            ClearPerformanceCaches();
             generationStageMilliseconds.Clear();
             var generationTimer = Stopwatch.StartNew();
             double previousStageEnd = 0d;
@@ -1363,7 +2221,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             elevationDirection = new Vector2(
                 Mathf.Cos(elevationAngle),
                 Mathf.Sin(elevationAngle));
-            oceanWaterLevel = RawLandHeight(0f, 0f) - 5.2f;
+            oceanWaterLevel = BaseLandHeight(0f, 0f) - 5.2f;
 
             mainRoadSamples.Clear();
             forkRoadSamples.Clear();
@@ -1373,37 +2231,50 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             riverSamples.Clear();
             SampleSpline(
                 layout.MainRoad,
-                2,
+                3,
                 mainRoadSamples);
             SampleSpline(
                 layout.ForkRoad,
-                2,
+                3,
                 forkRoadSamples);
             SampleSpline(
                 layout.BranchRoadA,
-                2,
+                3,
                 branchRoadASamples);
             SampleSpline(
                 layout.BranchRoadB,
-                2,
+                3,
                 branchRoadBSamples);
             SampleSpline(
                 layout.BranchRoadC,
-                2,
+                3,
                 branchRoadCSamples);
             SampleSpline(
                 layout.River,
-                3,
+                5,
                 riverSamples);
+            ConfigureRaisedLandformRoutes();
+            ConfigureAdvancedLandformGraph(seed);
             RebuildPolylineQueries();
+            // Level-two camp fits participate in TerrainHeight. Remove the
+            // previous generation before monument scoring so regenerating a
+            // seed cannot sample a stale flattened footprint.
+            campSites.Clear();
+            watchtowerSites.Clear();
+            ResolveSafeOuterEndpoints();
             ResolveObeliskPositions();
             ResolveCampSites(
                 new System.Random(
                     unchecked(seed ^ (int)0x6d2b79f5)));
+            ConfigureAdvancedTreeMosaic();
             RecordGenerationStage(
                 "layout",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Planning roads and landmarks.", 0.10f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
 
             if (generatedRoot == null)
             {
@@ -1427,10 +2298,19 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new GameObject(
                     $"Generated Raid {seed}").transform;
             generatedRoot.SetParent(transform, false);
+            if (!Application.isPlaying)
+            {
+                generatedRoot.gameObject.hideFlags |=
+                    HideFlags.DontSaveInEditor;
+            }
             RecordGenerationStage(
                 "cleanup",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Preparing the world surface.", 0.18f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
 
             Material forestRuntime =
                 CreateTexturedMaterial(
@@ -1456,25 +2336,55 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 "materials",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Mixing forest materials.", 0.25f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
 
-            CreateForest(random);
+            BuildTerrainSurfaceCache();
+            RecordGenerationStage(
+                "terrain-surface-cache",
+                generationTimer,
+                ref previousStageEnd);
+            reportProgress?.Invoke("Shaping the island terrain.", 0.36f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
+
+            CreateForest();
+            ResolveWatchtowerSites(
+                new System.Random(
+                    unchecked(seed ^ (int)0x27a96f31)));
             RecordGenerationStage(
                 "forest",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Growing the forest.", 0.50f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
             CreateGroundScenery(random);
             RecordGenerationStage(
                 "ground-scenery",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Scattering forest-floor detail.", 0.64f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
             CreateTerrain(
                 forestRuntime,
                 bareGroundMaterial,
                 roadRuntime);
+            CreateLayeredGroundFog();
             RecordGenerationStage(
                 "terrain",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Building paths and ground cover.", 0.74f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
             CreateRibbon(
                 "River",
                 riverSamples,
@@ -1482,22 +2392,37 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     RiverWaterBankOverlap,
                 waterRuntime,
                 false);
-            CreateOcean(waterRuntime);
+            CreateOcean();
             CreateBridges();
+            CreateFallenTreeCrossings(
+                new System.Random(
+                    unchecked(seed ^ (int)0x5b731e49)));
             CreateIslandShoreBoundary();
             CreateForestCamps(
                 new System.Random(
                     unchecked(seed ^ (int)0x43f17a2d)));
+            CreateWatchtowers(
+                new System.Random(
+                    unchecked(seed ^ (int)0x7813c2ad)));
+            DisableCampVisualEffects(generatedRoot);
             CreateRareFireflyZone(seed);
             RecordGenerationStage(
                 "river-bridges-and-camps",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Placing rivers, camps, and towers.", 0.88f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
             PlaceActorsAndObjectives(random);
             RecordGenerationStage(
                 "actors-and-objectives",
                 generationTimer,
                 ref previousStageEnd);
+            reportProgress?.Invoke("Deploying enemies and objectives.", 0.95f);
+            generationTimer.Stop();
+            yield return null;
+            generationTimer.Start();
             ConfigureEnvironmentCulling();
             CacheGenerationMetrics();
             RecordGenerationStage(
@@ -1515,7 +2440,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GameplayEventLog.Publish(
                 "raid-generated",
                 gameObject,
-                $"seed={seed}; trees={generatedTreeCount}; " +
+                $"seed={seed}; trees={generatedTreeCount}/" +
+                $"{generatedTreeTarget}; " +
+                $"treeDensityCoverage=" +
+                $"{generatedTreeDensityCoverage:0.000}; " +
+                $"mediumTrees=" +
+                $"{generatedMediumWoodlandTreeCount}; " +
+                $"denseTrees=" +
+                $"{generatedDenseForestTreeCount}; " +
                 $"grass={generatedGrassCount}; " +
                 $"undergrowth={generatedUndergrowthCount}; " +
                 $"groundFlora={generatedGroundFloraStudyCount}; " +
@@ -1532,11 +2464,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 $"campGuards={generatedCampGuardCount}; " +
                 $"campBows={generatedCampBowGuardCount}; " +
                 $"campSwords={generatedCampSwordGuardCount}; " +
+                $"fallenTreeCrossings=" +
+                $"{generatedFallenTreeCrossingCount}; " +
+                $"watchtowers={generatedWatchtowerCount}; " +
+                $"wideWatchtowers={generatedWideWatchtowerCount}; " +
+                $"towerArchers={generatedTowerGuardCount}; " +
                 $"fireflyZones={generatedFireflyZoneCount}; " +
                 $"fork={layout.HasRoadFork}; " +
                 $"crossing={layout.RiverCrossesRoad}; " +
                 $"generationMs={lastGenerationMilliseconds:0.0}; " +
                 $"stages={FormatGenerationStages()}");
+            reportProgress?.Invoke("Finalizing the expedition.", 1f);
         }
 
         private void RecordGenerationStage(
@@ -1585,13 +2523,95 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void RebuildPolylineQueries()
         {
             roadQuery.Clear();
-            roadQuery.Add(mainRoadSamples);
-            roadQuery.Add(forkRoadSamples);
-            roadQuery.Add(branchRoadASamples);
-            roadQuery.Add(branchRoadBSamples);
-            roadQuery.Add(branchRoadCSamples);
+            BuildWalkableTrailHeightProfiles();
+            // The advanced graph is a replacement traversal topology, not
+            // a second layer of trails. Keeping the legacy splines in this
+            // query painted both networks into the terrain and made every
+            // ecology clearance test do twice the work.
+            if (enableAdvancedLandforms &&
+                advancedLandformRoads.Count > 0)
+            {
+                AddAdvancedLandformRoutesToRoadQuery();
+            }
+            else
+            {
+                roadQuery.Add(mainRoadSamples);
+                roadQuery.Add(forkRoadSamples);
+                roadQuery.Add(branchRoadASamples);
+                roadQuery.Add(branchRoadBSamples);
+                roadQuery.Add(branchRoadCSamples);
+            }
             riverQuery.Clear();
             riverQuery.Add(riverSamples);
+        }
+
+        private void BuildWalkableTrailHeightProfiles()
+        {
+            if (enableAdvancedLandforms &&
+                advancedLandformRoads.Count > 0)
+            {
+                for (int index = 0;
+                     index < advancedLandformRoads.Count;
+                     index++)
+                {
+                    ApplyWalkableTrailHeightProfile(
+                        advancedLandformRoads[index]);
+                }
+                return;
+            }
+
+            ApplyWalkableTrailHeightProfile(mainRoadSamples);
+            ApplyWalkableTrailHeightProfile(forkRoadSamples);
+            ApplyWalkableTrailHeightProfile(branchRoadASamples);
+            ApplyWalkableTrailHeightProfile(branchRoadBSamples);
+            ApplyWalkableTrailHeightProfile(branchRoadCSamples);
+        }
+
+        private void ApplyWalkableTrailHeightProfile(List<Vector3> trail)
+        {
+            if (trail == null || trail.Count < 2)
+            {
+                return;
+            }
+            for (int index = 0; index < trail.Count; index++)
+            {
+                Vector3 point = trail[index];
+                point.y = RawLandHeight(point.x, point.z) -
+                    RoadIndentation;
+                trail[index] = point;
+            }
+            for (int pass = 0; pass < 3; pass++)
+            {
+                LimitTrailGrade(trail, 0, trail.Count, 1);
+                LimitTrailGrade(trail, trail.Count - 1, -1, -1);
+            }
+        }
+
+        private static void LimitTrailGrade(
+            List<Vector3> trail,
+            int start,
+            int end,
+            int step)
+        {
+            int previous = start;
+            for (int index = start + step;
+                 index != end;
+                 index += step)
+            {
+                Vector3 point = trail[index];
+                Vector3 prior = trail[previous];
+                float horizontalDistance = Vector2.Distance(
+                    new Vector2(point.x, point.z),
+                    new Vector2(prior.x, prior.z));
+                float maximumRise =
+                    horizontalDistance * MaximumTrailGrade;
+                point.y = Mathf.Clamp(
+                    point.y,
+                    prior.y - maximumRise,
+                    prior.y + maximumRise);
+                trail[index] = point;
+                previous = index;
+            }
         }
 
         private T TrackRuntimeResource<T>(T resource)
@@ -1599,6 +2619,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             if (resource != null)
             {
+                if (!Application.isPlaying)
+                {
+                    resource.hideFlags |= HideFlags.DontSaveInEditor;
+                }
                 generatedRuntimeResources.Add(resource);
             }
             return resource;
@@ -1717,12 +2741,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 river,
                 bridgeAnchors);
 
-            bool hasSecondPrimary =
-                random.NextDouble() < 0.68;
+            // Two complete coast-to-coast trunks make the trail network
+            // legible at island scale. Branches attach to these trunks below;
+            // a missing second primary was the main cause of sparse maps.
+            // Preserve the legacy random draw so river/trunk geometry for an
+            // established seed does not shift merely because the fork is now
+            // mandatory.
+            random.NextDouble();
+            bool hasSecondPrimary = true;
             Vector3[] fork = Array.Empty<Vector3>();
             if (hasSecondPrimary)
             {
-                for (int attempt = 0; attempt < 8; attempt++)
+                for (int attempt = 0; attempt < 32; attempt++)
                 {
                     Vector3[] candidate = CreateBoundaryRoad(
                         random,
@@ -1766,37 +2796,63 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
             }
 
-            Vector3[] branchA = CreatePurposefulBranchRoad(
-                random,
-                radius,
-                road,
-                Mathf.Lerp(
-                    0.26f,
-                    0.43f,
-                    (float)random.NextDouble()),
-                random.NextDouble() < 0.5 ? -1f : 1f,
-                river,
-                bridgeAnchors,
-                routeDestinations,
-                routeNetwork);
-            Vector3[] branchB =
-                random.NextDouble() <
-                    (fork.Length > 0 ? 0.42 : 0.62)
-                    ? CreatePurposefulBranchRoad(
+            int requestedBranchCount = 4 + random.Next(3);
+            var branches = new List<Vector3[]>(requestedBranchCount);
+            float[] preferredBranchProgress =
+            {
+                0.22f, 0.30f, 0.43f, 0.57f, 0.70f, 0.78f
+            };
+            for (int attempt = 0;
+                 attempt < requestedBranchCount + 12 &&
+                 branches.Count < requestedBranchCount;
+                 attempt++)
+            {
+                int branchIndex = branches.Count;
+                Vector3[] parent =
+                    (branchIndex & 1) == 1 && fork.Length > 0
+                        ? fork
+                        : road;
+                float side = ((branchIndex / 2) & 1) == 0
+                    ? -1f
+                    : 1f;
+                float retryOffset = attempt > branchIndex
+                    ? ((attempt - branchIndex + 1) / 2) * 0.035f *
+                        (((attempt - branchIndex) & 1) == 0 ? -1f : 1f)
+                    : 0f;
+                Vector3[] branch = CreatePurposefulBranchRoad(
+                    random,
+                    radius,
+                    parent,
+                    Mathf.Clamp(
+                        preferredBranchProgress[branchIndex] + retryOffset,
+                        0.16f,
+                        0.84f),
+                    side,
+                    river,
+                    bridgeAnchors,
+                    routeDestinations,
+                    routeNetwork);
+                if (branch.Length == 0)
+                {
+                    branch = CreateFallbackPurposefulBranchRoad(
                         random,
                         radius,
-                        fork.Length > 0 ? fork : road,
-                        Mathf.Lerp(
-                            0.52f,
-                            0.72f,
-                            (float)random.NextDouble()),
-                        random.NextDouble() < 0.5 ? -1f : 1f,
+                        parent,
+                        Mathf.Clamp(
+                            preferredBranchProgress[branchIndex] + retryOffset,
+                            0.16f,
+                            0.84f),
+                        side,
                         river,
                         bridgeAnchors,
                         routeDestinations,
-                        routeNetwork)
-                    : Array.Empty<Vector3>();
-            Vector3[] branchC = Array.Empty<Vector3>();
+                        routeNetwork);
+                }
+                if (branch.Length > 0)
+                {
+                    branches.Add(branch);
+                }
+            }
 
             Vector3 playerSpawn = FindOuterSpawnPoint(
                 random,
@@ -1818,9 +2874,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             WarpPolylineToIsland(road, radius, coastRadii);
             WarpPolylineToIsland(fork, radius, coastRadii);
-            WarpPolylineToIsland(branchA, radius, coastRadii);
-            WarpPolylineToIsland(branchB, radius, coastRadii);
-            WarpPolylineToIsland(branchC, radius, coastRadii);
+            for (int index = 0; index < branches.Count; index++)
+            {
+                WarpPolylineToIsland(
+                    branches[index],
+                    radius,
+                    coastRadii);
+            }
             WarpPolylineToIsland(river, radius, coastRadii);
             playerSpawn = WarpPointToIsland(
                 playerSpawn,
@@ -1835,13 +2895,25 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 coastRadii);
             StraightenRiverCrossings(road, river);
             StraightenRiverCrossings(fork, river);
-            StraightenRiverCrossings(branchA, river);
-            StraightenRiverCrossings(branchB, river);
-            StraightenRiverCrossings(branchC, river);
-            SnapBranchStartToRoute(branchA, road);
-            SnapBranchStartToRoute(
-                branchB,
-                fork.Length > 0 ? fork : road);
+            for (int index = 0; index < branches.Count; index++)
+            {
+                StraightenRiverCrossings(branches[index], river);
+                SnapBranchStartToRoute(
+                    branches[index],
+                    (index & 1) == 1 && fork.Length > 0
+                        ? fork
+                        : road);
+            }
+
+            Vector3[] branchA = branches.Count > 0
+                ? branches[0]
+                : Array.Empty<Vector3>();
+            Vector3[] branchB = branches.Count > 1
+                ? branches[1]
+                : Array.Empty<Vector3>();
+            Vector3[] branchC = branches.Count > 2
+                ? branches[2]
+                : Array.Empty<Vector3>();
 
             float maximumCoastRadius = 0f;
             for (int index = 0;
@@ -1863,6 +2935,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 BranchRoadA = branchA,
                 BranchRoadB = branchB,
                 BranchRoadC = branchC,
+                BranchRoads = branches.ToArray(),
                 River = river,
                 PlayerSpawn = playerSpawn,
                 ExtractionPoint = extraction,
@@ -1902,6 +2975,39 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 0.01f,
                 0.032f,
                 (float)random.NextDouble());
+            const int featureCount = 6;
+            var featureCenters = new float[featureCount];
+            var featureWidths = new float[featureCount];
+            var featureAmplitudes = new float[featureCount];
+            float featurePhase = RandomAngle(random);
+            int firstFeaturePolarity = random.Next(0, 2);
+            for (int featureIndex = 0;
+                 featureIndex < featureCount;
+                 featureIndex++)
+            {
+                featureCenters[featureIndex] =
+                    featurePhase +
+                    featureIndex * Mathf.PI * 2f / featureCount +
+                    Mathf.Lerp(
+                        -0.24f,
+                        0.24f,
+                        (float)random.NextDouble());
+                featureWidths[featureIndex] = Mathf.Lerp(
+                    0.30f,
+                    0.54f,
+                    (float)random.NextDouble());
+                bool headland =
+                    ((featureIndex + firstFeaturePolarity) & 1) == 0;
+                featureAmplitudes[featureIndex] = headland
+                    ? Mathf.Lerp(
+                        0.085f,
+                        0.16f,
+                        (float)random.NextDouble())
+                    : -Mathf.Lerp(
+                        0.07f,
+                        0.135f,
+                        (float)random.NextDouble());
+            }
             var radii = new float[IslandCoastSampleCount];
             float squaredTotal = 0f;
             for (int index = 0;
@@ -1916,7 +3022,28 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Mathf.Sin(angle * 3f + phaseThree) * amplitudeThree +
                     Mathf.Cos(angle * 4f + phaseFour) * amplitudeFour +
                     Mathf.Sin(angle * 5f + phaseFive) * amplitudeFive;
-                radii[index] = Mathf.Clamp(shape, 0.72f, 1.30f);
+                // Broad, authored-feeling bays and headlands break up the
+                // harmonic oval without turning the shoreline into noisy
+                // high-frequency teeth. The final normalization below keeps
+                // the requested playable area exact for every seed.
+                for (int featureIndex = 0;
+                     featureIndex < featureCount;
+                     featureIndex++)
+                {
+                    float angularDistance =
+                        ShortestAngularDistance(
+                            angle,
+                            featureCenters[featureIndex]);
+                    float featureWeight = 1f - Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        Mathf.Clamp01(
+                            angularDistance /
+                            featureWidths[featureIndex]));
+                    shape += featureAmplitudes[featureIndex] *
+                        featureWeight;
+                }
+                radii[index] = Mathf.Clamp(shape, 0.68f, 1.40f);
                 squaredTotal += radii[index] * radii[index];
             }
 
@@ -1929,6 +3056,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 radii[index] *= areaNormalization;
             }
             return radii;
+        }
+
+        private static float ShortestAngularDistance(
+            float a,
+            float b)
+        {
+            return Mathf.Abs(
+                Mathf.Repeat(
+                    a - b + Mathf.PI,
+                    Mathf.PI * 2f) -
+                Mathf.PI);
         }
 
         public static float SampleIslandCoastRadius(
@@ -1949,6 +3087,201 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 coastRadii[first],
                 coastRadii[second],
                 normalized - Mathf.Floor(normalized));
+        }
+
+        private void ConfigureRaisedLandformRoutes()
+        {
+            escarpmentPassCenters.Clear();
+            riverGorgeCenters.Clear();
+            if (layout == null)
+            {
+                return;
+            }
+
+            RegisterEscarpmentCrossings(
+                mainRoadSamples,
+                escarpmentPassCenters);
+            RegisterEscarpmentCrossings(
+                forkRoadSamples,
+                escarpmentPassCenters);
+            RegisterEscarpmentCrossings(
+                branchRoadASamples,
+                escarpmentPassCenters);
+            RegisterEscarpmentCrossings(
+                branchRoadBSamples,
+                escarpmentPassCenters);
+            RegisterEscarpmentCrossings(
+                branchRoadCSamples,
+                escarpmentPassCenters);
+            RegisterEscarpmentCrossings(
+                riverSamples,
+                riverGorgeCenters);
+        }
+
+        private void RegisterEscarpmentCrossings(
+            IReadOnlyList<Vector3> points,
+            List<Vector2> results)
+        {
+            if (points == null || points.Count < 2)
+            {
+                return;
+            }
+
+            for (int index = 0; index < points.Count - 1; index++)
+            {
+                Vector2 start = ToXZ(points[index]);
+                Vector2 end = ToXZ(points[index + 1]);
+                float startDistance =
+                    EscarpmentSignedDistance(start);
+                float endDistance =
+                    EscarpmentSignedDistance(end);
+                if (startDistance * endDistance > 0f)
+                {
+                    continue;
+                }
+
+                float denominator = startDistance - endDistance;
+                float progress = Mathf.Abs(denominator) > 0.0001f
+                    ? Mathf.Clamp01(startDistance / denominator)
+                    : 0.5f;
+                Vector2 crossing = Vector2.Lerp(
+                    start,
+                    end,
+                    progress);
+                bool duplicate = false;
+                for (int resultIndex = 0;
+                     resultIndex < results.Count;
+                     resultIndex++)
+                {
+                    if (Vector2.Distance(
+                            crossing,
+                            results[resultIndex]) < 12f)
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate)
+                {
+                    results.Add(crossing);
+                }
+            }
+        }
+
+        private bool IsInsideEscarpmentPassLane(
+            Vector2 point,
+            float padding)
+        {
+            for (int index = 0;
+                 index < escarpmentPassCenters.Count;
+                 index++)
+            {
+                Vector2 center = escarpmentPassCenters[index];
+                if (IsInsideEscarpmentPassLane(
+                        point,
+                        center,
+                        padding))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool IsInsideEscarpmentPassLane(
+            Vector2 point,
+            Vector2 center,
+            float padding)
+        {
+            float endpointOffset =
+                EscarpmentPassHalfWidth + 6f;
+            float laneRadius = Mathf.Max(
+                0.5f,
+                roadHalfWidth + 1.55f + padding);
+            Vector2 start = center -
+                elevationDirection * endpointOffset;
+            Vector2 end = center +
+                elevationDirection * endpointOffset;
+            return DistanceToSegment(point, start, end) <= laneRadius;
+        }
+
+        private static float DistanceToSegment(
+            Vector2 point,
+            Vector2 start,
+            Vector2 end)
+        {
+            Vector2 segment = end - start;
+            float lengthSquared = segment.sqrMagnitude;
+            float progress = lengthSquared > 0.000001f
+                ? Mathf.Clamp01(
+                    Vector2.Dot(point - start, segment) /
+                    lengthSquared)
+                : 0f;
+            return Vector2.Distance(
+                point,
+                start + segment * progress);
+        }
+
+        private float EscarpmentSignedDistance(Vector2 point)
+        {
+            return Vector2.Dot(point, elevationDirection) -
+                mapRadius * EscarpmentOffsetRatio;
+        }
+
+        private static float LocalizedRouteInfluence(
+            Vector2 point,
+            List<Vector2> centers,
+            float radius)
+        {
+            float influence = 0f;
+            for (int index = 0; index < centers.Count; index++)
+            {
+                float distance = Vector2.Distance(
+                    point,
+                    centers[index]);
+                influence = Mathf.Max(
+                    influence,
+                    1f - Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        Mathf.Clamp01(distance / radius)));
+            }
+            return influence;
+        }
+
+        private float RaisedLandformHeight(Vector2 point)
+        {
+            float passInfluence = LocalizedRouteInfluence(
+                point,
+                escarpmentPassCenters,
+                EscarpmentPassRadius);
+            float gorgeInfluence = LocalizedRouteInfluence(
+                point,
+                riverGorgeCenters,
+                RiverGorgeRadius);
+            float halfWidth = Mathf.Max(
+                Mathf.Lerp(
+                    EscarpmentCliffHalfWidth,
+                    EscarpmentPassHalfWidth,
+                    passInfluence),
+                Mathf.Lerp(
+                    EscarpmentCliffHalfWidth,
+                    RiverGorgeHalfWidth,
+                    gorgeInfluence));
+            float raisedWeight = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    -halfWidth,
+                    halfWidth,
+                    EscarpmentSignedDistance(point)));
+            float plateauRelief =
+                (Mathf.PerlinNoise(
+                    noiseOffsetB.x * 0.0011f + point.x * 0.008f,
+                    noiseOffsetB.y * 0.0011f + point.y * 0.008f) -
+                 0.5f) * 1.6f;
+            return raisedWeight *
+                (RaisedUplandHeight + plateauRelief);
         }
 
         private static float RandomAngle(System.Random random)
@@ -2106,6 +3439,100 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return bestCandidate;
         }
 
+        private void ResolveSafeOuterEndpoints()
+        {
+            if (layout == null)
+            {
+                return;
+            }
+
+            float playerAngle = Mathf.Atan2(
+                layout.PlayerSpawn.z,
+                layout.PlayerSpawn.x);
+            layout.PlayerSpawn = ResolveSafeOuterEndpoint(
+                layout.PlayerSpawn,
+                playerAngle,
+                Mathf.PI);
+
+            float oppositeAngle = Mathf.Atan2(
+                    layout.PlayerSpawn.z,
+                    layout.PlayerSpawn.x) +
+                Mathf.PI;
+            layout.ExtractionPoint = ResolveSafeOuterEndpoint(
+                layout.ExtractionPoint,
+                oppositeAngle,
+                ExtractionOppositeArc);
+        }
+
+        private Vector3 ResolveSafeOuterEndpoint(
+            Vector3 original,
+            float preferredAngle,
+            float angleHalfRange)
+        {
+            Vector2 originalPoint = ToXZ(original);
+            if (IsSafeOuterEndpoint(originalPoint))
+            {
+                return original;
+            }
+
+            float[] radialRatios =
+            {
+                0.78f,
+                0.72f,
+                0.84f,
+                0.75f,
+                0.81f,
+                OuterSpawnInnerRadiusRatio,
+                OuterSpawnOuterRadiusRatio
+            };
+            const int angleStepsPerSide = 40;
+            for (int stepIndex = 0;
+                 stepIndex <= angleStepsPerSide * 2;
+                 stepIndex++)
+            {
+                int signedStep = stepIndex == 0
+                    ? 0
+                    : (stepIndex + 1) / 2 *
+                        (stepIndex % 2 == 1 ? 1 : -1);
+                float angle = preferredAngle +
+                    signedStep /
+                    (float)angleStepsPerSide *
+                    angleHalfRange;
+                float coastRadius = layout.CoastRadiusAtAngle(angle);
+                for (int radiusIndex = 0;
+                     radiusIndex < radialRatios.Length;
+                     radiusIndex++)
+                {
+                    float radius = coastRadius *
+                        radialRatios[radiusIndex];
+                    Vector2 candidate = new Vector2(
+                        Mathf.Cos(angle) * radius,
+                        Mathf.Sin(angle) * radius);
+                    if (IsSafeOuterEndpoint(candidate))
+                    {
+                        return new Vector3(
+                            candidate.x,
+                            0f,
+                            candidate.y);
+                    }
+                }
+            }
+
+            UnityEngine.Debug.LogError(
+                "Raid generation could not find a level, dry outer " +
+                "endpoint away from the escarpment; retaining the " +
+                "original seeded point.");
+            return original;
+        }
+
+        private bool IsSafeOuterEndpoint(Vector2 point)
+        {
+            return IsInsideIsland(point, 10f) &&
+                DistanceToRiverExact(point) >= SpawnRiverClearance &&
+                TerrainNormalAt(point.x, point.y).y >= 0.88f &&
+                CliffFaceInfluence(point) <= 0.12f;
+        }
+
         private static Vector3[] CreateBoundaryRoad(
             System.Random random,
             float radius,
@@ -2157,7 +3584,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float radius,
             Vector3[] sourceRoad,
             float sourceT,
-            float exitAngle)
+            float exitAngle,
+            float lateralControlRatio = 0.08f)
         {
             const int PointCount = 13;
             var points = new Vector3[PointCount];
@@ -2197,7 +3625,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Vector3.up,
                     midpointDirection) *
                 side *
-                radius * 0.08f;
+                radius * lateralControlRatio;
             for (int index = 0; index < PointCount; index++)
             {
                 float t = index / (PointCount - 1f);
@@ -2293,6 +3721,78 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return candidate;
             }
 
+            return Array.Empty<Vector3>();
+        }
+
+        private static Vector3[] CreateFallbackPurposefulBranchRoad(
+            System.Random random,
+            float radius,
+            Vector3[] sourceRoad,
+            float preferredSourceT,
+            float preferredSide,
+            Vector3[] river,
+            List<Vector3> bridgeAnchors,
+            List<Vector3> routeDestinations,
+            List<Vector3[]> routeNetwork)
+        {
+            List<float> destinationCenters = FindDestinationGapCenters(
+                routeDestinations);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int attempt = 0;
+                     attempt < destinationCenters.Count * 24;
+                     attempt++)
+                {
+                    int sectorIndex = attempt % destinationCenters.Count;
+                    int variation = attempt / destinationCenters.Count;
+                    float sourceOffset = ((variation + 1) / 2) * 0.045f *
+                        ((variation & 1) == 0 ? -1f : 1f);
+                    float sourceT = Mathf.Clamp(
+                        preferredSourceT + sourceOffset,
+                        0.14f,
+                        0.86f);
+                    if (DistanceToPolyline(
+                            PointOnPolyline(sourceRoad, sourceT),
+                            river) < MinimumForkRiverClearance)
+                    {
+                        continue;
+                    }
+                    float exitAngle = destinationCenters[sectorIndex] +
+                        preferredSide * variation * 0.025f;
+                    Vector3[] candidate = CreateBranchRoad(
+                        random,
+                        radius,
+                        sourceRoad,
+                        sourceT,
+                        exitAngle,
+                        0.12f + (variation % 4) * 0.035f);
+                    StraightenRiverCrossings(candidate, river);
+                    if (!HasPurposefulDeparture(candidate, sourceRoad) ||
+                        !CrossingsRespectSpacing(
+                            candidate,
+                            river,
+                            bridgeAnchors,
+                            5f) ||
+                        IsRedundantRouteCorridor(candidate, routeNetwork))
+                    {
+                        continue;
+                    }
+
+                    // This fallback is reached only after the stricter bridge
+                    // spacing search is exhausted. Advanced visible trails
+                    // permit independent bridges eight metres apart, so keep
+                    // the complete branch rather than dropping the network
+                    // below its four-branch minimum.
+                    RegisterCrossingAnchors(
+                        candidate,
+                        river,
+                        bridgeAnchors);
+                    routeDestinations.Add(
+                        candidate[candidate.Length - 1]);
+                    routeNetwork.Add(candidate);
+                    return candidate;
+                }
+            }
             return Array.Empty<Vector3>();
         }
 
@@ -2629,7 +4129,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private static bool CrossingsRespectSpacing(
             Vector3[] road,
             Vector3[] river,
-            List<Vector3> acceptedCrossings)
+            List<Vector3> acceptedCrossings,
+            float minimumSeparation = MinimumBridgeSeparation)
         {
             var candidateCrossings = new List<Vector3>();
             FindArrayIntersections(
@@ -2645,7 +4146,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     if (Vector3.Distance(
                             candidateCrossings[index],
                             acceptedCrossings[accepted]) <
-                        MinimumBridgeSeparation)
+                        minimumSeparation)
                     {
                         return false;
                     }
@@ -2656,7 +4157,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     if (Vector3.Distance(
                             candidateCrossings[index],
                             candidateCrossings[other]) <
-                        MinimumBridgeSeparation)
+                        minimumSeparation)
                     {
                         return false;
                     }
@@ -2892,7 +4393,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         {
             var terrainTimer = Stopwatch.StartNew();
             double previousTerrainStageEnd = 0d;
-            int width = terrainResolution + 1;
+            int activeTerrainResolution = ActiveTerrainResolution;
+            int width = activeTerrainResolution + 1;
             var vertices =
                 new Vector3[width * width];
             var uv =
@@ -2907,18 +4409,26 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 {
                     float worldX =
                         -terrainExtent +
-                        diameter * x / terrainResolution;
+                        diameter * x / activeTerrainResolution;
                     float worldZ =
                         -terrainExtent +
-                        diameter * z / terrainResolution;
+                        diameter * z / activeTerrainResolution;
                     int index = z * width + x;
+                    bool cached = TryGetTerrainSurfaceVertex(
+                        index,
+                        out float height,
+                        out float signedRoadDistance);
+                    if (!cached)
+                    {
+                        height = TerrainHeight(
+                            worldX,
+                            worldZ,
+                            out signedRoadDistance);
+                    }
                     vertices[index] =
                         new Vector3(
                             worldX,
-                            TerrainHeight(
-                                worldX,
-                                worldZ,
-                                out float signedRoadDistance),
+                            height,
                             worldZ);
                     uv[index] =
                         new Vector2(
@@ -2938,33 +4448,33 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new List<Vector2>(uv);
             var groundTriangles =
                 new List<int>(
-                    terrainResolution *
-                    terrainResolution *
+                    activeTerrainResolution *
+                    activeTerrainResolution *
                     6);
             var roadTriangles =
                 new List<int>(
-                    terrainResolution *
-                    terrainResolution);
+                    activeTerrainResolution *
+                    activeTerrainResolution);
             var boundaryVertices =
                 new Dictionary<long, int>();
             for (int z = 0;
-                 z < terrainResolution;
+                 z < activeTerrainResolution;
                  z++)
             {
                 for (int x = 0;
-                     x < terrainResolution;
+                     x < activeTerrainResolution;
                      x++)
                 {
                     float centerX =
                         -terrainExtent +
                         diameter *
                         (x + 0.5f) /
-                        terrainResolution;
+                        activeTerrainResolution;
                     float centerZ =
                         -terrainExtent +
                         diameter *
                         (z + 0.5f) /
-                        terrainResolution;
+                        activeTerrainResolution;
                     if (!IsInsideIsland(
                             new Vector2(centerX, centerZ),
                             0f))
@@ -3037,9 +4547,15 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         : TerrainBlendTintAt(
                             vertex.x,
                             vertex.z));
+                Vector2 habitatPoint =
+                    new Vector2(vertex.x, vertex.z);
                 HabitatSample habitat = ForestHabitatAt(
-                    new Vector2(vertex.x, vertex.z));
-                habitatWeights.Add(habitat.PrimaryWeights);
+                    habitatPoint);
+                HabitatSample visibleGround =
+                    ApplyVisibleForestGroundPalette(
+                        habitat,
+                        CampGroundBlendAt(habitatPoint));
+                habitatWeights.Add(visibleGround.PrimaryWeights);
                 habitatSignals.Add(
                     new Vector4(
                         habitat.GrassDensity,
@@ -3049,8 +4565,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 habitatDebug.Add(
                     new Vector2(
                         FoliageColonyInfluenceAt(
-                            new Vector2(vertex.x, vertex.z)),
-                        habitat.StonyWeight));
+                            habitatPoint),
+                        visibleGround.StonyWeight));
             }
             RecordGenerationStage(
                 "terrain-attributes",
@@ -3093,12 +4609,189 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     terrainBlend,
                     terrainBlend
                 };
-            terrain.AddComponent<MeshCollider>()
-                .sharedMesh = mesh;
+            if (ShouldCreateEnvironmentColliders)
+            {
+                terrain.AddComponent<MeshCollider>()
+                    .sharedMesh = mesh;
+            }
             RecordGenerationStage(
                 "terrain-collider",
                 terrainTimer,
                 ref previousTerrainStageEnd);
+        }
+
+        private void CreateCoastalCliffSkirt(Material terrainMaterial)
+        {
+            if (layout == null ||
+                layout.CoastRadii == null ||
+                layout.CoastRadii.Length < 3 ||
+                terrainMaterial == null)
+            {
+                return;
+            }
+
+            int coastSamples = layout.CoastRadii.Length;
+            var vertices = new List<Vector3>(coastSamples * 4);
+            var uv = new List<Vector2>(coastSamples * 4);
+            var colors = new List<Color>(coastSamples * 4);
+            var triangles = new List<int>(coastSamples * 6);
+            var collisionTriangles =
+                new List<int>(coastSamples * 6);
+            for (int index = 0; index < coastSamples; index++)
+            {
+                int nextIndex = (index + 1) % coastSamples;
+                float angleA = index * Mathf.PI * 2f /
+                    coastSamples;
+                float angleB = nextIndex * Mathf.PI * 2f /
+                    coastSamples;
+                Vector2 directionA = new Vector2(
+                    Mathf.Cos(angleA),
+                    Mathf.Sin(angleA));
+                Vector2 directionB = new Vector2(
+                    Mathf.Cos(angleB),
+                    Mathf.Sin(angleB));
+                float coastRadiusA = layout.CoastRadii[index];
+                float coastRadiusB = layout.CoastRadii[nextIndex];
+                Vector2 coastA = directionA * coastRadiusA;
+                Vector2 coastB = directionB * coastRadiusB;
+                float roadDistanceA = SignedDistanceToRoad(coastA);
+                float roadDistanceB = SignedDistanceToRoad(coastB);
+                float cliffA = ApplyCoastalTrailNotch(
+                    CliffCoastInfluence(coastA),
+                    roadDistanceA);
+                float cliffB = ApplyCoastalTrailNotch(
+                    CliffCoastInfluence(coastB),
+                    roadDistanceB);
+                bool trailOpening =
+                    roadDistanceA < 6.5f ||
+                    roadDistanceB < 6.5f;
+                if (!trailOpening &&
+                    Mathf.Max(cliffA, cliffB) < 0.16f)
+                {
+                    continue;
+                }
+
+                float topInsetA = Mathf.Lerp(
+                    CoastSandWidth + 3.85f,
+                    3.55f,
+                    cliffA);
+                float topInsetB = Mathf.Lerp(
+                    CoastSandWidth + 3.85f,
+                    3.55f,
+                    cliffB);
+                Vector2 topA2 = directionA *
+                    (coastRadiusA - topInsetA);
+                Vector2 topB2 = directionB *
+                    (coastRadiusB - topInsetB);
+                Vector2 bottomA2 = directionA *
+                    (coastRadiusA + 0.55f);
+                Vector2 bottomB2 = directionB *
+                    (coastRadiusB + 0.55f);
+                Vector3 topA = new Vector3(
+                    topA2.x,
+                    TerrainHeight(topA2.x, topA2.y) - 0.04f,
+                    topA2.y);
+                Vector3 topB = new Vector3(
+                    topB2.x,
+                    TerrainHeight(topB2.x, topB2.y) - 0.04f,
+                    topB2.y);
+                float bottomHeight = oceanWaterLevel - 1.45f;
+                Vector3 bottomA = new Vector3(
+                    bottomA2.x,
+                    bottomHeight,
+                    bottomA2.y);
+                Vector3 bottomB = new Vector3(
+                    bottomB2.x,
+                    bottomHeight,
+                    bottomB2.y);
+
+                int firstVertex = vertices.Count;
+                vertices.Add(topA);
+                vertices.Add(topB);
+                vertices.Add(bottomA);
+                vertices.Add(bottomB);
+                float arcA = index /
+                    (float)coastSamples *
+                    Mathf.PI * 2f * mapRadius / 12f;
+                float arcB = (index + 1) /
+                    (float)coastSamples *
+                    Mathf.PI * 2f * mapRadius / 12f;
+                uv.Add(new Vector2(arcA, topA.y / 12f));
+                uv.Add(new Vector2(arcB, topB.y / 12f));
+                uv.Add(new Vector2(arcA, bottomHeight / 12f));
+                uv.Add(new Vector2(arcB, bottomHeight / 12f));
+                colors.Add(new Color(1f, 1f, 1f, 0f));
+                colors.Add(new Color(1f, 1f, 1f, 0f));
+                colors.Add(new Color(1f, 1f, 1f, 0f));
+                colors.Add(new Color(1f, 1f, 1f, 0f));
+
+                // Winding faces outward toward the ocean.
+                triangles.Add(firstVertex);
+                triangles.Add(firstVertex + 3);
+                triangles.Add(firstVertex + 2);
+                triangles.Add(firstVertex);
+                triangles.Add(firstVertex + 1);
+                triangles.Add(firstVertex + 3);
+                // Keep the closing surface visible at trail mouths so the
+                // underside of the terrain cannot show through from the sea,
+                // but omit those faces from collision. The terrain creates a
+                // broad beach notch there and the shoreline boundary remains
+                // the final water stop.
+                if (!trailOpening)
+                {
+                    collisionTriangles.Add(firstVertex);
+                    collisionTriangles.Add(firstVertex + 3);
+                    collisionTriangles.Add(firstVertex + 2);
+                    collisionTriangles.Add(firstVertex);
+                    collisionTriangles.Add(firstVertex + 1);
+                    collisionTriangles.Add(firstVertex + 3);
+                }
+            }
+
+            if (vertices.Count == 0)
+            {
+                return;
+            }
+
+            Mesh mesh = TrackRuntimeResource(new Mesh
+            {
+                name = "Coastal Rock Face Mesh"
+            });
+            mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uv);
+            mesh.SetColors(colors);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            GameObject cliff = new GameObject("Coastal Rock Faces");
+            cliff.transform.SetParent(generatedRoot, false);
+            cliff.AddComponent<MeshFilter>().sharedMesh = mesh;
+            MeshRenderer renderer = cliff.AddComponent<MeshRenderer>();
+            Material cliffMaterial = TrackRuntimeResource(
+                new Material(terrainMaterial)
+                {
+                    name = "Coastal Rock Face Material"
+                });
+            if (cliffMaterial.HasProperty("_Cull"))
+            {
+                cliffMaterial.SetFloat("_Cull", 0f);
+            }
+            renderer.sharedMaterial = cliffMaterial;
+            renderer.shadowCastingMode = ShadowCastingMode.On;
+            renderer.receiveShadows = true;
+            if (collisionTriangles.Count > 0)
+            {
+                Mesh collisionMesh = TrackRuntimeResource(new Mesh
+                {
+                    name = "Coastal Rock Face Collision Mesh"
+                });
+                collisionMesh.SetVertices(vertices);
+                collisionMesh.SetTriangles(collisionTriangles, 0);
+                collisionMesh.RecalculateBounds();
+                cliff.AddComponent<MeshCollider>().sharedMesh =
+                    collisionMesh;
+            }
         }
 
         private float FoliageColonyInfluenceAt(Vector2 point)
@@ -3393,17 +5086,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 float localHalfWidth = halfWidth;
                 if (!road)
                 {
-                    float widthNoise =
-                        Mathf.PerlinNoise(
-                            noiseOffsetA.x * 0.007f +
-                            center.x * 0.045f,
-                            noiseOffsetA.y * 0.007f +
-                            center.z * 0.045f);
-                    localHalfWidth *=
-                        Mathf.Lerp(
-                            0.94f,
-                            1.08f,
-                            widthNoise);
+                    localHalfWidth *= RiverWidthMultiplierAt(
+                        new Vector2(center.x, center.z));
                 }
                 for (int crossIndex = 0;
                      crossIndex < verticesAcross;
@@ -3415,13 +5099,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     int vertex =
                         index * verticesAcross +
                         crossIndex;
-                    vertices[vertex] =
+                    Vector3 surfaceVertex =
                         center +
                         right *
                         Mathf.Lerp(
                             -localHalfWidth,
                             localHalfWidth,
                             crossT);
+                    vertices[vertex] = road
+                        ? surfaceVertex
+                        : ClampRiverSurfaceToIsland(surfaceVertex);
                     uv[vertex] =
                         new Vector2(
                             crossT,
@@ -3486,6 +5173,34 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        private Vector3 ClampRiverSurfaceToIsland(
+            Vector3 worldPosition)
+        {
+            Vector2 planar = new Vector2(
+                worldPosition.x,
+                worldPosition.z);
+            float radius = planar.magnitude;
+            if (radius <= 0.001f || layout == null)
+            {
+                return worldPosition;
+            }
+
+            float angle = Mathf.Atan2(planar.y, planar.x);
+            float maximumRadius = Mathf.Max(
+                0f,
+                layout.CoastRadiusAtAngle(angle) - 0.05f);
+            if (radius <= maximumRadius)
+            {
+                return worldPosition;
+            }
+
+            Vector2 clamped = planar * (maximumRadius / radius);
+            return new Vector3(
+                clamped.x,
+                worldPosition.y,
+                clamped.y);
+        }
+
         private void CreateBridges()
         {
             generatedBridgeCount = 0;
@@ -3494,6 +5209,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             var crossings = new List<TrailRiverCrossing>();
             foreach (List<Vector3> road in AllRoads())
             {
+                bool advancedTraversalRoad =
+                    enableAdvancedLandforms &&
+                    advancedLandformRoads.Contains(road);
                 crossings.Clear();
                 FindPolylineIntersections(
                     road,
@@ -3505,15 +5223,31 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 {
                     TrailRiverCrossing crossing =
                         crossings[crossingIndex];
+                    Vector3 bridgeDirection =
+                        ResolvePerpendicularCrossingDirection(
+                            crossing.RoadDirection,
+                            crossing.RiverDirection);
+                    float localRiverHalfWidth =
+                        RiverHalfWidthForValidation(ToXZ(crossing.Point));
+                    if (!IsViableBridgeCrossing(
+                            crossing,
+                            bridgeDirection,
+                            localRiverHalfWidth))
+                    {
+                        continue;
+                    }
                     bool duplicate = false;
                     for (int index = 0;
                          index < bridgePoints.Count;
                          index++)
                     {
+                        float requiredSeparation = advancedTraversalRoad
+                            ? 5f
+                            : MinimumBridgeSeparation;
                         if (Vector3.Distance(
                                 bridgePoints[index],
                                 crossing.Point) <
-                            MinimumBridgeSeparation)
+                            requiredSeparation)
                         {
                             duplicate = true;
                             break;
@@ -3525,48 +5259,79 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     }
 
                     bridgePoints.Add(crossing.Point);
-                    Vector3 bridgeDirection =
-                        ResolvePerpendicularCrossingDirection(
-                            crossing.RoadDirection,
-                            crossing.RiverDirection);
                     CreateBridgeAt(
                         crossing.Point,
                         bridgeDirection,
-                        bridgePoints.Count);
+                        bridgePoints.Count,
+                        localRiverHalfWidth);
                 }
             }
+        }
 
-            if (bridgePoints.Count == 0 &&
-                TryFindClosestPair(
-                         mainRoadSamples,
-                         riverSamples,
-                         out int roadIndex,
-                         out int riverIndex))
+        private bool IsViableBridgeCrossing(
+            TrailRiverCrossing crossing,
+            Vector3 bridgeDirection,
+            float localRiverHalfWidth)
+        {
+            if (Mathf.Abs(Vector3.Dot(
+                    crossing.RoadDirection,
+                    crossing.RiverDirection)) > 0.32f)
             {
-                Vector3 point = (mainRoadSamples[roadIndex] +
-                    riverSamples[riverIndex]) * 0.5f;
-                Vector3 previous =
-                    mainRoadSamples[Mathf.Max(0, roadIndex - 1)];
-                Vector3 next =
-                    mainRoadSamples[Mathf.Min(
-                        mainRoadSamples.Count - 1,
-                        roadIndex + 1)];
-                Vector3 direction = Vector3.ProjectOnPlane(
-                    next - previous,
-                    Vector3.up).normalized;
-                Vector3 riverPrevious =
-                    riverSamples[Mathf.Max(0, riverIndex - 1)];
-                Vector3 riverNext =
-                    riverSamples[Mathf.Min(
-                        riverSamples.Count - 1,
-                        riverIndex + 1)];
-                direction = ResolvePerpendicularCrossingDirection(
-                    direction,
-                    Vector3.ProjectOnPlane(
-                        riverNext - riverPrevious,
-                        Vector3.up).normalized);
-                CreateBridgeAt(point, direction, 1);
+                return false;
             }
+
+            Vector2 center = ToXZ(crossing.Point);
+            Vector2 across = new Vector2(
+                bridgeDirection.x,
+                bridgeDirection.z).normalized;
+            float bankDistance = localRiverHalfWidth + 2.4f;
+            Vector2 firstBank = center - across * bankDistance;
+            Vector2 secondBank = center + across * bankDistance;
+            if (!IsInsideIsland(
+                    center,
+                    MinimumBridgeCoastClearance) ||
+                !IsInsideIsland(
+                    firstBank,
+                    MinimumBridgeCoastClearance) ||
+                !IsInsideIsland(
+                    secondBank,
+                    MinimumBridgeCoastClearance))
+            {
+                return false;
+            }
+
+            float bankHeightDifference = Mathf.Abs(
+                TerrainHeight(firstBank.x, firstBank.y) -
+                TerrainHeight(secondBank.x, secondBank.y));
+            if (bankHeightDifference > 5.5f)
+            {
+                return false;
+            }
+
+            int closest = -1;
+            float closestDistance = float.PositiveInfinity;
+            for (int index = 0; index < riverSamples.Count; index++)
+            {
+                float distance = Vector2.Distance(
+                    center,
+                    ToXZ(riverSamples[index]));
+                if (distance < closestDistance)
+                {
+                    closestDistance = distance;
+                    closest = index;
+                }
+            }
+            if (closest <= 1 || closest >= riverSamples.Count - 2)
+            {
+                return false;
+            }
+            Vector3 before = Vector3.ProjectOnPlane(
+                riverSamples[closest] - riverSamples[closest - 2],
+                Vector3.up).normalized;
+            Vector3 after = Vector3.ProjectOnPlane(
+                riverSamples[closest + 2] - riverSamples[closest],
+                Vector3.up).normalized;
+            return Vector3.Dot(before, after) >= 0.72f;
         }
 
         private static Vector3 ResolvePerpendicularCrossingDirection(
@@ -3588,7 +5353,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void CreateBridgeAt(
             Vector3 point,
             Vector3 direction,
-            int bridgeNumber)
+            int bridgeNumber,
+            float localRiverHalfWidth)
         {
             Vector3 flatDirection = Vector3.ProjectOnPlane(
                 direction,
@@ -3612,25 +5378,29 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 ConfigureFallbackBridge(
                     bridge,
                     point,
-                    direction);
+                    direction,
+                    localRiverHalfWidth);
             }
             else
             {
                 ConfigureImportedBridge(
                     bridge,
                     point,
-                    direction);
+                    direction,
+                    localRiverHalfWidth);
             }
             RegisterBridgeNavigationRoute(
                 bridge,
                 point,
-                flatDirection);
+                flatDirection,
+                localRiverHalfWidth);
         }
 
         private void RegisterBridgeNavigationRoute(
             GameObject bridge,
             Vector3 point,
-            Vector3 flatDirection)
+            Vector3 flatDirection,
+            float localRiverHalfWidth)
         {
             Physics.SyncTransforms();
             float referenceDeckHeight =
@@ -3647,7 +5417,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     AcrossDirection = new Vector2(
                         flatDirection.x,
                         flatDirection.z),
-                    HalfLength = riverHalfWidth + 3.2f,
+                    HalfLength = localRiverHalfWidth + 3.2f,
                     HalfWidth = Mathf.Max(
                         1.35f,
                         roadHalfWidth * 0.80f),
@@ -3656,7 +5426,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 });
         }
 
-        private void CreateOcean(Material waterRuntime)
+        private void CreateOcean()
         {
             float extent = Mathf.Max(
                 mapRadius * OceanVisualRadiusMultiplier,
@@ -3717,30 +5487,52 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             ocean.transform.SetParent(generatedRoot, false);
             ocean.AddComponent<MeshFilter>().sharedMesh = mesh;
             MeshRenderer renderer = ocean.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = CreateOceanMaterial(
-                waterRuntime);
+            renderer.sharedMaterial = CreateOceanMaterial();
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = true;
         }
 
-        private Material CreateOceanMaterial(Material source)
+        private float RiverWidthMultiplierAt(Vector2 point)
         {
+            // One broad field changes width slowly enough to read as natural
+            // banks rather than noisy scallops. The second, much weaker field
+            // prevents every wide/narrow cycle from having the same length.
+            float broad = Mathf.PerlinNoise(
+                noiseOffsetA.x * 0.006f + point.x * 0.020f,
+                noiseOffsetA.y * 0.006f + point.y * 0.020f);
+            float detail = Mathf.PerlinNoise(
+                noiseOffsetB.x * 0.009f + point.x * 0.043f,
+                noiseOffsetB.y * 0.009f + point.y * 0.043f);
+            float variation = Mathf.Clamp01(
+                broad * 0.82f + detail * 0.18f);
+            return Mathf.Lerp(0.92f, 1.08f, variation);
+        }
+
+        public float RiverHalfWidthForValidation(Vector2 point)
+        {
+            return riverHalfWidth * RiverWidthMultiplierAt(point);
+        }
+
+        private Material CreateOceanMaterial()
+        {
+            Shader oceanShader = Shader.Find(
+                "WorldBuilder/Deep Ocean");
             Material material = TrackRuntimeResource(
-                source != null
-                    ? new Material(source)
-                    : new Material(
-                        Shader.Find(
+                new Material(
+                    oceanShader != null
+                        ? oceanShader
+                        : Shader.Find(
                             "Universal Render Pipeline/Lit")));
             material.name = "Procedural Deep Ocean";
             Color deepBlue = new Color(
-                0.024f,
-                0.098f,
-                0.212f,
+                0.012f,
+                0.055f,
+                0.14f,
                 1f);
             Color blueCurrent = new Color(
-                0.043f,
-                0.216f,
-                0.40f,
+                0.025f,
+                0.14f,
+                0.28f,
                 1f);
             if (material.HasProperty("_DeepColor"))
             {
@@ -3755,6 +5547,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (material.HasProperty("_BaseColor"))
             {
                 material.SetColor("_BaseColor", deepBlue);
+            }
+            if (material.HasProperty("_WaveScale"))
+            {
+                material.SetFloat("_WaveScale", 0.045f);
+                material.SetFloat("_WaveSpeed", 0.035f);
+                material.SetFloat("_WaveStrength", 0.16f);
+                material.SetFloat("_Smoothness", 0.72f);
             }
             return material;
         }
@@ -3782,9 +5581,21 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Vector3 tangent = Vector3.ProjectOnPlane(
                     end - start,
                     Vector3.up).normalized;
-                center.y = Mathf.Max(
-                    oceanWaterLevel,
-                    TerrainHeight(center.x, center.z)) + 5f;
+                float middleAngle =
+                    (startAngle + endAngle) * 0.5f;
+                Vector3 inlandTop = CoastPoint(
+                    middleAngle,
+                    CoastSandWidth + 4.5f);
+                start.y = TerrainHeight(start.x, start.z);
+                end.y = TerrainHeight(end.x, end.z);
+                inlandTop.y = TerrainHeight(
+                    inlandTop.x,
+                    inlandTop.z);
+                float topHeight = Mathf.Max(
+                    inlandTop.y,
+                    Mathf.Max(start.y, end.y)) + 3f;
+                float bottomHeight = oceanWaterLevel - 4f;
+                center.y = (topHeight + bottomHeight) * 0.5f;
                 GameObject section = new GameObject(
                     $"Shore Collider {segment + 1:000}");
                 section.transform.SetParent(root, false);
@@ -3795,7 +5606,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 BoxCollider collider = section.AddComponent<BoxCollider>();
                 collider.size = new Vector3(
                     Vector3.Distance(start, end) + 0.8f,
-                    18f,
+                    topHeight - bottomHeight,
                     1.1f);
             }
         }
@@ -3803,7 +5614,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void ConfigureFallbackBridge(
             GameObject bridge,
             Vector3 point,
-            Vector3 direction)
+            Vector3 direction,
+            float localRiverHalfWidth)
         {
             float deckHeight = BridgeDeckHeight(point.x, point.z);
             bridge.transform.position =
@@ -3814,7 +5626,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             bridge.transform.localScale = new Vector3(
                 roadHalfWidth * 2f + 1.1f,
                 0.34f,
-                riverHalfWidth * 2.8f + 4f);
+                localRiverHalfWidth * 2.8f + 4f);
             Renderer renderer = bridge.GetComponent<Renderer>();
             if (renderer != null)
             {
@@ -3825,7 +5637,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void ConfigureImportedBridge(
             GameObject bridge,
             Vector3 point,
-            Vector3 direction)
+            Vector3 direction,
+            float localRiverHalfWidth)
         {
             bridge.transform.SetPositionAndRotation(
                 Vector3.zero,
@@ -3835,7 +5648,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 bridge.GetComponentsInChildren<Renderer>(true);
             if (!TryGetRendererBounds(renderers, out Bounds sourceBounds))
             {
-                ConfigureFallbackBridge(bridge, point, direction);
+                ConfigureFallbackBridge(
+                    bridge,
+                    point,
+                    direction,
+                    localRiverHalfWidth);
                 return;
             }
 
@@ -3847,7 +5664,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     ? sourceBounds.size.x
                     : sourceBounds.size.z);
             float targetLength =
-                (riverHalfWidth + 2.2f) * 2f;
+                (localRiverHalfWidth + 2.2f) * 2f;
             float lengthScale = targetLength / sourceLength;
             float heightScale =
                 lengthScale * BridgeCrossSectionScale;
@@ -4020,6 +5837,1020 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 flatDirection.z * span).normalized;
         }
 
+        private void CreateFallenTreeCrossings(System.Random random)
+        {
+            generatedFallenTreeCrossingCount = 0;
+            if (fallenTreePrefabs == null ||
+                fallenTreePrefabs.Length == 0 ||
+                riverSamples.Count < 3)
+            {
+                return;
+            }
+
+            var validPrefabs = new List<GameObject>();
+            for (int index = 0; index < fallenTreePrefabs.Length; index++)
+            {
+                if (fallenTreePrefabs[index] != null)
+                {
+                    validPrefabs.Add(fallenTreePrefabs[index]);
+                }
+            }
+            if (validPrefabs.Count == 0)
+            {
+                return;
+            }
+
+            Transform root = new GameObject("River Fallen Tree Crossings")
+                .transform;
+            root.SetParent(generatedRoot, false);
+            float riverLength = PolylineLength(riverSamples);
+            int targetCount = Mathf.Clamp(
+                Mathf.RoundToInt(riverLength / 82f),
+                4,
+                6);
+            float interval = riverLength / (targetCount + 1f);
+            var placedCenters = new List<Vector2>(targetCount);
+            for (int slot = 0; slot < targetCount; slot++)
+            {
+                bool placed = false;
+                for (int attempt = 0; attempt < 9 && !placed; attempt++)
+                {
+                    float alternatingOffset = attempt == 0
+                        ? 0f
+                        : ((attempt & 1) == 0 ? 1f : -1f) *
+                            ((attempt + 1) / 2) * 5.5f;
+                    float distance = interval * (slot + 1) +
+                        alternatingOffset;
+                    if (!TrySamplePolylineAtDistance(
+                            riverSamples,
+                            distance,
+                            out Vector3 center,
+                            out Vector3 tangent))
+                    {
+                        continue;
+                    }
+
+                    Vector2 center2 = ToXZ(center);
+                    if (!IsInsideIsland(center2, 10f) ||
+                        IsNearBridge(center2, 28f) ||
+                        HasNearbyTree(placedCenters, center2, 34f))
+                    {
+                        continue;
+                    }
+
+                    Vector3 across = Vector3.Cross(
+                        Vector3.up,
+                        tangent).normalized;
+                    float localHalfWidth =
+                        RiverHalfWidthForValidation(center2);
+                    float bankReach = localHalfWidth + 2.15f;
+                    Vector2 bankA = center2 -
+                        new Vector2(across.x, across.z) * bankReach;
+                    Vector2 bankB = center2 +
+                        new Vector2(across.x, across.z) * bankReach;
+                    float bankHeightA = TerrainHeight(bankA.x, bankA.y);
+                    float bankHeightB = TerrainHeight(bankB.x, bankB.y);
+                    if (Mathf.Abs(bankHeightA - bankHeightB) > 1.65f ||
+                        TerrainNormalAt(bankA.x, bankA.y).y < 0.80f ||
+                        TerrainNormalAt(bankB.x, bankB.y).y < 0.80f)
+                    {
+                        continue;
+                    }
+
+                    GameObject prefab = validPrefabs[
+                        (slot + random.Next(validPrefabs.Count)) %
+                        validPrefabs.Count];
+                    GameObject crossing = Instantiate(prefab, root);
+                    crossing.name =
+                        $"Fallen Tree Crossing {slot + 1} - {prefab.name}";
+                    crossing.transform.SetPositionAndRotation(
+                        new Vector3(center.x, 0f, center.z),
+                        Quaternion.FromToRotation(Vector3.right, across));
+                    Renderer[] renderers = crossing
+                        .GetComponentsInChildren<Renderer>(true);
+                    if (TryGetRendererBounds(renderers, out Bounds bounds))
+                    {
+                        float restingCenter =
+                            Mathf.Max(bankHeightA, bankHeightB) + 0.30f;
+                        crossing.transform.position += Vector3.up *
+                            (restingCenter - bounds.center.y);
+                    }
+                    DisableCampPropLights(crossing);
+                    SetStaticRecursively(crossing.transform);
+                    placedCenters.Add(center2);
+                    generatedFallenTreeCrossingCount++;
+                    placed = true;
+                }
+            }
+        }
+
+        private bool IsNearBridge(Vector2 point, float distance)
+        {
+            float distanceSquared = distance * distance;
+            for (int index = 0; index < bridgeNavigationRoutes.Count; index++)
+            {
+                if ((bridgeNavigationRoutes[index].Center - point)
+                        .sqrMagnitude < distanceSquared)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool TrySamplePolylineAtDistance(
+            List<Vector3> points,
+            float distance,
+            out Vector3 point,
+            out Vector3 tangent)
+        {
+            point = Vector3.zero;
+            tangent = Vector3.forward;
+            if (points == null || points.Count < 2)
+            {
+                return false;
+            }
+
+            float remaining = Mathf.Max(0f, distance);
+            for (int index = 1; index < points.Count; index++)
+            {
+                Vector3 segment = points[index] - points[index - 1];
+                float length = segment.magnitude;
+                if (length <= 0.0001f)
+                {
+                    continue;
+                }
+                if (remaining <= length)
+                {
+                    point = Vector3.Lerp(
+                        points[index - 1],
+                        points[index],
+                        remaining / length);
+                    tangent = Vector3.ProjectOnPlane(
+                        segment,
+                        Vector3.up).normalized;
+                    return true;
+                }
+                remaining -= length;
+            }
+
+            point = points[points.Count - 1];
+            tangent = Vector3.ProjectOnPlane(
+                points[points.Count - 1] - points[points.Count - 2],
+                Vector3.up).normalized;
+            return true;
+        }
+
+        private void ResolveWatchtowerSites(System.Random random)
+        {
+            watchtowerSites.Clear();
+            TryResolveWatchtowerSite(random, true);
+            for (int index = 0; index < SkinnyWatchtowerCount; index++)
+            {
+                TryResolveWatchtowerSite(random, false);
+            }
+        }
+
+        private bool TryResolveWatchtowerSite(
+            System.Random random,
+            bool isWide)
+        {
+            float footprintRadius = isWide ? 5.2f : 3.2f;
+            float treeClearance = isWide ? 8.5f : 6.0f;
+            float minimumNormalY = isWide ? 0.965f : 0.91f;
+            float maximumHeightRange = isWide ? 0.85f : 1.65f;
+            for (int attempt = 0; attempt < 900; attempt++)
+            {
+                float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+                float radius = Mathf.Sqrt(Mathf.Lerp(
+                    mapRadius * mapRadius * 0.18f * 0.18f,
+                    mapRadius * mapRadius * 0.76f * 0.76f,
+                    (float)random.NextDouble()));
+                Vector2 point = new Vector2(
+                    Mathf.Cos(angle) * radius,
+                    Mathf.Sin(angle) * radius);
+                float roadDistance = DistanceToRoad(point);
+                if (!IsInsideIsland(point, footprintRadius + 3f) ||
+                    roadDistance < 5f || roadDistance > 27f ||
+                    DistanceToRiverExact(point) < 15f ||
+                    Vector2.Distance(point, ToXZ(layout.PlayerStart)) < 32f ||
+                    Vector2.Distance(point, ToXZ(layout.Extraction)) < 28f ||
+                    IsInsideObeliskClearance(point, 17f) ||
+                    HasNearbyCamp(point, 24f) ||
+                    TerrainNormalAt(point.x, point.y).y < minimumNormalY ||
+                    CampFootprintHeightRange(point, footprintRadius) >
+                        maximumHeightRange ||
+                    treeSpatialHash != null &&
+                    treeSpatialHash.HasNearby(point, treeClearance))
+                {
+                    continue;
+                }
+
+                bool separated = true;
+                for (int index = 0; index < watchtowerSites.Count; index++)
+                {
+                    if (Vector2.Distance(
+                            point,
+                            watchtowerSites[index].Center) < 46f)
+                    {
+                        separated = false;
+                        break;
+                    }
+                }
+                if (!separated)
+                {
+                    continue;
+                }
+
+                watchtowerSites.Add(new WatchtowerSite
+                {
+                    Center = point,
+                    Rotation = (float)random.NextDouble() * 360f,
+                    IsWide = isWide
+                });
+                return true;
+            }
+            return false;
+        }
+
+        private void CreateWatchtowers(System.Random random)
+        {
+            generatedWatchtowerCount = 0;
+            generatedWideWatchtowerCount = 0;
+            generatedTowerGuardCount = 0;
+            Transform root = new GameObject("Forest Watchtowers").transform;
+            root.SetParent(generatedRoot, false);
+            for (int index = 0; index < watchtowerSites.Count; index++)
+            {
+                WatchtowerSite site = watchtowerSites[index];
+                GameObject prefab = site.IsWide
+                    ? wideWatchtowerPrefab
+                    : skinnyWatchtowerPrefab;
+                GameObject tower = CreateSceneryInstance(
+                    prefab,
+                    root,
+                    site.Center,
+                    (site.IsWide
+                        ? WideWatchtowerOriginalHeight
+                        : SkinnyWatchtowerOriginalHeight) +
+                    WatchtowerRoofClearanceIncrease,
+                    true,
+                    watchtowerMaterial,
+                    random,
+                    true,
+                    true,
+                    false,
+                    site.Rotation);
+                if (tower == null)
+                {
+                    continue;
+                }
+
+                tower.name = site.IsWide
+                    ? "Wide Watchtower"
+                    : $"Skinny Watchtower {generatedWatchtowerCount}";
+                if (site.IsWide)
+                {
+                    LowerWideWatchtowerRailings(tower);
+                }
+                DisableCampPropLights(tower);
+                Renderer[] towerRenderers = tower
+                    .GetComponentsInChildren<Renderer>(true);
+                if (!TryGetRendererBounds(towerRenderers, out Bounds bounds))
+                {
+                    continue;
+                }
+                site.PlatformHeight = bounds.max.y -
+                    WatchtowerRoofClearanceIncrease -
+                    (site.IsWide ? 1.35f : 1.05f);
+                Physics.SyncTransforms();
+                if (TryResolveWatchtowerDeckHeight(
+                        tower,
+                        site.Center,
+                        site.PlatformHeight + 0.55f,
+                        out float measuredPlatformHeight))
+                {
+                    site.PlatformHeight = measuredPlatformHeight;
+                }
+                Vector2 forward = DirectionFromAngle(site.Rotation);
+                Vector2 side = new Vector2(-forward.y, forward.x);
+
+                if (site.IsWide)
+                {
+                    CreateWideWatchtowerStairRamps(tower);
+                }
+
+                if (!site.IsWide && watchtowerLadderPrefab != null)
+                {
+                    float rearDistance = Mathf.Max(
+                        1.1f,
+                        Mathf.Min(bounds.extents.x, bounds.extents.z) * 0.72f);
+                    Vector2 ladderPoint = site.Center -
+                        forward * rearDistance;
+                    GameObject ladder = CreateSceneryInstance(
+                        watchtowerLadderPrefab,
+                        root,
+                        ladderPoint,
+                        Mathf.Max(5.8f, site.PlatformHeight - bounds.min.y),
+                        true,
+                        watchtowerMaterial,
+                        random,
+                        true,
+                        true,
+                        false,
+                        site.Rotation + 180f);
+                    if (ladder != null)
+                    {
+                        ladder.name = "Rear Access Ladder";
+                        ladder.transform.SetParent(tower.transform, true);
+                        Vector2 climbBottomPoint =
+                            ladderPoint - forward * 0.58f;
+                        Vector2 climbTopPoint =
+                            ladderPoint + forward * 0.82f;
+                        LadderClimbPoint climbPoint =
+                            ladder.AddComponent<LadderClimbPoint>();
+                        climbPoint.Configure(
+                            new Vector3(
+                                climbBottomPoint.x,
+                                TerrainHeight(
+                                    climbBottomPoint.x,
+                                    climbBottomPoint.y) + 0.04f,
+                                climbBottomPoint.y),
+                            new Vector3(
+                                climbTopPoint.x,
+                                site.PlatformHeight + 0.06f,
+                                climbTopPoint.y),
+                            new Vector3(forward.x, 0f, forward.y));
+                    }
+                }
+
+                GameObject chest = CreateLootableCampChest(
+                    root,
+                    site.Center,
+                    site.Rotation,
+                    "Tower Chest",
+                    $"Watchtower Chest {index + 1}",
+                    random);
+                if (chest != null)
+                {
+                    Vector2 chestWallOutward;
+                    Vector2 chestWallTangent;
+                    Vector2 chestDeckCenter;
+                    float chestCornerOffset;
+                    float chestMaximumWallDistance;
+                    if (site.IsWide)
+                    {
+                        // The imported tower retains Blender's Z-up root
+                        // rotation. Raw local X runs along the back wall and
+                        // raw local Y points toward it.
+                        Vector3 sourceDeckCenter = tower.transform.TransformPoint(
+                            new Vector3(-0.35f, 1.95f, 3.54f));
+                        Vector3 sourceWallOutward =
+                            tower.transform.TransformDirection(Vector3.up);
+                        Vector3 sourceWallTangent =
+                            tower.transform.TransformDirection(Vector3.right);
+                        chestDeckCenter = ToXZ(sourceDeckCenter);
+                        chestWallOutward = ToXZ(sourceWallOutward).normalized;
+                        chestWallTangent = ToXZ(sourceWallTangent).normalized;
+                        chestCornerOffset = -0.95f;
+                        chestMaximumWallDistance = 1.65f;
+                    }
+                    else
+                    {
+                        chestDeckCenter = site.Center;
+                        chestWallOutward = side;
+                        chestWallTangent = forward;
+                        chestCornerOffset = 0f;
+                        chestMaximumWallDistance = 1.15f;
+                    }
+
+                    PlaceWatchtowerChestAgainstWall(
+                        tower,
+                        chest,
+                        chestDeckCenter,
+                        chestWallOutward,
+                        chestWallTangent,
+                        chestCornerOffset,
+                        chestMaximumWallDistance,
+                        site.PlatformHeight);
+                    chest.transform.SetParent(tower.transform, true);
+                }
+
+                if (site.IsWide)
+                {
+                    if (!TryBuildWideWatchtowerLookoutRoute(
+                            tower,
+                            site,
+                            forward,
+                            side,
+                            out Vector3[] route,
+                            out Vector3[] lookDirections))
+                    {
+                        route = new[]
+                        {
+                            new Vector3(
+                                site.Center.x - forward.x * 0.65f,
+                                site.PlatformHeight + 1f,
+                                site.Center.y - forward.y * 0.65f),
+                            new Vector3(
+                                site.Center.x + forward.x * 0.65f,
+                                site.PlatformHeight + 1f,
+                                site.Center.y + forward.y * 0.65f)
+                        };
+                        lookDirections = new[]
+                        {
+                            new Vector3(-forward.x, 0f, -forward.y),
+                            new Vector3(forward.x, 0f, forward.y)
+                        };
+                    }
+
+                    site.GuardPosition = route[0];
+                    site.GuardPatrolRoute = route;
+                    site.GuardPatrolLookDirections = lookDirections;
+                    site.GuardLookDirection = lookDirections[0];
+                }
+                else
+                {
+                    site.GuardPosition = new Vector3(
+                        site.Center.x - side.x * 0.24f,
+                        site.PlatformHeight + 1f,
+                        site.Center.y - side.y * 0.24f);
+                    site.GuardPatrolRoute = new[] { site.GuardPosition };
+                    site.GuardPatrolLookDirections = null;
+                    site.GuardLookDirection = new Vector3(
+                        forward.x,
+                        0f,
+                        forward.y);
+                }
+                site.IsCreated = true;
+                generatedWatchtowerCount++;
+                if (site.IsWide)
+                {
+                    generatedWideWatchtowerCount++;
+                }
+            }
+        }
+
+        private void LowerWideWatchtowerRailings(GameObject tower)
+        {
+            MeshFilter[] filters =
+                tower.GetComponentsInChildren<MeshFilter>(true);
+            for (int index = 0; index < filters.Length; index++)
+            {
+                MeshFilter filter = filters[index];
+                Mesh source = filter != null
+                    ? filter.sharedMesh
+                    : null;
+                if (source == null || !source.isReadable)
+                {
+                    continue;
+                }
+
+                Bounds sourceBounds = source.bounds;
+                float railingBase = sourceBounds.min.y +
+                    sourceBounds.size.y *
+                    WideWatchtowerRailingBaseHeightRatio;
+                float railingTop = sourceBounds.min.y +
+                    sourceBounds.size.y *
+                    WideWatchtowerRailingTopHeightRatio;
+                float currentLocalHeight = railingTop - railingBase;
+                float worldVerticalScale = filter.transform
+                    .TransformVector(Vector3.up).magnitude;
+                if (currentLocalHeight <= 0.001f ||
+                    worldVerticalScale <= 0.001f)
+                {
+                    continue;
+                }
+
+                float heightScale = Mathf.Clamp01(
+                    WideWatchtowerRailingHeight /
+                    (currentLocalHeight * worldVerticalScale));
+                if (heightScale >= 0.999f)
+                {
+                    continue;
+                }
+
+                Mesh lowered = TrackRuntimeResource(
+                    Instantiate(source));
+                lowered.name = "Wide Watchtower Lowered Railings";
+                Vector3[] vertices = lowered.vertices;
+                bool changed = false;
+                for (int vertexIndex = 0;
+                     vertexIndex < vertices.Length;
+                     vertexIndex++)
+                {
+                    Vector3 vertex = vertices[vertexIndex];
+                    if (vertex.y <= railingBase + 0.0005f ||
+                        vertex.y > railingTop + 0.0005f)
+                    {
+                        continue;
+                    }
+
+                    vertex.y = railingBase +
+                        (vertex.y - railingBase) * heightScale;
+                    vertices[vertexIndex] = vertex;
+                    changed = true;
+                }
+
+                if (!changed)
+                {
+                    generatedRuntimeResources.Remove(lowered);
+                    if (Application.isPlaying)
+                    {
+                        Destroy(lowered);
+                    }
+                    else
+                    {
+                        DestroyImmediate(lowered);
+                    }
+                    continue;
+                }
+
+                lowered.vertices = vertices;
+                lowered.RecalculateBounds();
+                lowered.RecalculateNormals();
+                lowered.RecalculateTangents();
+                filter.sharedMesh = lowered;
+                MeshCollider[] colliders =
+                    filter.GetComponents<MeshCollider>();
+                for (int colliderIndex = 0;
+                     colliderIndex < colliders.Length;
+                     colliderIndex++)
+                {
+                    if (colliders[colliderIndex].sharedMesh != source)
+                    {
+                        continue;
+                    }
+                    colliders[colliderIndex].sharedMesh = null;
+                    colliders[colliderIndex].sharedMesh = lowered;
+                }
+            }
+            Physics.SyncTransforms();
+        }
+
+        private bool TryBuildWideWatchtowerLookoutRoute(
+            GameObject tower,
+            WatchtowerSite site,
+            Vector2 forward,
+            Vector2 side,
+            out Vector3[] route,
+            out Vector3[] lookDirections)
+        {
+            route = null;
+            lookDirections = null;
+            const float searchExtent = 3.4f;
+            const float sampleSpacing = 0.40f;
+            float bestDistance = 0f;
+            Vector3 bestStart = Vector3.zero;
+            Vector3 bestEnd = Vector3.zero;
+            Vector2[] axes = { forward, side };
+            for (int axisIndex = 0;
+                 axisIndex < axes.Length;
+                 axisIndex++)
+            {
+                Vector2 along = axes[axisIndex];
+                Vector2 across = new Vector2(-along.y, along.x);
+                for (float offset = -searchExtent;
+                     offset <= searchExtent + 0.001f;
+                     offset += sampleSpacing)
+                {
+                    bool segmentOpen = false;
+                    Vector3 segmentStart = Vector3.zero;
+                    Vector3 segmentEnd = Vector3.zero;
+                    for (float distance = -searchExtent;
+                         distance <= searchExtent + 0.001f;
+                         distance += sampleSpacing)
+                    {
+                        Vector2 point = site.Center +
+                            along * distance +
+                            across * offset;
+                        if (TryResolveSafeLookoutDeckPoint(
+                                tower,
+                                point,
+                                along,
+                                across,
+                                site.PlatformHeight,
+                                out Vector3 safePoint))
+                        {
+                            if (!segmentOpen)
+                            {
+                                segmentStart = safePoint;
+                                segmentOpen = true;
+                            }
+                            segmentEnd = safePoint;
+                            continue;
+                        }
+
+                        EvaluateLookoutRouteSegment(
+                            segmentOpen,
+                            segmentStart,
+                            segmentEnd,
+                            ref bestDistance,
+                            ref bestStart,
+                            ref bestEnd);
+                        segmentOpen = false;
+                    }
+
+                    EvaluateLookoutRouteSegment(
+                        segmentOpen,
+                        segmentStart,
+                        segmentEnd,
+                        ref bestDistance,
+                        ref bestStart,
+                        ref bestEnd);
+                }
+            }
+
+            if (bestDistance < 2.5f)
+            {
+                return false;
+            }
+
+            route = new[] { bestStart, bestEnd };
+            lookDirections = new Vector3[2];
+            for (int index = 0; index < route.Length; index++)
+            {
+                Vector3 outward = Vector3.ProjectOnPlane(
+                    route[index] -
+                    new Vector3(
+                        site.Center.x,
+                        route[index].y,
+                        site.Center.y),
+                    Vector3.up);
+                if (outward.sqrMagnitude <= 0.001f)
+                {
+                    outward = index == 0
+                        ? new Vector3(-side.x, 0f, -side.y)
+                        : new Vector3(side.x, 0f, side.y);
+                }
+                lookDirections[index] = outward.normalized;
+            }
+            return true;
+        }
+
+        private static void EvaluateLookoutRouteSegment(
+            bool segmentOpen,
+            Vector3 start,
+            Vector3 end,
+            ref float bestDistance,
+            ref Vector3 bestStart,
+            ref Vector3 bestEnd)
+        {
+            if (!segmentOpen)
+            {
+                return;
+            }
+
+            float distance = Vector3.Distance(start, end);
+            if (distance <= bestDistance)
+            {
+                return;
+            }
+
+            bestDistance = distance;
+            bestStart = start;
+            bestEnd = end;
+        }
+
+        private bool TryResolveSafeLookoutDeckPoint(
+            GameObject tower,
+            Vector2 point,
+            Vector2 along,
+            Vector2 across,
+            float expectedDeckHeight,
+            out Vector3 safePoint)
+        {
+            safePoint = Vector3.zero;
+            const float footprintProbeRadius = 0.52f;
+            if (!TryResolveLookoutDeckHeight(
+                    tower,
+                    point,
+                    expectedDeckHeight + 0.65f,
+                    out float centerHeight) ||
+                Mathf.Abs(centerHeight - expectedDeckHeight) > 0.16f)
+            {
+                return false;
+            }
+
+            Vector2 alongOffset = along * footprintProbeRadius;
+            Vector2 acrossOffset = across * footprintProbeRadius;
+            if (!IsMatchingLookoutDeckHeight(
+                    tower,
+                    point + alongOffset,
+                    expectedDeckHeight) ||
+                !IsMatchingLookoutDeckHeight(
+                    tower,
+                    point - alongOffset,
+                    expectedDeckHeight) ||
+                !IsMatchingLookoutDeckHeight(
+                    tower,
+                    point + acrossOffset,
+                    expectedDeckHeight) ||
+                !IsMatchingLookoutDeckHeight(
+                    tower,
+                    point - acrossOffset,
+                    expectedDeckHeight))
+            {
+                return false;
+            }
+
+            safePoint = new Vector3(
+                point.x,
+                centerHeight + 1f,
+                point.y);
+            return true;
+        }
+
+        private bool IsMatchingLookoutDeckHeight(
+            GameObject tower,
+            Vector2 point,
+            float expectedDeckHeight)
+        {
+            return TryResolveLookoutDeckHeight(
+                    tower,
+                    point,
+                    expectedDeckHeight + 0.65f,
+                    out float deckHeight) &&
+                Mathf.Abs(deckHeight - expectedDeckHeight) <= 0.16f;
+        }
+
+        private bool TryResolveLookoutDeckHeight(
+            GameObject tower,
+            Vector2 point,
+            float probeHeight,
+            out float deckHeight)
+        {
+            deckHeight = float.NegativeInfinity;
+            int hitCount = Physics.RaycastNonAlloc(
+                new Vector3(point.x, probeHeight, point.y),
+                Vector3.down,
+                watchtowerDeckHits,
+                4.5f,
+                ~0,
+                QueryTriggerInteraction.Ignore);
+            for (int index = 0; index < hitCount; index++)
+            {
+                RaycastHit hit = watchtowerDeckHits[index];
+                if (hit.collider == null ||
+                    !hit.collider.transform.IsChildOf(tower.transform) ||
+                    hit.collider.GetComponentInParent<RaidLootContainer>() !=
+                        null ||
+                    hit.normal.y < 0.60f ||
+                    hit.point.y > probeHeight)
+                {
+                    continue;
+                }
+
+                deckHeight = Mathf.Max(deckHeight, hit.point.y);
+            }
+            return !float.IsNegativeInfinity(deckHeight);
+        }
+
+        private bool TryResolveWatchtowerDeckHeight(
+            GameObject tower,
+            Vector2 point,
+            float probeHeight,
+            out float deckHeight)
+        {
+            deckHeight = float.NegativeInfinity;
+            int hitCount = Physics.RaycastNonAlloc(
+                new Vector3(point.x, probeHeight, point.y),
+                Vector3.down,
+                watchtowerDeckHits,
+                4.5f,
+                ~0,
+                QueryTriggerInteraction.Ignore);
+            for (int index = 0; index < hitCount; index++)
+            {
+                RaycastHit hit = watchtowerDeckHits[index];
+                if (hit.collider == null ||
+                    !hit.collider.transform.IsChildOf(tower.transform) ||
+                    hit.normal.y < 0.60f ||
+                    hit.point.y > probeHeight)
+                {
+                    continue;
+                }
+
+                deckHeight = Mathf.Max(deckHeight, hit.point.y);
+            }
+            return !float.IsNegativeInfinity(deckHeight);
+        }
+
+        private static void CreateWideWatchtowerStairRamps(
+            GameObject tower)
+        {
+            // The authored wide tower has three switchback stair flights.
+            // These source-space endpoints follow the tread centers while the
+            // thin invisible boxes provide one continuous controller surface.
+            CreateInvisibleWatchtowerRamp(
+                tower,
+                "Wide Tower Stair Ramp 1",
+                new Vector3(2.95f, -0.82f, 0.31f),
+                new Vector3(2.95f, -2.06f, 1.04f),
+                1.42f);
+            CreateInvisibleWatchtowerRamp(
+                tower,
+                "Wide Tower Stair Ramp 2",
+                new Vector3(1.15f, -3.27f, 1.47f),
+                new Vector3(-0.07f, -3.27f, 2.17f),
+                1.42f);
+            CreateInvisibleWatchtowerRamp(
+                tower,
+                "Wide Tower Stair Ramp 3",
+                new Vector3(-1.30f, -1.52f, 2.63f),
+                new Vector3(-1.30f, -0.31f, 3.29f),
+                1.42f);
+        }
+
+        private static void CreateInvisibleWatchtowerRamp(
+            GameObject tower,
+            string name,
+            Vector3 sourceStart,
+            Vector3 sourceEnd,
+            float sourceWidth)
+        {
+            Vector3 worldStart = tower.transform.TransformPoint(sourceStart);
+            Vector3 worldEnd = tower.transform.TransformPoint(sourceEnd);
+            Vector3 horizontalDirection = worldEnd - worldStart;
+            horizontalDirection.y = 0f;
+            if (horizontalDirection.sqrMagnitude > 0.0001f)
+            {
+                horizontalDirection.Normalize();
+                // Reach past the first and final risers so the controller
+                // enters and leaves each flight on a continuous surface.
+                worldStart -= horizontalDirection * 0.30f;
+                worldEnd += horizontalDirection * 0.34f;
+            }
+            // A line through tread centres still intersects every step nose.
+            // Lift the collider enough that the mesh collider can never win
+            // the contact test at a riser.
+            worldStart += Vector3.up * 0.17f;
+            worldEnd += Vector3.up * 0.17f;
+            Vector3 direction = worldEnd - worldStart;
+            float length = direction.magnitude;
+            if (length < 0.01f)
+            {
+                return;
+            }
+
+            GameObject ramp = new GameObject(name);
+            ramp.layer = tower.layer;
+            ramp.transform.SetParent(tower.transform, true);
+            ramp.transform.position = (worldStart + worldEnd) * 0.5f;
+            ramp.transform.rotation = Quaternion.LookRotation(
+                direction / length,
+                Vector3.up);
+            float inheritedScale = Mathf.Max(
+                0.0001f,
+                tower.transform.lossyScale.x);
+            ramp.transform.localScale = Vector3.one / inheritedScale;
+            BoxCollider collider = ramp.AddComponent<BoxCollider>();
+            collider.size = new Vector3(
+                tower.transform.TransformVector(
+                    Vector3.right * sourceWidth).magnitude,
+                0.30f,
+                length);
+        }
+
+        private void PlaceWatchtowerChestAgainstWall(
+            GameObject tower,
+            GameObject chest,
+            Vector2 deckCenter,
+            Vector2 wallOutward,
+            Vector2 wallTangent,
+            float preferredCornerOffset,
+            float maximumWallDistance,
+            float platformHeight)
+        {
+            wallOutward.Normalize();
+            wallTangent.Normalize();
+            AlignChestLongSide(chest, wallTangent);
+
+            Renderer[] chestRenderers = chest
+                .GetComponentsInChildren<Renderer>(true);
+            float[] cornerOffsets = Mathf.Abs(preferredCornerOffset) > 0.01f
+                ? new[]
+                {
+                    preferredCornerOffset,
+                    preferredCornerOffset * 0.55f,
+                    0f
+                }
+                : new[] { 0f, 0.32f, -0.32f };
+            bool placed = false;
+            for (int offsetIndex = 0;
+                 offsetIndex < cornerOffsets.Length && !placed;
+                 offsetIndex++)
+            {
+                for (float wallDistance = maximumWallDistance;
+                     wallDistance >= 0.35f;
+                     wallDistance -= 0.12f)
+                {
+                    Vector2 candidate = deckCenter +
+                        wallOutward * wallDistance +
+                        wallTangent * cornerOffsets[offsetIndex];
+                    chest.transform.position = new Vector3(
+                        candidate.x,
+                        chest.transform.position.y,
+                        candidate.y);
+                    if (!TryGetRendererBounds(
+                            chestRenderers,
+                            out Bounds chestBounds) ||
+                        !TryResolveWatchtowerDeckHeight(
+                            tower,
+                            ToXZ(chestBounds.center),
+                            platformHeight + 0.65f,
+                            out float deckHeight))
+                    {
+                        continue;
+                    }
+
+                    chest.transform.position += Vector3.up *
+                        (deckHeight - chestBounds.min.y + 0.005f);
+                    Physics.SyncTransforms();
+                    if (TryGetRendererBounds(
+                            chestRenderers,
+                            out Bounds groundedBounds) &&
+                        IsWatchtowerChestFootprintSupported(
+                            tower,
+                            groundedBounds,
+                            platformHeight + 0.65f))
+                    {
+                        placed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!placed &&
+                TryGetRendererBounds(chestRenderers, out Bounds fallbackBounds))
+            {
+                chest.transform.position = new Vector3(
+                    deckCenter.x,
+                    chest.transform.position.y,
+                    deckCenter.y);
+                chest.transform.position += Vector3.up *
+                    (platformHeight - fallbackBounds.min.y + 0.005f);
+            }
+        }
+
+        private static void AlignChestLongSide(
+            GameObject chest,
+            Vector2 wallTangent)
+        {
+            Vector3 currentLongAxis =
+                chest.transform.TransformDirection(Vector3.right);
+            currentLongAxis.y = 0f;
+            Vector3 targetLongAxis = new Vector3(
+                wallTangent.x,
+                0f,
+                wallTangent.y);
+            if (currentLongAxis.sqrMagnitude < 0.0001f ||
+                targetLongAxis.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            float correction = Vector3.SignedAngle(
+                currentLongAxis,
+                targetLongAxis,
+                Vector3.up);
+            chest.transform.rotation = Quaternion.AngleAxis(
+                correction,
+                Vector3.up) * chest.transform.rotation;
+        }
+
+        private bool IsWatchtowerChestFootprintSupported(
+            GameObject tower,
+            Bounds chestBounds,
+            float probeHeight)
+        {
+            const float Inset = 0.08f;
+            float minimumX = chestBounds.min.x + Inset;
+            float maximumX = chestBounds.max.x - Inset;
+            float minimumZ = chestBounds.min.z + Inset;
+            float maximumZ = chestBounds.max.z - Inset;
+            Vector2[] probes =
+            {
+                ToXZ(chestBounds.center),
+                new Vector2(minimumX, minimumZ),
+                new Vector2(minimumX, maximumZ),
+                new Vector2(maximumX, minimumZ),
+                new Vector2(maximumX, maximumZ)
+            };
+            for (int index = 0; index < probes.Length; index++)
+            {
+                if (!TryResolveWatchtowerDeckHeight(
+                        tower,
+                        probes[index],
+                        probeHeight,
+                        out _))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private void ResolveCampSites(System.Random random)
         {
             campSites.Clear();
@@ -4034,85 +6865,115 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 bool isLevelTwo =
                     random.NextDouble() < LevelTwoCampChance;
-                float footprintRadius = isLevelTwo ? 12.5f : 7.5f;
-                float minimumNormalY = isLevelTwo ? 0.95f : 0.91f;
-                float maximumHeightRange = isLevelTwo ? 1.3f : 1.65f;
-                for (int attempt = 0;
-                     attempt < CampPlacementAttempts;
-                     attempt++)
+                if (TryResolveCampSite(
+                        random,
+                        isLevelTwo,
+                        minimumRadius,
+                        maximumRadius))
                 {
-                    float angle =
-                        (float)random.NextDouble() *
-                        Mathf.PI * 2f;
-                    float radius = Mathf.Sqrt(Mathf.Lerp(
-                        minimumRadius * minimumRadius,
-                        maximumRadius * maximumRadius,
-                        (float)random.NextDouble()));
-                    var point = new Vector2(
-                        Mathf.Cos(angle) * radius,
-                        Mathf.Sin(angle) * radius);
-                    float trailDistance = DistanceToRoad(point);
-                    Vector3 groundNormal =
-                        TerrainNormalAt(point.x, point.y);
-                    if (!IsInsideIsland(
-                            point,
-                            footprintRadius + 2f) ||
-                        trailDistance < CampTrailMinimumDistance ||
-                        trailDistance > CampTrailMaximumDistance ||
-                        DistanceToRiverExact(point) <
-                            CampRiverClearance ||
-                        Vector2.Distance(
-                            point,
-                            ToXZ(layout.PlayerStart)) < 34f ||
-                        Vector2.Distance(
-                            point,
-                            ToXZ(layout.Extraction)) < 30f ||
-                        IsInsideObeliskClearance(point, 18f) ||
-                        groundNormal.y < minimumNormalY ||
-                        CampFootprintHeightRange(
-                            point,
-                            footprintRadius) > maximumHeightRange ||
-                        HasNearbyCamp(point, MinimumCampSeparation))
-                    {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    int guardCount = random.Next(
-                        1,
-                        MaximumCampGuardCount + 1);
-                    int tentCount = isLevelTwo
-                        ? random.Next(3, 5)
-                        : random.Next(2, 4);
-                    var bowGuards = new bool[guardCount];
-                    for (int guardIndex = 0;
-                         guardIndex < guardCount;
-                         guardIndex++)
-                    {
-                        bowGuards[guardIndex] =
-                            random.NextDouble() < 0.5;
-                    }
-                    campSites.Add(new CampSite
-                    {
-                        Center = point,
-                        Rotation =
-                            (float)random.NextDouble() * 360f,
-                        ClearingRadius = isLevelTwo
-                            ? LevelTwoCampClearingRadius
-                            : 10.2f + tentCount * 0.85f,
-                        GroundHeight = TerrainHeight(point.x, point.y),
-                        GroundSlope = new Vector2(
-                            -groundNormal.x /
-                                Mathf.Max(0.01f, groundNormal.y),
-                            -groundNormal.z /
-                                Mathf.Max(0.01f, groundNormal.y)),
-                        GuardCount = guardCount,
-                        TentCount = tentCount,
-                        IsLevelTwo = isLevelTwo,
-                        BowGuards = bowGuards
-                    });
-                    break;
+                // A large camp has stricter flat-footprint requirements. If
+                // the raised terrain has no safe Level Two footprint for this
+                // slot, preserve the camp count by retrying the same slot as a
+                // smaller Level One camp without relaxing any safety rule.
+                if (isLevelTwo)
+                {
+                    TryResolveCampSite(
+                        random,
+                        false,
+                        minimumRadius,
+                        maximumRadius);
                 }
             }
+        }
+
+        private bool TryResolveCampSite(
+            System.Random random,
+            bool isLevelTwo,
+            float minimumRadius,
+            float maximumRadius)
+        {
+            float footprintRadius = isLevelTwo ? 12.5f : 7.5f;
+            float minimumNormalY = isLevelTwo ? 0.95f : 0.91f;
+            float maximumHeightRange = isLevelTwo ? 1.3f : 1.65f;
+            for (int attempt = 0;
+                 attempt < CampPlacementAttempts;
+                 attempt++)
+            {
+                float angle =
+                    (float)random.NextDouble() *
+                    Mathf.PI * 2f;
+                float radius = Mathf.Sqrt(Mathf.Lerp(
+                    minimumRadius * minimumRadius,
+                    maximumRadius * maximumRadius,
+                    (float)random.NextDouble()));
+                var point = new Vector2(
+                    Mathf.Cos(angle) * radius,
+                    Mathf.Sin(angle) * radius);
+                float trailDistance = DistanceToRoad(point);
+                Vector3 groundNormal =
+                    TerrainNormalAt(point.x, point.y);
+                if (!IsInsideIsland(
+                        point,
+                        footprintRadius + 2f) ||
+                    trailDistance < CampTrailMinimumDistance ||
+                    trailDistance > CampTrailMaximumDistance ||
+                    DistanceToRiverExact(point) <
+                        CampRiverClearance ||
+                    Vector2.Distance(
+                        point,
+                        ToXZ(layout.PlayerStart)) < 34f ||
+                    Vector2.Distance(
+                        point,
+                        ToXZ(layout.Extraction)) < 30f ||
+                    IsInsideObeliskClearance(point, 18f) ||
+                    groundNormal.y < minimumNormalY ||
+                    CampFootprintHeightRange(
+                        point,
+                        footprintRadius) > maximumHeightRange ||
+                    HasNearbyCamp(point, MinimumCampSeparation))
+                {
+                    continue;
+                }
+
+                int guardCount = random.Next(
+                    1,
+                    MaximumCampGuardCount + 1);
+                int tentCount = isLevelTwo
+                    ? random.Next(3, 5)
+                    : random.Next(2, 4);
+                var bowGuards = new bool[guardCount];
+                for (int guardIndex = 0;
+                     guardIndex < guardCount;
+                     guardIndex++)
+                {
+                    bowGuards[guardIndex] =
+                        random.NextDouble() < ArcherGuardShare;
+                }
+                campSites.Add(new CampSite
+                {
+                    Center = point,
+                    Rotation =
+                        (float)random.NextDouble() * 360f,
+                    ClearingRadius = isLevelTwo
+                        ? LevelTwoCampClearingRadius
+                        : 10.2f + tentCount * 0.85f,
+                    GroundHeight = TerrainHeight(point.x, point.y),
+                    GroundSlope = new Vector2(
+                        -groundNormal.x /
+                            Mathf.Max(0.01f, groundNormal.y),
+                        -groundNormal.z /
+                            Mathf.Max(0.01f, groundNormal.y)),
+                    GuardCount = guardCount,
+                    TentCount = tentCount,
+                    IsLevelTwo = isLevelTwo,
+                    BowGuards = bowGuards
+                });
+                return true;
+            }
+            return false;
         }
 
         private float CampFootprintHeightRange(
@@ -4232,8 +7093,6 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 {
                     fire.name = "Central Campfire";
                 }
-                CreateCampfireEffect(camp, site.Center);
-
                 Vector2 campForward =
                     DirectionFromAngle(site.Rotation);
                 Vector2 campSide = new Vector2(
@@ -4615,19 +7474,136 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GameObject prop,
             GameObject support)
         {
-            if (prop == null || support == null ||
-                !TryGetRendererBounds(
-                    prop.GetComponentsInChildren<Renderer>(true),
-                    out Bounds propBounds) ||
-                !TryGetRendererBounds(
-                    support.GetComponentsInChildren<Renderer>(true),
-                    out Bounds supportBounds))
+            if (prop == null || support == null)
             {
                 return;
             }
 
-            prop.transform.position += Vector3.up *
-                (supportBounds.max.y - propBounds.min.y + 0.015f);
+            Vector3 stackingAxis = support.transform.up.normalized;
+            if (stackingAxis.sqrMagnitude < 0.0001f)
+            {
+                stackingAxis = Vector3.up;
+            }
+
+            // The upper prop was independently conformed to the terrain.
+            // Make its base parallel with the support before settling it;
+            // otherwise two differently yawed boxes on a slope can touch at
+            // their AABB corners while leaving a visible gap between faces.
+            prop.transform.rotation =
+                Quaternion.FromToRotation(
+                    prop.transform.up,
+                    stackingAxis) *
+                prop.transform.rotation;
+
+            if (!TryGetVisibleProjectionRange(
+                    prop,
+                    stackingAxis,
+                    out float propMinimum,
+                    out _) ||
+                !TryGetVisibleProjectionRange(
+                    support,
+                    stackingAxis,
+                    out _,
+                    out float supportMaximum))
+            {
+                return;
+            }
+
+            const float contactInset = 0.003f;
+            prop.transform.position += stackingAxis *
+                (supportMaximum - propMinimum - contactInset);
+        }
+
+        private static bool TryGetVisibleProjectionRange(
+            GameObject prop,
+            Vector3 axis,
+            out float minimum,
+            out float maximum)
+        {
+            minimum = float.PositiveInfinity;
+            maximum = float.NegativeInfinity;
+            Renderer[] renderers =
+                prop.GetComponentsInChildren<Renderer>(true);
+            for (int rendererIndex = 0;
+                 rendererIndex < renderers.Length;
+                 rendererIndex++)
+            {
+                Renderer renderer = renderers[rendererIndex];
+                if (renderer == null ||
+                    !renderer.enabled ||
+                    !renderer.gameObject.activeInHierarchy ||
+                    IsCollisionHelper(renderer))
+                {
+                    continue;
+                }
+
+                Transform boundsTransform = renderer.transform;
+                Bounds localBounds;
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                if (filter != null && filter.sharedMesh != null)
+                {
+                    localBounds = filter.sharedMesh.bounds;
+                }
+                else if (renderer is SkinnedMeshRenderer skinned)
+                {
+                    localBounds = skinned.localBounds;
+                }
+                else
+                {
+                    EncapsulateProjectedWorldBounds(
+                        renderer.bounds,
+                        axis,
+                        ref minimum,
+                        ref maximum);
+                    continue;
+                }
+
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 localPoint = new Vector3(
+                        (corner & 1) == 0
+                            ? localBounds.min.x
+                            : localBounds.max.x,
+                        (corner & 2) == 0
+                            ? localBounds.min.y
+                            : localBounds.max.y,
+                        (corner & 4) == 0
+                            ? localBounds.min.z
+                            : localBounds.max.z);
+                    float projection = Vector3.Dot(
+                        boundsTransform.TransformPoint(localPoint),
+                        axis);
+                    minimum = Mathf.Min(minimum, projection);
+                    maximum = Mathf.Max(maximum, projection);
+                }
+            }
+
+            return !float.IsPositiveInfinity(minimum) &&
+                !float.IsNegativeInfinity(maximum);
+        }
+
+        private static void EncapsulateProjectedWorldBounds(
+            Bounds bounds,
+            Vector3 axis,
+            ref float minimum,
+            ref float maximum)
+        {
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 point = new Vector3(
+                    (corner & 1) == 0
+                        ? bounds.min.x
+                        : bounds.max.x,
+                    (corner & 2) == 0
+                        ? bounds.min.y
+                        : bounds.max.y,
+                    (corner & 4) == 0
+                        ? bounds.min.z
+                        : bounds.max.z);
+                float projection = Vector3.Dot(point, axis);
+                minimum = Mathf.Min(minimum, projection);
+                maximum = Mathf.Max(maximum, projection);
+            }
         }
 
         private static Vector2 FindLevelOneWoodenBoxPoint(
@@ -4867,7 +7843,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             bool addCollider,
             bool conformToSlope = false)
         {
-            return CreateSceneryInstance(
+            GameObject prop = CreateSceneryInstance(
                 prefab,
                 parent,
                 point,
@@ -4879,6 +7855,55 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 true,
                 conformToSlope,
                 yaw);
+            DisableCampPropLights(prop);
+            return prop;
+        }
+
+        // Camp assets are scenery only. Some third-party prefabs can carry
+        // authored lights, which get duplicated for every camp and can blow
+        // out the whole raid under the post-processing volume.
+        private static void DisableCampPropLights(GameObject prop)
+        {
+            if (prop == null)
+            {
+                return;
+            }
+
+            foreach (Light light in
+                     prop.GetComponentsInChildren<Light>(true))
+            {
+                light.enabled = false;
+            }
+        }
+
+        // The campfire art previously used additive particles and local
+        // lights. With the raid's fog and exposure, those effects can bloom
+        // into screen-filling white discs. Camps deliberately have no visual
+        // effects until a dedicated, exposure-safe treatment is authored.
+        private static void DisableCampVisualEffects(Transform raidRoot)
+        {
+            Transform camps = raidRoot != null
+                ? raidRoot.Find("Forest Camps")
+                : null;
+            if (camps == null)
+            {
+                return;
+            }
+
+            foreach (Light light in
+                     camps.GetComponentsInChildren<Light>(true))
+            {
+                light.enabled = false;
+            }
+
+            foreach (ParticleSystem particles in
+                     camps.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                particles.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+                particles.gameObject.SetActive(false);
+            }
         }
 
         private static float YawFacingDirection(Vector2 direction)
@@ -4932,6 +7957,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             ParticleSystem particles =
                 effect.AddComponent<ParticleSystem>();
+            // AddComponent starts a play-on-awake system immediately. Clear
+            // that default state before configuring duration and play it
+            // explicitly below once the visual has its final settings.
+            particles.Stop(
+                true,
+                ParticleSystemStopBehavior.StopEmittingAndClear);
             ParticleSystem.MainModule main = particles.main;
             main.loop = true;
             main.duration = 1.2f;
@@ -4992,13 +8023,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
             if (shader != null)
             {
-                var material = new Material(shader)
-                {
-                    name = "Generated Campfire Flame"
-                };
-                Texture2D flameTexture =
-                    CreateSoftCampfireParticleTexture();
-                generatedRuntimeResources.Add(flameTexture);
+                Material material = TrackRuntimeResource(
+                    new Material(shader)
+                    {
+                        name = "Generated Campfire Flame"
+                    });
+                Texture2D flameTexture = TrackRuntimeResource(
+                    CreateSoftCampfireParticleTexture());
                 if (material.HasProperty("_BaseMap"))
                 {
                     material.SetTexture("_BaseMap", flameTexture);
@@ -5014,11 +8045,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     (float)BlendMode.SrcAlpha);
                 material.SetFloat(
                     "_DstBlend",
-                    (float)BlendMode.One);
+                    (float)BlendMode.OneMinusSrcAlpha);
                 material.SetFloat("_ZWrite", 0f);
                 material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 material.renderQueue = (int)RenderQueue.Transparent;
-                generatedRuntimeResources.Add(material);
                 ParticleSystemRenderer renderer =
                     particles.GetComponent<ParticleSystemRenderer>();
                 renderer.sharedMaterial = material;
@@ -5026,12 +8056,6 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     ParticleSystemRenderMode.Billboard;
             }
 
-            Light fireLight = effect.AddComponent<Light>();
-            fireLight.type = LightType.Point;
-            fireLight.color = new Color(1f, 0.42f, 0.12f);
-            fireLight.intensity = 1.25f;
-            fireLight.range = 4.5f;
-            fireLight.shadows = LightShadows.None;
             particles.Play();
         }
 
@@ -5103,9 +8127,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Mathf.Cos(angle) * radius,
                     Mathf.Sin(angle) * radius);
                 HabitatSample habitat = ForestHabitatAt(point);
-                if (habitat.CanopyInfluence < 0.28f ||
+                if (!IsInsideIsland(point, FireflyZoneRadius + 1f) ||
+                    habitat.CanopyInfluence < 0.28f ||
                     habitat.MoistureTendency < 0.46f ||
                     DistanceToRoad(point) < 7.5f ||
+                    CliffFaceInfluence(point) > 0.20f ||
                     IsInsideCampClearing(point, 3f) ||
                     IsInsideSpawnSolidClearance(point) ||
                     IsInsideObeliskClearance(point, 11f))
@@ -5133,6 +8159,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             ParticleSystem particles =
                 effect.AddComponent<ParticleSystem>();
+            // AddComponent starts a play-on-awake system immediately. Clear
+            // that default state before configuring duration and play it
+            // explicitly below once the visual has its final settings.
+            particles.Stop(
+                true,
+                ParticleSystemStopBehavior.StopEmittingAndClear);
             particles.useAutoRandomSeed = false;
             particles.randomSeed = unchecked((uint)seed ^ 0x91e10da5u);
             ParticleSystem.MainModule main = particles.main;
@@ -5272,9 +8304,143 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Mathf.Sin(radians));
         }
 
-        private void CreateForest(System.Random random)
+        public static float CalculateTreeDensityMultiplier(
+            float normalizedBiomeCoordinate)
+        {
+            if (normalizedBiomeCoordinate <=
+                OpenPlainTreeBoundary)
+            {
+                return 0f;
+            }
+
+            if (normalizedBiomeCoordinate <
+                MediumWoodlandStart)
+            {
+                float transition = Mathf.InverseLerp(
+                    OpenPlainTreeBoundary,
+                    MediumWoodlandStart,
+                    normalizedBiomeCoordinate);
+                return Mathf.SmoothStep(
+                    0f,
+                    MediumWoodlandTreeDensity,
+                    transition);
+            }
+
+            if (normalizedBiomeCoordinate <=
+                MediumWoodlandEnd)
+            {
+                return MediumWoodlandTreeDensity;
+            }
+
+            if (normalizedBiomeCoordinate <
+                DenseForestBoundary)
+            {
+                float transition = Mathf.InverseLerp(
+                    MediumWoodlandEnd,
+                    DenseForestBoundary,
+                    normalizedBiomeCoordinate);
+                return Mathf.SmoothStep(
+                    MediumWoodlandTreeDensity,
+                    1f,
+                    transition);
+            }
+
+            return 1f;
+        }
+
+        public float TreeDensityMultiplierAt(Vector2 point)
+        {
+            float extent = Mathf.Max(1f, mapRadius);
+            Vector2 highlandDirection =
+                elevationDirection.sqrMagnitude > 0.001f
+                    ? elevationDirection.normalized
+                    : Vector2.up;
+            Vector2 lateralDirection = new Vector2(
+                -highlandDirection.y,
+                highlandDirection.x);
+            float along = Vector2.Dot(
+                point,
+                highlandDirection) / extent;
+            float lateral = Vector2.Dot(
+                point,
+                lateralDirection) / extent;
+            float organicBoundary =
+                (Mathf.PerlinNoise(
+                    noiseOffsetA.x * 0.011f +
+                        lateral * 1.45f + 37.2f,
+                    noiseOffsetA.y * 0.011f +
+                        along * 0.38f + 11.6f) - 0.5f) *
+                0.18f;
+            organicBoundary += Mathf.Sin(
+                    lateral * Mathf.PI * 1.65f +
+                    Seed * 0.017f) *
+                0.035f;
+            float density = CalculateTreeDensityMultiplier(
+                along + organicBoundary);
+            // Advanced regions own their ecological grammar. Applying the
+            // former island-wide directional ramp on top made one side of
+            // the map empty and the other uniformly dense.
+            return enableAdvancedLandforms
+                ? AdvancedTreeDensityMultiplier(point)
+                : density;
+        }
+
+        public TreeDensityBiome TreeDensityBiomeAt(
+            Vector2 point)
+        {
+            float density = TreeDensityMultiplierAt(point);
+            if (density <= 0.001f)
+            {
+                return TreeDensityBiome.OpenPlain;
+            }
+
+            return density < 0.75f
+                ? TreeDensityBiome.MediumWoodland
+                : TreeDensityBiome.DenseForest;
+        }
+
+        private float EstimateTreeDensityCoverage()
+        {
+            const int resolution = 65;
+            float extent = IslandGenerationExtent;
+            float diameter = extent * 2f;
+            int denseSamples = 0;
+            int islandSamples = 0;
+            for (int z = 0; z < resolution; z++)
+            {
+                for (int x = 0; x < resolution; x++)
+                {
+                    Vector2 point = new Vector2(
+                        -extent + diameter * x /
+                            (resolution - 1f),
+                        -extent + diameter * z /
+                            (resolution - 1f));
+                    if (!IsInsideIsland(
+                            point,
+                            CoastPlacementInset))
+                    {
+                        continue;
+                    }
+
+                    if (TreeDensityBiomeAt(point) ==
+                        TreeDensityBiome.DenseForest)
+                    {
+                        denseSamples++;
+                    }
+                    islandSamples++;
+                }
+            }
+
+            return islandSamples > 0
+                ? denseSamples / (float)islandSamples
+                : 1f;
+        }
+
+        private void CreateForest()
         {
             generatedTreeCount = 0;
+            generatedMediumWoodlandTreeCount = 0;
+            generatedDenseForestTreeCount = 0;
             generatedTreePositions.Clear();
             treeSpatialHash = null;
             var validTreePrefabs =
@@ -5301,18 +8467,28 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new GameObject("Dense Stylized Forest")
                     .transform;
             forest.SetParent(generatedRoot, false);
-            int attempts = treeCount * 12;
+            generatedTreeDensityCoverage =
+                EstimateTreeDensityCoverage();
+            // The configured count is the island's ecology budget. Patch
+            // coverage redistributes that budget into dense, sparse, and
+            // open areas; it must not delete trees merely because only part
+            // of the island is dense forest.
+            generatedTreeTarget = ActiveTreeCount;
+            int attempts = ActiveTreeCount * 12;
             float minimumSpacing = 1.95f;
-            var treeSpacing =
+            treeSpatialHash =
                 new PointSpatialHash(minimumSpacing);
-            treeSpatialHash = treeSpacing;
+            var placementRandom = new System.Random(
+                unchecked(Seed * 1103515245 + 0x2F6E2B1));
+            var biomeRandom = new System.Random(
+                unchecked(Seed * 486187739 + 0x51A7F00D));
             for (int attempt = 0;
                  attempt < attempts &&
-                 generatedTreeCount < treeCount;
+                 generatedTreeCount < generatedTreeTarget;
                  attempt++)
             {
                 Vector2 point = RandomDiscPoint(
-                    random,
+                    placementRandom,
                     CoastPlacementInset);
                 if (DistanceToRoadWithin(
                         point,
@@ -5332,9 +8508,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         point,
                         ObeliskTreeClearance) ||
                     IsInsideCampClearing(point, 1.1f) ||
-                    treeSpacing.HasNearby(
+                    treeSpatialHash.HasNearby(
                         point,
-                        minimumSpacing))
+                        minimumSpacing) ||
+                    IsInsideEscarpmentPassLane(
+                        point,
+                        treeClearance) ||
+                    CliffFaceInfluence(point) > 0.35f)
                 {
                     continue;
                 }
@@ -5345,10 +8525,27 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         ? (generatedTreeCount +
                             Mathf.Abs(Seed)) %
                             validTreePrefabs.Count
-                        : random.Next(
+                        : placementRandom.Next(
                             validTreePrefabs.Count);
                 GameObject selectedPrefab =
                     validTreePrefabs[variantIndex];
+                float targetHeight =
+                    Mathf.Lerp(
+                        14.4f,
+                        21f,
+                        (float)placementRandom.NextDouble()) *
+                    treeScaleMultiplier;
+                float rotationDegrees =
+                    (float)placementRandom.NextDouble() * 360f;
+
+                float densityMultiplier =
+                    TreeDensityMultiplierAt(point);
+                if (densityMultiplier <= 0.001f ||
+                    biomeRandom.NextDouble() > densityMultiplier)
+                {
+                    continue;
+                }
+
                 GameObject tree =
                     Instantiate(
                         selectedPrefab,
@@ -5357,12 +8554,6 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 tree.name =
                     $"{selectedPrefab.name} " +
                     $"{generatedTreeCount + 1:000}";
-                float targetHeight =
-                    Mathf.Lerp(
-                        14.4f,
-                        21f,
-                        (float)random.NextDouble()) *
-                    treeScaleMultiplier;
                 float terrainHeight =
                     TerrainHeight(
                         point.x,
@@ -5376,7 +8567,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     tree.transform.rotation;
                 tree.transform.rotation =
                     Quaternion.AngleAxis(
-                        (float)random.NextDouble() * 360f,
+                        rotationDegrees,
                         Vector3.up) *
                     importedRotation;
                 Renderer[] importedRenderers =
@@ -5448,7 +8639,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     tree,
                     renderers);
                 generatedTreePositions.Add(point);
-                treeSpacing.Add(point);
+                treeSpatialHash.Add(point);
+                if (TreeDensityBiomeAt(point) ==
+                    TreeDensityBiome.DenseForest)
+                {
+                    generatedDenseForestTreeCount++;
+                }
+                else
+                {
+                    generatedMediumWoodlandTreeCount++;
+                }
                 generatedTreeCount++;
             }
         }
@@ -5501,6 +8701,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     random,
                     rocks);
             }
+            BuildBoulderSpatialIndex();
             RecordGenerationStage(
                 "scenery-boulders",
                 sceneryTimer,
@@ -5591,7 +8792,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Mathf.Sqrt(
                     Mathf.PI * usableRadius *
                     usableRadius /
-                    (grassCount * 2.40f *
+                    (ActiveGrassCount * 2.40f *
                         GrassCoverageMultiplier));
             int cellsAcross =
                 Mathf.CeilToInt(
@@ -5652,7 +8853,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     float roadBlend =
                         RoadSurfaceBlendAt(
                             point.x,
-                            point.y);
+                            point.y,
+                            signedRoadDistance);
                     density *=
                         Mathf.Lerp(
                             1f,
@@ -6330,19 +9532,31 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 true,
                 true,
                 false);
+            mesh.RecalculateBounds();
             double combineEnd =
                 chunkTimer.Elapsed.TotalMilliseconds;
             Vector3[] vertices = mesh.vertices;
             var colors =
                 new Color[vertices.Length];
+            BuildGrassTintGrid(
+                mesh.bounds,
+                out Color[] tintGrid,
+                out int tintGridWidth,
+                out int tintGridHeight,
+                out float tintGridStartX,
+                out float tintGridStartZ);
             for (int vertexIndex = 0;
                  vertexIndex < vertices.Length;
                  vertexIndex++)
             {
                 colors[vertexIndex] =
-                    GrassTintAt(
-                        vertices[vertexIndex].x,
-                        vertices[vertexIndex].z);
+                    SampleGrassTintGrid(
+                        tintGrid,
+                        tintGridWidth,
+                        tintGridHeight,
+                        tintGridStartX,
+                        tintGridStartZ,
+                        vertices[vertexIndex]);
             }
             mesh.colors = colors;
             double tintEnd =
@@ -6376,6 +9590,74 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 tintEnd - combineEnd;
             grassChunkFinalizeMilliseconds +=
                 finalizeEnd - tintEnd;
+        }
+
+        private void BuildGrassTintGrid(
+            Bounds bounds,
+            out Color[] colors,
+            out int width,
+            out int height,
+            out float startX,
+            out float startZ)
+        {
+            startX = Mathf.Floor(
+                bounds.min.x / GrassTintGridSpacing) *
+                GrassTintGridSpacing;
+            startZ = Mathf.Floor(
+                bounds.min.z / GrassTintGridSpacing) *
+                GrassTintGridSpacing;
+            width = Mathf.Max(
+                2,
+                Mathf.CeilToInt(
+                    (bounds.max.x - startX) /
+                    GrassTintGridSpacing) + 1);
+            height = Mathf.Max(
+                2,
+                Mathf.CeilToInt(
+                    (bounds.max.z - startZ) /
+                    GrassTintGridSpacing) + 1);
+            colors = new Color[width * height];
+            for (int z = 0; z < height; z++)
+            {
+                float worldZ = startZ + z * GrassTintGridSpacing;
+                for (int x = 0; x < width; x++)
+                {
+                    colors[z * width + x] = GrassTintAt(
+                        startX + x * GrassTintGridSpacing,
+                        worldZ);
+                }
+            }
+        }
+
+        private static Color SampleGrassTintGrid(
+            Color[] colors,
+            int width,
+            int height,
+            float startX,
+            float startZ,
+            Vector3 vertex)
+        {
+            float x = Mathf.Clamp(
+                (vertex.x - startX) / GrassTintGridSpacing,
+                0f,
+                width - 1f);
+            float z = Mathf.Clamp(
+                (vertex.z - startZ) / GrassTintGridSpacing,
+                0f,
+                height - 1f);
+            int x0 = Mathf.FloorToInt(x);
+            int z0 = Mathf.FloorToInt(z);
+            int x1 = Mathf.Min(x0 + 1, width - 1);
+            int z1 = Mathf.Min(z0 + 1, height - 1);
+            Color lower = Color.Lerp(
+                colors[z0 * width + x0],
+                colors[z0 * width + x1],
+                x - x0);
+            Color upper = Color.Lerp(
+                colors[z1 * width + x0],
+                colors[z1 * width + x1],
+                x - x0);
+            return Color.Lerp(lower, upper, z - z0);
         }
 
         private static Bounds TransformBounds(
@@ -6455,9 +9737,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new List<Vector2>();
             int generalUndergrowthTarget =
                 Mathf.RoundToInt(
-                    undergrowthCount * 0.60f);
+                    ActiveUndergrowthCount * 0.60f);
             int clusterAttempts =
-                undergrowthCount * 6;
+                ActiveUndergrowthCount * 6;
             int clusterIndex = 0;
             for (int attempt = 0;
                  attempt < clusterAttempts &&
@@ -6474,6 +9756,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     DistanceToRiver(center) <
                         riverHalfWidth + 0.72f ||
                     IsInsideCampClearing(center, -0.25f) ||
+                    IsInsideEscarpmentPassLane(center, 0.55f) ||
+                    CliffFaceInfluence(center) > 0.25f ||
                     HasNearbyTree(
                         clusterCenters,
                         center,
@@ -6584,7 +9868,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         DistanceToRiver(point) <
                             riverHalfWidth + 0.48f ||
                         IsInsideBoulderCore(point) ||
-                        IsInsideCampClearing(point, -0.25f))
+                        IsInsideCampClearing(point, -0.25f) ||
+                        CliffFaceInfluence(point) > 0.32f)
                     {
                         continue;
                     }
@@ -6678,7 +9963,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 generatedTreePositions.Count * 2;
             int treeHabitatTarget =
                 Mathf.RoundToInt(
-                    undergrowthCount * 0.80f);
+                    ActiveUndergrowthCount * 0.80f);
             for (int attempt = 0;
                  attempt < treeAttempts &&
                  generatedUndergrowthCount <
@@ -6795,7 +10080,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 generatedBoulderPlacements.Count * 3;
             for (int attempt = 0;
                  attempt < boulderAttempts &&
-                 generatedUndergrowthCount < undergrowthCount;
+                 generatedUndergrowthCount < ActiveUndergrowthCount;
                  attempt++)
             {
                 BoulderPlacement boulder =
@@ -6823,7 +10108,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     choices[random.Next(choices.Count)];
                 int groupSize = Mathf.Min(
                     random.Next(4, 9),
-                    undergrowthCount -
+                    ActiveUndergrowthCount -
                         generatedUndergrowthCount);
                 int placedAtBoulder = 0;
                 float shelterAngle = Mathf.Atan2(
@@ -6919,10 +10204,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             int generalTarget = Mathf.RoundToInt(
-                groundFloraStudyCount *
-                groundFloraGeneralShare);
+                ActiveGroundFloraStudyCount *
+                    groundFloraGeneralShare);
             int generalAttempts =
-                groundFloraStudyCount * 7;
+                ActiveGroundFloraStudyCount * 7;
             for (int attempt = 0;
                  attempt < generalAttempts &&
                  generatedGroundFloraStudyCount < generalTarget;
@@ -7044,7 +10329,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             int treeTarget = Mathf.RoundToInt(
-                groundFloraStudyCount * Mathf.Clamp01(
+                ActiveGroundFloraStudyCount * Mathf.Clamp01(
                     groundFloraGeneralShare +
                     groundFloraTreePocketShare));
             int treeStart = generatedTreePositions.Count > 0
@@ -7145,7 +10430,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             for (int attempt = 0;
                  attempt < boulderAttempts &&
                  generatedGroundFloraStudyCount <
-                    groundFloraStudyCount;
+                    ActiveGroundFloraStudyCount;
                  attempt++)
             {
                 BoulderPlacement boulder =
@@ -7179,7 +10464,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
                 int groupSize = Mathf.Min(
                     random.Next(6, 13),
-                    groundFloraStudyCount -
+                    ActiveGroundFloraStudyCount -
                         generatedGroundFloraStudyCount);
                 int placed = 0;
                 float shelterAngle = Mathf.Atan2(
@@ -7249,6 +10534,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 SignedDistanceToRoad(point) >= trailClearance &&
                 DistanceToRiver(point) >=
                     riverHalfWidth + 0.52f &&
+                CliffFaceInfluence(point) <= 0.30f &&
                 !IsInsideBoulderCore(point) &&
                 !IsInsideCampClearing(point, -0.35f) &&
                 !IsInsideSpawnSolidClearance(point);
@@ -7632,11 +10918,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private bool IsInsideBoulderCore(
             Vector2 point)
         {
-            for (int index = 0;
-                 index <
-                    generatedBoulderPlacements.Count;
-                 index++)
+            CollectNearbyBoulderIndices(point);
+            for (int nearbyIndex = 0;
+                 nearbyIndex < boulderInfluenceIndices.Count;
+                 nearbyIndex++)
             {
+                int index = boulderInfluenceIndices[nearbyIndex];
                 BoulderPlacement boulder =
                     generatedBoulderPlacements[index];
                 if (Vector2.Distance(
@@ -7659,18 +10946,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     "Boulders").transform;
             root.SetParent(generatedRoot, false);
             var accepted =
-                new List<Vector2>(boulderCount);
-            int attempts = boulderCount * 16;
+                new List<Vector2>(ActiveBoulderCount);
+            int attempts = ActiveBoulderCount * 16;
             for (int attempt = 0;
                  attempt < attempts &&
                  generatedBoulderCount <
-                    boulderCount;
+                    ActiveBoulderCount;
                  attempt++)
             {
-                Vector2 point =
-                    RandomDiscPoint(
-                        random,
-                        3.5f);
+                Vector2 point = RandomBoulderPoint(
+                    random,
+                    attempt);
                 if (SignedDistanceToRoad(point) <
                         1.15f ||
                     DistanceToRiver(point) <
@@ -7687,7 +10973,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     HasNearbyTree(
                         generatedTreePositions,
                         point,
-                        2.4f))
+                        2.4f) ||
+                    IsInsideEscarpmentPassLane(point, 2f) ||
+                    CliffFaceInfluence(point) > 0.58f)
                 {
                     continue;
                 }
@@ -7727,20 +11015,55 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 boulder.name =
                     $"{prefab.name} Boulder " +
                     $"{generatedBoulderCount + 1:00}";
-                Renderer[] boulderRenderers =
+                Renderer[] allBoulderRenderers =
                     boulder.GetComponentsInChildren<
                         Renderer>(true);
+                var visibleBoulderRenderers =
+                    new List<Renderer>(
+                        allBoulderRenderers.Length);
+                for (int rendererIndex = 0;
+                     rendererIndex < allBoulderRenderers.Length;
+                     rendererIndex++)
+                {
+                    Renderer renderer =
+                        allBoulderRenderers[rendererIndex];
+                    if (renderer != null && renderer.enabled)
+                    {
+                        visibleBoulderRenderers.Add(renderer);
+                    }
+                }
+                Renderer[] boulderRenderers =
+                    visibleBoulderRenderers.ToArray();
                 if (TryGetRendererBounds(
                         boulderRenderers,
                         out Bounds boulderBounds))
                 {
+                    Vector2 boulderCenter =
+                        ToXZ(boulder.transform.position);
+                    float settlingDepth = Mathf.Min(
+                        0.055f,
+                        boulderBounds.size.y * 0.025f);
+                    float groundedBaseHeight =
+                        MinimumTerrainHeightUnderFootprint(
+                            boulderCenter,
+                            boulderBounds.extents.x * 0.72f,
+                            boulderBounds.extents.z * 0.72f,
+                            12) -
+                        settlingDepth;
+                    boulder.transform.position +=
+                        Vector3.up *
+                        (groundedBaseHeight -
+                         boulderBounds.min.y);
+                    TryGetRendererBounds(
+                        boulderRenderers,
+                        out boulderBounds);
                     float habitatShelterAngle =
                         (float)random.NextDouble() *
                         Mathf.PI * 2f;
                     generatedBoulderPlacements.Add(
                         new BoulderPlacement
                         {
-                            Position = point,
+                            Position = boulderCenter,
                             Radius = Mathf.Max(
                                 boulderBounds.extents.x,
                                 boulderBounds.extents.z),
@@ -7754,6 +11077,44 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        private Vector2 RandomBoulderPoint(
+            System.Random random,
+            int attempt)
+        {
+            if ((attempt & 3) != 0)
+            {
+                return RandomDiscPoint(random, 3.5f);
+            }
+
+            // Reserve a quarter of the attempts for loose rock formations
+            // along both shoulders of the raised land slice. Keeping these
+            // just outside the steep face makes the escarpment read as a
+            // geological formation without pinning props onto near-vertical
+            // triangles or obstructing its authored passes.
+            Vector2 tangent = new Vector2(
+                -elevationDirection.y,
+                elevationDirection.x);
+            float along = Mathf.Lerp(
+                -mapRadius * 0.78f,
+                mapRadius * 0.78f,
+                (float)random.NextDouble());
+            float side = random.NextDouble() < 0.5
+                ? -1f
+                : 1f;
+            float across =
+                mapRadius * EscarpmentOffsetRatio +
+                side * Mathf.Lerp(
+                    7f,
+                    14f,
+                    (float)random.NextDouble());
+            Vector2 candidate =
+                tangent * along +
+                elevationDirection * across;
+            return IsInsideIsland(candidate, 3.5f)
+                ? candidate
+                : RandomDiscPoint(random, 3.5f);
+        }
+
         private void CreateTrailStones(
             System.Random random,
             List<GameObject> prefabs)
@@ -7763,11 +11124,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     "Trail and Edge Stones")
                     .transform;
             root.SetParent(generatedRoot, false);
-            int attempts = trailStoneCount * 5;
+            int attempts = ActiveTrailStoneCount * 5;
             for (int attempt = 0;
                  attempt < attempts &&
                  generatedTrailStoneCount <
-                    trailStoneCount;
+                    ActiveTrailStoneCount;
                  attempt++)
             {
                 float t =
@@ -7890,10 +11251,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 return null;
             }
 
-            float terrainHeight =
-                TerrainHeight(
-                    point.x,
-                    point.y);
+            SampleTerrainMeshSurface(
+                point.x,
+                point.y,
+                out float terrainHeight,
+                out Vector3 terrainMeshNormal);
             GameObject instance =
                 Instantiate(
                     prefab,
@@ -7912,9 +11274,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             if (conformToSlope)
             {
                 Vector3 terrainNormal =
-                    TerrainNormalAt(
-                        point.x,
-                        point.y);
+                    terrainMeshNormal;
                 terrainNormal =
                     Vector3.RotateTowards(
                         Vector3.up,
@@ -8017,9 +11377,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Mathf.Min(
                         0.055f,
                         scaledBounds.size.y * 0.025f);
-                Vector3 terrainNormal = TerrainNormalAt(
-                    point.x,
-                    point.y);
+                Vector3 terrainNormal = terrainMeshNormal;
                 terrainNormal = Vector3.RotateTowards(
                     Vector3.up,
                     terrainNormal,
@@ -8043,7 +11401,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                      scaledBounds.min.y);
             }
 
-            if (addCollider)
+            if (addCollider && ShouldCreateEnvironmentColliders)
             {
                 AddExactVisibleMeshColliders(
                     renderers);
@@ -8108,6 +11466,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             GameObject tree,
             Renderer[] visibleRenderers)
         {
+            if (!ShouldCreateEnvironmentColliders)
+            {
+                return;
+            }
+
             int added = 0;
             for (int rendererIndex = 0;
                  rendererIndex < visibleRenderers.Length;
@@ -8405,12 +11768,150 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 t);
         }
 
+        private void CreateLayeredGroundFog()
+        {
+            Shader shader = Shader.Find("WorldBuilder/Low Horizon Fog");
+            if (shader == null || generatedRoot == null || layout == null)
+            {
+                return;
+            }
+
+            // Use one continuous terrain-following surface. The previous
+            // three parallel sheets exposed their separate silhouettes when
+            // viewed from ordinary third-person camera angles.
+            int gridResolution =
+                CalculateGroundFogGridResolution(mapRadius);
+            const float fogHeight = 0.48f;
+            const float fogOpacity = 0.22f;
+            int verticesPerSide = gridResolution + 1;
+            int verticesPerLayer = verticesPerSide * verticesPerSide;
+            var vertices = new Vector3[verticesPerLayer];
+            var colors = new Color32[vertices.Length];
+            var triangles = new int[
+                gridResolution * gridResolution * 6];
+            float extent = IslandGenerationExtent * 1.02f;
+            int triangleIndex = 0;
+
+            for (int zIndex = 0;
+                 zIndex < verticesPerSide;
+                 zIndex++)
+            {
+                float normalizedZ = zIndex / (float)gridResolution;
+                float z = Mathf.Lerp(-extent, extent, normalizedZ);
+                for (int xIndex = 0;
+                     xIndex < verticesPerSide;
+                     xIndex++)
+                {
+                    float normalizedX = xIndex /
+                        (float)gridResolution;
+                    float x = Mathf.Lerp(
+                        -extent,
+                        extent,
+                        normalizedX);
+                    int vertexIndex =
+                        zIndex * verticesPerSide + xIndex;
+                    vertices[vertexIndex] = new Vector3(
+                        x,
+                        TerrainHeight(x, z) + fogHeight,
+                        z);
+
+                    float radius = new Vector2(x, z).magnitude;
+                    float angle = Mathf.Atan2(z, x);
+                    float coastRadius =
+                        layout.CoastRadiusAtAngle(angle);
+                    float coastFade = 1f - Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        Mathf.InverseLerp(
+                            coastRadius - 11f,
+                            coastRadius - 2.5f,
+                            radius));
+                    byte alpha = (byte)Mathf.RoundToInt(
+                        255f * fogOpacity * coastFade);
+                    colors[vertexIndex] =
+                        new Color32(255, 255, 255, alpha);
+                }
+            }
+
+            for (int zIndex = 0;
+                 zIndex < gridResolution;
+                 zIndex++)
+            {
+                for (int xIndex = 0;
+                     xIndex < gridResolution;
+                     xIndex++)
+                {
+                    int lowerLeft =
+                        zIndex * verticesPerSide + xIndex;
+                    int lowerRight = lowerLeft + 1;
+                    int upperLeft = lowerLeft + verticesPerSide;
+                    int upperRight = upperLeft + 1;
+                    triangles[triangleIndex++] = lowerLeft;
+                    triangles[triangleIndex++] = upperLeft;
+                    triangles[triangleIndex++] = upperRight;
+                    triangles[triangleIndex++] = lowerLeft;
+                    triangles[triangleIndex++] = upperRight;
+                    triangles[triangleIndex++] = lowerRight;
+                }
+            }
+
+            var mesh = new Mesh
+            {
+                name = "Continuous Ground Fog Mesh"
+            };
+            mesh.vertices = vertices;
+            mesh.colors32 = colors;
+            mesh.triangles = triangles;
+            mesh.RecalculateBounds();
+            Bounds bounds = mesh.bounds;
+            bounds.Expand(new Vector3(0f, 0.30f, 0f));
+            mesh.bounds = bounds;
+            TrackRuntimeResource(mesh);
+
+            var material = new Material(shader)
+            {
+                name = "Layered Ground Fog Material",
+                renderQueue = (int)RenderQueue.Transparent + 20,
+                enableInstancing = false
+            };
+            Color fogColor = RenderSettings.fogColor;
+            fogColor.a = 1f;
+            material.SetColor("_BaseColor", fogColor);
+            material.SetFloat("_NoiseScale", 0.035f);
+            material.SetFloat("_DetailScale", 0.11f);
+            material.SetVector(
+                "_Drift",
+                new Vector4(0.010f, 0.006f, 0f, 0f));
+            material.SetFloat("_DepthFadeDistance", 1.35f);
+            material.SetFloat("_NearFadeDistance", 8f);
+            material.SetFloat("_Undulation", 0.16f);
+            material.SetFloat("_PatchScale", 0.025f);
+            material.SetFloat("_PatchCoverage", 0.38f);
+            material.SetFloat("_PatchRadius", 0.42f);
+            TrackRuntimeResource(material);
+
+            GameObject fogObject = new GameObject("Layered Ground Fog");
+            fogObject.transform.SetParent(generatedRoot, false);
+            fogObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+            MeshRenderer renderer = fogObject.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage = LightProbeUsage.Off;
+            renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            renderer.motionVectorGenerationMode =
+                MotionVectorGenerationMode.ForceNoMotion;
+            renderer.allowOcclusionWhenDynamic = false;
+        }
+
         private void ConfigureRaidAtmosphere()
         {
             if (skyboxMaterial != null)
             {
                 RenderSettings.skybox = skyboxMaterial;
             }
+            // Keep a lighter version of the original distance atmosphere,
+            // then layer sparse terrain-hugging banks over it for local depth.
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor =
@@ -8419,8 +11920,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     0.36f,
                     0.34f,
                     1f);
-            RenderSettings.fogStartDistance = 21f;
-            RenderSettings.fogEndDistance = 90f;
+            RenderSettings.fogStartDistance = 28f;
+            RenderSettings.fogEndDistance = 110f;
             RenderSettings.ambientMode = AmbientMode.Trilight;
             RenderSettings.ambientSkyColor =
                 new Color(0.34f, 0.48f, 0.46f, 1f);
@@ -8773,7 +12274,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         damageProfile.Configure(
                             EnemyCombatVariant.RaidEnemy);
                         EnemyBrain.WeaponLoadout patrolLoadout =
-                            random.NextDouble() < 0.5d
+                            random.NextDouble() < ArcherGuardShare
                                 ? EnemyBrain.WeaponLoadout.BowOnly
                                 : EnemyBrain.WeaponLoadout.SwordOnly;
                         enemy.ConfigureCampGuardLoadout(patrolLoadout);
@@ -8857,6 +12358,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             generatedCampGuardCount = 0;
             generatedCampBowGuardCount = 0;
             generatedCampSwordGuardCount = 0;
+            generatedTowerGuardCount = 0;
+            int requiredGuardCount = 0;
+            for (int campIndex = 0;
+                 campIndex < campSites.Count;
+                 campIndex++)
+            {
+                requiredGuardCount += campSites[campIndex].GuardCount;
+            }
+            requiredGuardCount += generatedWatchtowerCount;
+            EnsureCampGuardPoolCapacity(requiredGuardCount);
             int poolIndex = 0;
             for (int campIndex = 0;
                  campIndex < campSites.Count;
@@ -8952,6 +12463,58 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
             }
 
+            for (int towerIndex = 0;
+                 towerIndex < watchtowerSites.Count &&
+                 campGuardPool != null &&
+                 poolIndex < campGuardPool.Length;
+                 towerIndex++)
+            {
+                WatchtowerSite site = watchtowerSites[towerIndex];
+                if (!site.IsCreated)
+                {
+                    continue;
+                }
+
+                EnemyBrain enemy = campGuardPool[poolIndex++];
+                if (enemy == null)
+                {
+                    continue;
+                }
+                enemy.gameObject.SetActive(true);
+                EnemyDamageProfile damageProfile =
+                    enemy.GetComponent<EnemyDamageProfile>();
+                if (damageProfile == null)
+                {
+                    damageProfile = enemy.gameObject.AddComponent<
+                        EnemyDamageProfile>();
+                }
+                damageProfile.Configure(EnemyCombatVariant.RaidEnemy);
+                enemy.ConfigureCampGuardLoadout(
+                    EnemyBrain.WeaponLoadout.BowOnly);
+                MoveActor(enemy.transform, site.GuardPosition);
+                Vector3 outward = site.GuardLookDirection;
+                enemy.transform.rotation = Quaternion.LookRotation(
+                    outward,
+                    Vector3.up);
+                enemy.ConfigureLookoutBehavior(
+                    outward,
+                    TowerGuardSightRange,
+                    TowerGuardForestSightRange,
+                    TowerGuardViewAngle);
+                if (site.IsWide)
+                {
+                    enemy.ConfigurePlatformLookoutPatrol(
+                        site.GuardPatrolRoute,
+                        site.GuardPatrolLookDirections,
+                        0);
+                }
+                else
+                {
+                    enemy.ConfigureStationaryLookout();
+                }
+                generatedTowerGuardCount++;
+            }
+
             if (campGuardPool == null)
             {
                 return;
@@ -8966,6 +12529,50 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
         }
 
+        private void EnsureCampGuardPoolCapacity(int requiredCount)
+        {
+            int currentCount = campGuardPool != null
+                ? campGuardPool.Length
+                : 0;
+            requiredCount = Mathf.Clamp(
+                requiredCount,
+                0,
+                MaximumCampGuardPoolSize);
+            if (currentCount >= requiredCount || currentCount == 0)
+            {
+                return;
+            }
+
+            EnemyBrain template = null;
+            for (int index = 0; index < currentCount; index++)
+            {
+                if (campGuardPool[index] != null)
+                {
+                    template = campGuardPool[index];
+                    break;
+                }
+            }
+            if (template == null)
+            {
+                return;
+            }
+
+            var expandedPool = new EnemyBrain[requiredCount];
+            Array.Copy(campGuardPool, expandedPool, currentCount);
+            for (int index = currentCount;
+                 index < requiredCount;
+                 index++)
+            {
+                GameObject clone = Instantiate(
+                    template.gameObject,
+                    template.transform.parent);
+                clone.name = $"Camp Guard Pool {index + 1}";
+                clone.SetActive(false);
+                expandedPool[index] = clone.GetComponent<EnemyBrain>();
+            }
+            campGuardPool = expandedPool;
+        }
+
         private void ResolveObeliskPositions()
         {
             uint angleHash = unchecked(
@@ -8978,6 +12585,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float bestScore = float.NegativeInfinity;
             float bestAngle = preferredAngle;
             float bestRadius = mapRadius * 0.52f;
+            bool foundCandidate = false;
             for (int angleIndex = 0;
                  angleIndex < 17;
                  angleIndex++)
@@ -8994,52 +12602,65 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         0.46f,
                         0.60f,
                         radiusIndex / 8f);
-                    float minimumRiverDistance =
-                        float.PositiveInfinity;
-                    float minimumEndpointDistance =
-                        float.PositiveInfinity;
-                    for (int index = 0; index < 4; index++)
-                    {
-                        float radians =
-                            (baseAngle + index * 90f) *
-                            Mathf.Deg2Rad;
-                        Vector2 point = new Vector2(
-                            Mathf.Cos(radians) * radius,
-                            Mathf.Sin(radians) * radius);
-                        minimumRiverDistance = Mathf.Min(
-                            minimumRiverDistance,
-                            DistanceToRiverExact(point));
-                        minimumEndpointDistance = Mathf.Min(
-                            minimumEndpointDistance,
-                            Vector2.Distance(
-                                point,
-                                ToXZ(layout.PlayerStart)),
-                            Vector2.Distance(
-                                point,
-                                ToXZ(layout.Extraction)));
-                    }
-
-                    float score =
-                        Mathf.Min(
-                            minimumRiverDistance -
-                                (riverHalfWidth +
-                                 ObeliskRiverClearance),
-                            minimumEndpointDistance - 12f) -
-                        Mathf.Abs(baseAngle - preferredAngle) *
-                            0.025f;
-                    if (minimumRiverDistance <
-                            riverHalfWidth +
-                            ObeliskRiverClearance ||
-                        minimumEndpointDistance < 12f ||
+                    if (!TryScoreObeliskPattern(
+                            baseAngle,
+                            radius,
+                            preferredAngle,
+                            out float score) ||
                         score <= bestScore)
                     {
                         continue;
                     }
 
+                    foundCandidate = true;
                     bestScore = score;
                     bestAngle = baseAngle;
                     bestRadius = radius;
                 }
+            }
+
+            // The preferred authored sector is normally sufficient. Keep a
+            // deterministic full-quarter fallback so the new cliff/pass
+            // safety rules never silently fall back to an unvalidated default
+            // on an unusual seed.
+            if (!foundCandidate)
+            {
+                for (int angleIndex = 0;
+                     angleIndex < 90;
+                     angleIndex++)
+                {
+                    float baseAngle = angleIndex;
+                    for (int radiusIndex = 0;
+                         radiusIndex < 17;
+                         radiusIndex++)
+                    {
+                        float radius = mapRadius * Mathf.Lerp(
+                            0.32f,
+                            0.72f,
+                            radiusIndex / 16f);
+                        if (!TryScoreObeliskPattern(
+                                baseAngle,
+                                radius,
+                                preferredAngle,
+                                out float score) ||
+                            score <= bestScore)
+                        {
+                            continue;
+                        }
+                        foundCandidate = true;
+                        bestScore = score;
+                        bestAngle = baseAngle;
+                        bestRadius = radius;
+                    }
+                }
+            }
+
+            if (!foundCandidate)
+            {
+                UnityEngine.Debug.LogError(
+                    "Could not find a dry, level obelisk pattern away from " +
+                    "the authored highland passes.",
+                    this);
             }
 
             for (int index = 0; index < 4; index++)
@@ -9051,6 +12672,66 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     Mathf.Cos(radians) * bestRadius,
                     Mathf.Sin(radians) * bestRadius);
             }
+        }
+
+        private bool TryScoreObeliskPattern(
+            float baseAngle,
+            float radius,
+            float preferredAngle,
+            out float score)
+        {
+            float minimumRiverDistance = float.PositiveInfinity;
+            float minimumEndpointDistance = float.PositiveInfinity;
+            float minimumGroundNormalY = 1f;
+            for (int index = 0; index < 4; index++)
+            {
+                float radians =
+                    (baseAngle + index * 90f) *
+                    Mathf.Deg2Rad;
+                Vector2 point = new Vector2(
+                    Mathf.Cos(radians) * radius,
+                    Mathf.Sin(radians) * radius);
+                if (!IsInsideIsland(point, 8f) ||
+                    IsInsideEscarpmentPassLane(point, 6f))
+                {
+                    score = float.NegativeInfinity;
+                    return false;
+                }
+
+                minimumRiverDistance = Mathf.Min(
+                    minimumRiverDistance,
+                    DistanceToRiverExact(point));
+                minimumEndpointDistance = Mathf.Min(
+                    minimumEndpointDistance,
+                    Vector2.Distance(
+                        point,
+                        ToXZ(layout.PlayerStart)),
+                    Vector2.Distance(
+                        point,
+                        ToXZ(layout.Extraction)));
+                minimumGroundNormalY = Mathf.Min(
+                    minimumGroundNormalY,
+                    TerrainNormalAt(point.x, point.y).y);
+            }
+
+            if (minimumRiverDistance <
+                    riverHalfWidth + ObeliskRiverClearance ||
+                minimumEndpointDistance < 12f ||
+                minimumGroundNormalY < 0.91f)
+            {
+                score = float.NegativeInfinity;
+                return false;
+            }
+
+            score = Mathf.Min(
+                    minimumRiverDistance -
+                        (riverHalfWidth + ObeliskRiverClearance),
+                    minimumEndpointDistance - 12f) +
+                (minimumGroundNormalY - 0.91f) * 2f -
+                Mathf.Abs(
+                    Mathf.DeltaAngle(baseAngle, preferredAngle)) *
+                0.025f;
+            return true;
         }
 
         private bool IsInsideObeliskClearance(
@@ -9214,10 +12895,13 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float x,
             float z)
         {
-            return TerrainHeight(
-                x,
-                z,
-                out _);
+            return TrySampleTerrainSurfaceCache(
+                    x,
+                    z,
+                    out float cachedHeight,
+                    out _)
+                ? cachedHeight
+                : EvaluateTerrainHeight(x, z, out _);
         }
 
         private float TerrainHeight(
@@ -9225,8 +12909,41 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float z,
             out float signedRoadDistance)
         {
-            float height =
-                RawLandHeight(x, z);
+            if (TrySampleTerrainSurfaceCache(
+                    x,
+                    z,
+                    out float cachedHeight,
+                    out _))
+            {
+                signedRoadDistance = SignedDistanceToRoad(
+                    new Vector2(x, z));
+                return cachedHeight;
+            }
+
+            return EvaluateTerrainHeight(
+                x,
+                z,
+                out signedRoadDistance);
+        }
+
+        private float EvaluateTerrainHeight(
+            float x,
+            float z,
+            out float signedRoadDistance)
+        {
+            return EvaluateTerrainHeightFromRaw(
+                x,
+                z,
+                RawLandHeight(x, z),
+                out signedRoadDistance);
+        }
+
+        private float EvaluateTerrainHeightFromRaw(
+            float x,
+            float z,
+            float height,
+            out float signedRoadDistance)
+        {
             signedRoadDistance = float.PositiveInfinity;
             float riverDistance =
                 DistanceToRiver(new Vector2(x, z));
@@ -9239,14 +12956,27 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                         riverHalfWidth * 0.55f,
                         riverHalfWidth + 2.2f,
                         riverDistance);
-                height -=
-                    riverBlend * riverBlend * 3.4f;
+                float shapedRiverBlend = riverBlend * riverBlend;
+                if (enableAdvancedLandforms)
+                {
+                    float riverBedHeight =
+                        AdvancedRiverWaterHeight(x, z) - 1.85f;
+                    height = Mathf.Lerp(
+                        height,
+                        riverBedHeight,
+                        shapedRiverBlend);
+                }
+                else
+                {
+                    height -= shapedRiverBlend * 3.4f;
+                }
             }
 
             if (TryClosestRoadPoint(
                     new Vector2(x, z),
                     out Vector2 roadPoint,
-                    out float roadDistance))
+                    out float roadDistance,
+                    out float walkableRoadHeight))
             {
                 float localRoadHalfWidth =
                     RoadHalfWidthAt(roadPoint);
@@ -9270,15 +13000,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                                 localRoadHalfWidth,
                                 shoulder,
                                 roadDistance);
-                        float roadHeight =
-                            RawLandHeight(
-                                roadPoint.x,
-                                roadPoint.y) -
-                            RoadIndentation;
                         height =
                             Mathf.Lerp(
                                 height,
-                                roadHeight,
+                                walkableRoadHeight,
                                 Mathf.SmoothStep(
                                     0f,
                                     1f,
@@ -9291,16 +13016,24 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 new Vector2(x, z),
                 height);
 
-            float coastDistance = DistanceInsideCoast(
-                new Vector2(x, z));
-            if (coastDistance < CoastSandWidth + 3.5f)
+            Vector2 coastPoint = new Vector2(x, z);
+            float coastDistance = DistanceInsideCoast(coastPoint);
+            float cliffCoast = CliffCoastInfluence(coastPoint);
+            cliffCoast = ApplyCoastalTrailNotch(
+                cliffCoast,
+                signedRoadDistance);
+            float coastProfileWidth = Mathf.Lerp(
+                CoastSandWidth + 3.5f,
+                3.2f,
+                cliffCoast);
+            if (coastDistance < coastProfileWidth)
             {
                 float coastBlend = Mathf.SmoothStep(
                     0f,
                     1f,
                     1f - Mathf.InverseLerp(
                         -1.5f,
-                        CoastSandWidth + 3.5f,
+                        coastProfileWidth,
                         coastDistance));
                 float shoreHeight = oceanWaterLevel +
                     Mathf.Lerp(
@@ -9313,6 +13046,41 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     coastBlend);
             }
             return height;
+        }
+
+        private float CliffCoastInfluence(Vector2 point)
+        {
+            if (point.sqrMagnitude <= 0.001f)
+            {
+                return 0f;
+            }
+
+            float highlandFacing = Vector2.Dot(
+                point.normalized,
+                elevationDirection);
+            return Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.05f, 0.62f, highlandFacing));
+        }
+
+        private static float ApplyCoastalTrailNotch(
+            float cliffInfluence,
+            float signedRoadDistance)
+        {
+            if (float.IsPositiveInfinity(signedRoadDistance))
+            {
+                return cliffInfluence;
+            }
+
+            float trailNotch = 1f - Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    1.5f,
+                    7.5f,
+                    signedRoadDistance));
+            return cliffInfluence * (1f - trailNotch * 0.88f);
         }
 
         private float ApplyLevelTwoCampTerrainFit(
@@ -9382,6 +13150,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 .normalized;
         }
 
+        private float CliffFaceInfluence(Vector2 point)
+        {
+            Vector3 normal = TerrainNormalAt(point.x, point.y);
+            float steepness = 1f - Mathf.Abs(normal.y);
+            return Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.18f, 0.44f, steepness));
+        }
+
         private float MinimumTerrainHeightUnderFootprint(
             Vector2 center,
             float radiusX,
@@ -9389,7 +13167,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             int perimeterSamples)
         {
             float minimumHeight =
-                TerrainHeight(
+                TerrainMeshHeight(
                     center.x,
                     center.y);
             int sampleCount =
@@ -9422,7 +13200,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     minimumHeight =
                         Mathf.Min(
                             minimumHeight,
-                            TerrainHeight(
+                            TerrainMeshHeight(
                                 sampleX,
                                 sampleZ));
                 }
@@ -9431,7 +13209,112 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return minimumHeight;
         }
 
+        private float TerrainMeshHeight(float x, float z)
+        {
+            SampleTerrainMeshSurface(
+                x,
+                z,
+                out float height,
+                out _);
+            return height;
+        }
+
+        private void SampleTerrainMeshSurface(
+            float x,
+            float z,
+            out float height,
+            out Vector3 normal)
+        {
+            if (TrySampleTerrainSurfaceCache(
+                    x,
+                    z,
+                    out height,
+                    out normal))
+            {
+                return;
+            }
+
+            // Scenery is authored before CreateTerrain builds its collider.
+            // Sample the same two triangles used by the generated grid so a
+            // tree cannot float above their planar interpolation when the
+            // continuous height field contains detail between grid vertices.
+            float terrainExtent = IslandGenerationExtent;
+            float diameter = Mathf.Max(0.001f, terrainExtent * 2f);
+            int resolution = Mathf.Max(1, ActiveTerrainResolution);
+            float gridX = Mathf.Clamp(
+                (x + terrainExtent) / diameter * resolution,
+                0f,
+                resolution);
+            float gridZ = Mathf.Clamp(
+                (z + terrainExtent) / diameter * resolution,
+                0f,
+                resolution);
+            int x0 = Mathf.Min(
+                Mathf.FloorToInt(gridX),
+                resolution - 1);
+            int z0 = Mathf.Min(
+                Mathf.FloorToInt(gridZ),
+                resolution - 1);
+            float localX = Mathf.Clamp01(gridX - x0);
+            float localZ = Mathf.Clamp01(gridZ - z0);
+            float step = diameter / resolution;
+            float worldX0 = -terrainExtent + step * x0;
+            float worldZ0 = -terrainExtent + step * z0;
+            float height00 = TerrainHeight(worldX0, worldZ0);
+            float height11 = TerrainHeight(
+                worldX0 + step,
+                worldZ0 + step);
+            if (localZ >= localX)
+            {
+                float height01 = TerrainHeight(
+                    worldX0,
+                    worldZ0 + step);
+                height =
+                    height00 * (1f - localZ) +
+                    height01 * (localZ - localX) +
+                    height11 * localX;
+                normal = Vector3.Cross(
+                    new Vector3(
+                        0f,
+                        height01 - height00,
+                        step),
+                    new Vector3(
+                        step,
+                        height11 - height00,
+                        step)).normalized;
+                return;
+            }
+
+            float height10 = TerrainHeight(
+                worldX0 + step,
+                worldZ0);
+            height =
+                height00 * (1f - localX) +
+                height11 * localZ +
+                height10 * (localX - localZ);
+            normal = Vector3.Cross(
+                new Vector3(
+                    step,
+                    height11 - height00,
+                    step),
+                new Vector3(
+                    step,
+                    height10 - height00,
+                    0f)).normalized;
+        }
+
         private float RawLandHeight(
+            float x,
+            float z)
+        {
+            Vector2 point = new Vector2(x, z);
+            return BaseLandHeight(x, z) +
+                (enableAdvancedLandforms
+                    ? AdvancedLandformHeight(point)
+                    : RaisedLandformHeight(point));
+        }
+
+        private float BaseLandHeight(
             float x,
             float z)
         {
@@ -9498,7 +13381,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             float x,
             float z)
         {
-            float inlandHeight = RawLandHeight(x, z) - 1.55f;
+            float inlandHeight = enableAdvancedLandforms
+                ? AdvancedRiverWaterHeight(x, z)
+                : RawLandHeight(x, z) - 1.55f;
             float coastDistance = DistanceInsideCoast(
                 new Vector2(x, z));
             float oceanBlend = 1f - Mathf.InverseLerp(
@@ -9643,9 +13528,29 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 : float.PositiveInfinity;
         }
 
-        private bool PathTouchesRiverOutsideBridge(
+        private bool IsWithinRiverDistance(
+            Vector2 point,
+            float maximumDistance)
+        {
+            return riverQuery.TryClosestPointWithin(
+                    point,
+                    Mathf.Max(0f, maximumDistance),
+                    out _,
+                    out float distance) &&
+                distance < maximumDistance;
+        }
+
+        private bool PathTouchesRiver(
             Vector2 from,
             Vector2 destination)
+        {
+            return PathTouchesRiver(from, destination, 0f);
+        }
+
+        private bool PathTouchesRiver(
+            Vector2 from,
+            Vector2 destination,
+            float padding)
         {
             float distance = Vector2.Distance(from, destination);
             int samples = Mathf.Max(2, Mathf.CeilToInt(distance / 1.1f));
@@ -9655,14 +13560,439 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     from,
                     destination,
                     sample / (float)samples);
-                if (DistanceToRiverExact(point) >=
-                        riverHalfWidth + 0.55f ||
-                    IsInsideBridgeNavigationLane(point, 0.15f))
+                if (IsWithinRiverDistance(
+                        point,
+                        riverHalfWidth + 0.55f +
+                        Mathf.Max(0f, padding)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool PathTouchesRiverOutsideBridgeLane(
+            Vector2 from,
+            Vector2 destination,
+            float bridgeLanePadding)
+        {
+            float distance = Vector2.Distance(from, destination);
+            int samples = Mathf.Max(
+                2,
+                Mathf.CeilToInt(distance / 1.1f));
+            for (int sample = 0; sample <= samples; sample++)
+            {
+                Vector2 point = Vector2.Lerp(
+                    from,
+                    destination,
+                    sample / (float)samples);
+                if (IsWithinRiverDistance(
+                        point,
+                        riverHalfWidth + 0.55f) &&
+                    !IsInsideBridgeNavigationLane(
+                        point,
+                        Mathf.Max(0f, bridgeLanePadding)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool PathCrossesEscarpmentOutsidePass(
+            Vector2 from,
+            Vector2 destination)
+        {
+            float fromDistance = EscarpmentSignedDistance(from);
+            float destinationDistance =
+                EscarpmentSignedDistance(destination);
+            if (fromDistance * destinationDistance >= 0f)
+            {
+                return false;
+            }
+
+            float denominator = fromDistance - destinationDistance;
+            if (Mathf.Abs(denominator) <= 0.0001f)
+            {
+                return true;
+            }
+            Vector2 crossing = Vector2.Lerp(
+                from,
+                destination,
+                Mathf.Clamp01(fromDistance / denominator));
+            return !IsInsideEscarpmentPassLane(crossing, 0.65f);
+        }
+
+        private bool PathStaysInsideIsland(
+            Vector2 from,
+            Vector2 destination,
+            float inset)
+        {
+            float distance = Vector2.Distance(from, destination);
+            int samples = Mathf.Max(
+                2,
+                Mathf.CeilToInt(distance / 3.5f));
+            for (int sample = 0; sample <= samples; sample++)
+            {
+                Vector2 point = Vector2.Lerp(
+                    from,
+                    destination,
+                    sample / (float)samples);
+                if (!IsInsideIsland(point, inset))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private bool TryBuildEnemyBridgeBankApproach(
+            Vector2 from,
+            Vector2 destination,
+            BridgeNavigationRoute route,
+            Vector2 entry,
+            Vector2 exit,
+            out Vector2 firstWaypoint,
+            out int firstSampleIndex,
+            out int remainingSamples,
+            out float score)
+        {
+            firstWaypoint = default;
+            firstSampleIndex = -1;
+            remainingSamples = int.MaxValue;
+            score = float.PositiveInfinity;
+            if (!TryGetRiverBankSample(
+                    from,
+                    out int currentSampleIndex,
+                    out float fromBankSide) ||
+                !TryGetRiverBankSample(
+                    destination,
+                    out _,
+                    out float destinationBankSide) ||
+                !TryGetBridgeRiverBank(
+                    route,
+                    entry,
+                    out int bridgeSampleIndex,
+                    out float entryBankSide) ||
+                !TryGetBridgeRiverBank(
+                    route,
+                    exit,
+                    out _,
+                    out float exitBankSide) ||
+                fromBankSide * entryBankSide <= 0f ||
+                destinationBankSide * exitBankSide <= 0f)
+            {
+                return false;
+            }
+
+            Vector2 current = from;
+            float routeDistance = 0f;
+            for (int step = 0;
+                 step <= riverSamples.Count;
+                 step++)
+            {
+                if (IsEnemyBridgeApproachSegmentSafe(
+                        current,
+                        entry,
+                        BridgeBankApproachNavigationPadding))
+                {
+                    if (firstSampleIndex < 0)
+                    {
+                        return false;
+                    }
+
+                    routeDistance += Vector2.Distance(current, entry);
+                    score = routeDistance +
+                        Vector2.Distance(exit, destination);
+                    return true;
+                }
+
+                if (!TrySelectNextEnemyBridgeBankWaypoint(
+                        current,
+                        currentSampleIndex,
+                        bridgeSampleIndex,
+                        entryBankSide,
+                        route,
+                        out Vector2 waypoint,
+                        out int sampleIndex))
+                {
+                    return false;
+                }
+
+                routeDistance += Vector2.Distance(current, waypoint);
+                current = waypoint;
+                currentSampleIndex = sampleIndex;
+                if (firstSampleIndex >= 0)
                 {
                     continue;
                 }
+
+                firstWaypoint = waypoint;
+                firstSampleIndex = sampleIndex;
+                remainingSamples = Mathf.Abs(
+                    sampleIndex - bridgeSampleIndex);
+            }
+            return false;
+        }
+
+        private bool TrySelectNextEnemyBridgeBankWaypoint(
+            Vector2 from,
+            int currentSampleIndex,
+            int bridgeSampleIndex,
+            float bankSide,
+            BridgeNavigationRoute route,
+            out Vector2 waypoint,
+            out int sampleIndex)
+        {
+            waypoint = default;
+            sampleIndex = currentSampleIndex;
+            if (riverSamples.Count < 2)
+            {
+                return false;
+            }
+
+            currentSampleIndex = Mathf.Clamp(
+                currentSampleIndex,
+                0,
+                riverSamples.Count - 1);
+            bridgeSampleIndex = Mathf.Clamp(
+                bridgeSampleIndex,
+                0,
+                riverSamples.Count - 1);
+            int direction = Math.Sign(
+                bridgeSampleIndex - currentSampleIndex);
+            if (direction == 0)
+            {
+                return false;
+            }
+
+            for (int jump = BridgeBankApproachSampleLookAhead;
+                 jump >= 1;
+                 jump--)
+            {
+                int candidateIndex = direction > 0
+                    ? Mathf.Min(
+                        bridgeSampleIndex,
+                        currentSampleIndex + jump)
+                    : Mathf.Max(
+                        bridgeSampleIndex,
+                        currentSampleIndex - jump);
+                if (candidateIndex == currentSampleIndex)
+                {
+                    continue;
+                }
+
+                Vector2 tangent = RiverTangentAtSample(candidateIndex);
+                Vector2 right = new Vector2(
+                    tangent.y,
+                    -tangent.x);
+                Vector2 center = ToXZ(
+                    riverSamples[candidateIndex]);
+                Vector2 candidate = center +
+                    right * Mathf.Sign(bankSide) *
+                    Mathf.Max(
+                        route.HalfLength,
+                        riverHalfWidth + 3.2f);
+                if (!IsEnemyBridgeApproachSegmentSafe(
+                        from,
+                        candidate,
+                        BridgeBankApproachNavigationPadding))
+                {
+                    continue;
+                }
+
+                waypoint = candidate;
+                sampleIndex = candidateIndex;
                 return true;
             }
+            return false;
+        }
+
+        private bool IsEnemyBridgeApproachSegmentSafe(
+            Vector2 from,
+            Vector2 destination,
+            float padding)
+        {
+            float safePadding = Mathf.Max(0f, padding);
+            return !PathTouchesRiver(
+                    from,
+                    destination,
+                    safePadding) &&
+                !PathCrossesEscarpmentOutsidePass(from, destination) &&
+                PathStaysInsideIsland(
+                    from,
+                    destination,
+                    0.6f + safePadding);
+        }
+
+        private bool TryGetRiverBankSample(
+            Vector2 point,
+            out int sampleIndex,
+            out float bankSide)
+        {
+            sampleIndex = -1;
+            bankSide = 0f;
+            float bestDistanceSquared = float.PositiveInfinity;
+            for (int index = 0;
+                 index < riverSamples.Count - 1;
+                 index++)
+            {
+                Vector2 start = ToXZ(riverSamples[index]);
+                Vector2 segment =
+                    ToXZ(riverSamples[index + 1]) - start;
+                float lengthSquared = segment.sqrMagnitude;
+                float progress = lengthSquared > 0.0001f
+                    ? Mathf.Clamp01(
+                        Vector2.Dot(point - start, segment) /
+                        lengthSquared)
+                    : 0f;
+                Vector2 closest = start + segment * progress;
+                float distanceSquared =
+                    (point - closest).sqrMagnitude;
+                if (distanceSquared >= bestDistanceSquared)
+                {
+                    continue;
+                }
+
+                Vector2 tangent = lengthSquared > 0.0001f
+                    ? segment.normalized
+                    : RiverTangentAtSample(index);
+                Vector2 right = new Vector2(
+                    tangent.y,
+                    -tangent.x);
+                bestDistanceSquared = distanceSquared;
+                sampleIndex = progress < 0.5f
+                    ? index
+                    : index + 1;
+                bankSide = Vector2.Dot(
+                    point - closest,
+                    right);
+            }
+            if (sampleIndex < 0 || Mathf.Abs(bankSide) <= 0.05f)
+            {
+                return false;
+            }
+
+            bankSide = Mathf.Sign(bankSide);
+            return true;
+        }
+
+        private bool TryGetBridgeRiverBank(
+            BridgeNavigationRoute route,
+            Vector2 endpoint,
+            out int bridgeSampleIndex,
+            out float bankSide)
+        {
+            bankSide = 0f;
+            if (!TryGetClosestRiverSampleIndex(
+                    route.Center,
+                    out bridgeSampleIndex))
+            {
+                return false;
+            }
+
+            Vector2 tangent = RiverTangentAtSample(
+                bridgeSampleIndex);
+            Vector2 right = new Vector2(
+                tangent.y,
+                -tangent.x);
+            bankSide = Vector2.Dot(
+                endpoint - route.Center,
+                right);
+            if (Mathf.Abs(bankSide) <= 0.05f)
+            {
+                return false;
+            }
+
+            bankSide = Mathf.Sign(bankSide);
+            return true;
+        }
+
+        private bool TryGetClosestRiverSampleIndex(
+            Vector2 point,
+            out int sampleIndex)
+        {
+            sampleIndex = -1;
+            float bestDistanceSquared = float.PositiveInfinity;
+            for (int index = 0;
+                 index < riverSamples.Count;
+                 index++)
+            {
+                float distanceSquared =
+                    (point - ToXZ(riverSamples[index])).sqrMagnitude;
+                if (distanceSquared >= bestDistanceSquared)
+                {
+                    continue;
+                }
+
+                bestDistanceSquared = distanceSquared;
+                sampleIndex = index;
+            }
+            return sampleIndex >= 0;
+        }
+
+        private Vector2 RiverTangentAtSample(int sampleIndex)
+        {
+            if (riverSamples.Count < 2)
+            {
+                return Vector2.right;
+            }
+
+            int previous = Mathf.Max(0, sampleIndex - 1);
+            int next = Mathf.Min(
+                riverSamples.Count - 1,
+                sampleIndex + 1);
+            Vector2 tangent =
+                ToXZ(riverSamples[next]) -
+                ToXZ(riverSamples[previous]);
+            return tangent.sqrMagnitude > 0.0001f
+                ? tangent.normalized
+                : Vector2.right;
+        }
+
+        private bool TryGetCommittedBridgeRoute(
+            Vector2 committedEntry,
+            Vector2 committedExit,
+            out BridgeNavigationRoute route,
+            out Vector2 entry,
+            out Vector2 exit)
+        {
+            const float endpointToleranceSquared = 0.35f * 0.35f;
+            for (int index = 0;
+                 index < bridgeNavigationRoutes.Count;
+                 index++)
+            {
+                BridgeNavigationRoute candidate =
+                    bridgeNavigationRoutes[index];
+                Vector2 endpointA = candidate.Center +
+                    candidate.AcrossDirection * candidate.HalfLength;
+                Vector2 endpointB = candidate.Center -
+                    candidate.AcrossDirection * candidate.HalfLength;
+                if ((committedEntry - endpointA).sqrMagnitude <=
+                        endpointToleranceSquared &&
+                    (committedExit - endpointB).sqrMagnitude <=
+                        endpointToleranceSquared)
+                {
+                    route = candidate;
+                    entry = endpointA;
+                    exit = endpointB;
+                    return true;
+                }
+                if ((committedEntry - endpointB).sqrMagnitude <=
+                        endpointToleranceSquared &&
+                    (committedExit - endpointA).sqrMagnitude <=
+                        endpointToleranceSquared)
+                {
+                    route = candidate;
+                    entry = endpointB;
+                    exit = endpointA;
+                    return true;
+                }
+            }
+
+            route = default;
+            entry = default;
+            exit = default;
             return false;
         }
 
@@ -9750,8 +14080,37 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 out distance);
         }
 
+        private bool TryClosestRoadPoint(
+            Vector2 point,
+            out Vector2 closest,
+            out float distance,
+            out float height)
+        {
+            return roadQuery.TryClosestPointWithin(
+                point,
+                LocalSplineQueryDistance,
+                out closest,
+                out distance,
+                out height);
+        }
+
         private IEnumerable<List<Vector3>> AdditionalRoads()
         {
+            if (enableAdvancedLandforms &&
+                advancedLandformRoads.Count > 0)
+            {
+                for (int index = 0;
+                     index < advancedLandformRoads.Count;
+                     index++)
+                {
+                    if (advancedLandformRoads[index].Count > 1)
+                    {
+                        yield return advancedLandformRoads[index];
+                    }
+                }
+                yield break;
+            }
+
             if (forkRoadSamples.Count > 1)
             {
                 yield return forkRoadSamples;
@@ -9772,6 +14131,16 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private IEnumerable<List<Vector3>> AllRoads()
         {
+            if (enableAdvancedLandforms &&
+                advancedLandformRoads.Count > 0)
+            {
+                foreach (List<Vector3> road in AdditionalRoads())
+                {
+                    yield return road;
+                }
+                yield break;
+            }
+
             if (mainRoadSamples.Count > 1)
             {
                 yield return mainRoadSamples;
@@ -10133,13 +14502,17 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             Texture duff = canopyDuffTexture != null
                 ? canopyDuffTexture
                 : bareGroundTexture;
+            // Use the grass-dominant bright green source, then restrain its
+            // saturation in the shader. Creeping Groundcover contains broad
+            // exposed-soil gaps and becomes muddy when desaturated.
             Texture moss = mossCarpetTexture != null
                 ? mossCarpetTexture
-                : loam;
-            Texture groundcover =
-                creepingGroundcoverTexture != null
-                    ? creepingGroundcoverTexture
-                    : moss;
+                : groundTexture;
+            // The saturated Creeping Groundcover tier is retired from visible
+            // terrain. Bind the restrained grass surface here as a
+            // defensive fallback as well as assigning it the only ordinary
+            // forest-ground weight below.
+            Texture groundcover = moss;
             Texture stony = stonyLichenSoilTexture != null
                 ? stonyLichenSoilTexture
                 : bareGroundTexture;
@@ -10148,6 +14521,18 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             material.SetTexture("_MossCarpetMap", moss);
             material.SetTexture("_GroundcoverMap", groundcover);
             material.SetTexture("_StonyLichenMap", stony);
+            if (material.HasProperty("_MossTint"))
+            {
+                material.SetColor(
+                    "_MossTint",
+                    new Color(1f, 1f, 1f, 1f));
+            }
+            if (material.HasProperty("_GroundcoverTint"))
+            {
+                material.SetColor(
+                    "_GroundcoverTint",
+                    new Color(1f, 1f, 1f, 1f));
+            }
             material.SetTexture(
                 "_RoadMap",
                 roadTexture);
@@ -10160,6 +14545,22 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             material.SetFloat(
                 "_HabitatBlendContrast",
                 habitatBlendContrast);
+            if (material.HasProperty("_ForestGroundSaturation"))
+            {
+                // Scenes saved before this field existed deserialize it as
+                // zero. Preserve their intended olive-green forest rather
+                // than accidentally converting it to grayscale.
+                material.SetFloat(
+                    "_ForestGroundSaturation",
+                    ResolveForestGroundSaturation(
+                        forestGroundSaturation));
+            }
+            if (material.HasProperty("_CliffTint"))
+            {
+                material.SetColor(
+                    "_CliffTint",
+                    new Color(0.76f, 0.78f, 0.72f, 1f));
+            }
             material.SetTextureScale(
                 "_RoadMap",
                 road != null
@@ -10381,7 +14782,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private void BuildForestHabitatField()
         {
             habitatGridSize = Mathf.Clamp(
-                habitatFieldResolution,
+                ActiveHabitatResolution,
                 65,
                 257);
             habitatField = new HabitatSample[
@@ -10451,12 +14852,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 0.035f,
                 0.29f,
                 1f - normal.y);
-            float height = RawLandHeight(point.x, point.y);
+            float height = SampleCachedRawLandHeight(
+                point.x,
+                point.y);
             float surroundingHeight =
-                (RawLandHeight(point.x + 5f, point.y) +
-                 RawLandHeight(point.x - 5f, point.y) +
-                 RawLandHeight(point.x, point.y + 5f) +
-                 RawLandHeight(point.x, point.y - 5f)) * 0.25f;
+                (SampleCachedRawLandHeight(point.x + 5f, point.y) +
+                 SampleCachedRawLandHeight(point.x - 5f, point.y) +
+                 SampleCachedRawLandHeight(point.x, point.y + 5f) +
+                 SampleCachedRawLandHeight(point.x, point.y - 5f)) * 0.25f;
             float lowGround = 1f -
                 Mathf.InverseLerp(-3.6f, 3.8f, height);
             float depression = Mathf.InverseLerp(
@@ -10563,6 +14966,14 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 mossWeight * 0.44f +
                 groundcoverWeight * 0.32f +
                 stonyWeight * 0.10f);
+            float cliffFace = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    0.18f,
+                    0.44f,
+                    1f - Mathf.Abs(normal.y)));
+            grassDensity *= 1f - cliffFace;
             grassDensity *= Mathf.Lerp(
                 0.78f,
                 1.08f,
@@ -10641,10 +15052,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         private float BoulderInfluenceAt(Vector2 point)
         {
             float influence = 0f;
-            for (int index = 0;
-                 index < generatedBoulderPlacements.Count;
-                 index++)
+            CollectNearbyBoulderIndices(point);
+            for (int nearbyIndex = 0;
+                 nearbyIndex < boulderInfluenceIndices.Count;
+                 nearbyIndex++)
             {
+                int index = boulderInfluenceIndices[nearbyIndex];
                 BoulderPlacement boulder =
                     generatedBoulderPlacements[index];
                 Vector2 offset = point - boulder.Position;
@@ -10746,6 +15159,32 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 habitat.StonyWeight);
             habitat.PrimaryWeights /= total;
             habitat.StonyWeight /= total;
+            return habitat;
+        }
+
+        private static HabitatSample ApplyVisibleForestGroundPalette(
+            HabitatSample habitat,
+            float campBlend)
+        {
+            // The desaturated green surface is the sole ordinary forest
+            // ground. Tier W remains weightless so there is never a second,
+            // fully saturated green layer at camp transitions.
+            habitat.PrimaryWeights = new Vector4(
+                0f,
+                0f,
+                1f,
+                0f);
+            habitat.StonyWeight = 0f;
+
+            // Camps deliberately restore their authored loam over the green
+            // forest base. Roads remain independent in the shader's final
+            // road mask and are not changed by these habitat weights.
+            habitat = ApplyCampGroundHabitat(
+                habitat,
+                campBlend);
+            habitat.PrimaryWeights.z +=
+                habitat.PrimaryWeights.w;
+            habitat.PrimaryWeights.w = 0f;
             return habitat;
         }
 

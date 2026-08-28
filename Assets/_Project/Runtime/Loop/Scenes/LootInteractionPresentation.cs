@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 using WorldBuilder.Gameplay.Input;
 
 namespace WorldBuilder.Gameplay.Loop.Scenes
@@ -8,6 +9,11 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
         public const float DefaultDistance = 2.25f;
         public const float AimPointViewportX = 0.5f;
         public const float AimPointViewportY = 0.43f;
+        public const float TorsoHeightOffset = 0.08f;
+        private static readonly RaycastHit[] FocusHits =
+            new RaycastHit[32];
+        private static readonly List<Renderer> RendererBuffer =
+            new List<Renderer>(16);
 
         public static bool IsFocused(
             Transform player,
@@ -66,32 +72,60 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             }
 
             Ray ray = camera.ScreenPointToRay(
-                CalculateAimPoint(Screen.width, Screen.height));
-            RaycastHit[] hits = Physics.RaycastAll(
+                CalculateAimPoint(
+                    camera,
+                    player,
+                    Screen.width,
+                    Screen.height));
+            RaycastHit[] hits = FocusHits;
+            int hitCount = Physics.RaycastNonAlloc(
                 ray,
+                hits,
                 camera.farClipPlane,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore);
-            System.Array.Sort(
-                hits,
-                (left, right) => left.distance.CompareTo(right.distance));
-            float firstBlockingDistance = float.PositiveInfinity;
-            for (int index = 0; index < hits.Length; index++)
+
+            // Physics does not guarantee that a full non-alloc buffer contains
+            // the nearest hit. Use the original complete query only when the
+            // bounded buffer is saturated so focus behavior stays unchanged.
+            if (hitCount == hits.Length)
             {
-                Transform hit = hits[index].collider.transform;
-                if (hit.IsChildOf(player))
+                hits = Physics.RaycastAll(
+                    ray,
+                    camera.farClipPlane,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+                hitCount = hits.Length;
+            }
+
+            float firstBlockingDistance = float.PositiveInfinity;
+            Transform firstBlockingTransform = null;
+            for (int index = 0; index < hitCount; index++)
+            {
+                Collider collider = hits[index].collider;
+                Transform hit = collider != null
+                    ? collider.transform
+                    : null;
+                if (hit == null || hit.IsChildOf(player))
                 {
                     continue;
                 }
 
-                if (hit == target || hit.IsChildOf(target))
+                if (hits[index].distance >= firstBlockingDistance)
                 {
-                    score = hits[index].distance;
-                    return true;
+                    continue;
                 }
 
                 firstBlockingDistance = hits[index].distance;
-                break;
+                firstBlockingTransform = hit;
+            }
+
+            if (firstBlockingTransform != null &&
+                (firstBlockingTransform == target ||
+                 firstBlockingTransform.IsChildOf(target)))
+            {
+                score = firstBlockingDistance;
+                return true;
             }
 
             if (allowRendererBoundsFallback &&
@@ -117,10 +151,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             {
                 return false;
             }
-            Renderer[] renderers = target.GetComponentsInChildren<Renderer>();
-            for (int index = 0; index < renderers.Length; index++)
+            target.GetComponentsInChildren(false, RendererBuffer);
+            for (int index = 0; index < RendererBuffer.Count; index++)
             {
-                Renderer renderer = renderers[index];
+                Renderer renderer = RendererBuffer[index];
                 if (renderer == null || !renderer.enabled ||
                     !renderer.gameObject.activeInHierarchy ||
                     !renderer.bounds.IntersectRay(
@@ -132,6 +166,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 }
                 nearestDistance = distance;
             }
+            RendererBuffer.Clear();
             return nearestDistance < float.PositiveInfinity;
         }
 
@@ -142,6 +177,36 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
             return new Vector3(
                 screenWidth * AimPointViewportX,
                 screenHeight * AimPointViewportY,
+                0f);
+        }
+
+        public static Vector3 CalculateAimPoint(
+            Camera camera,
+            Transform player,
+            float screenWidth,
+            float screenHeight)
+        {
+            if (camera == null || player == null)
+            {
+                return CalculateAimPoint(screenWidth, screenHeight);
+            }
+
+            CharacterController controller =
+                player.GetComponent<CharacterController>();
+            Vector3 torsoPoint = controller != null
+                ? player.TransformPoint(
+                    controller.center +
+                    Vector3.up * controller.height * TorsoHeightOffset)
+                : player.position + player.up * 1.05f;
+            Vector3 viewportPoint = camera.WorldToViewportPoint(torsoPoint);
+            if (viewportPoint.z <= 0f)
+            {
+                return CalculateAimPoint(screenWidth, screenHeight);
+            }
+
+            return new Vector3(
+                viewportPoint.x * screenWidth,
+                viewportPoint.y * screenHeight,
                 0f);
         }
 
@@ -167,12 +232,12 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
         private static Bounds ResolveBounds(Transform target)
         {
-            Renderer[] renderers = target.GetComponentsInChildren<Renderer>();
+            target.GetComponentsInChildren(false, RendererBuffer);
             bool found = false;
             Bounds bounds = new Bounds(target.position, Vector3.one * 0.2f);
-            for (int index = 0; index < renderers.Length; index++)
+            for (int index = 0; index < RendererBuffer.Count; index++)
             {
-                Renderer renderer = renderers[index];
+                Renderer renderer = RendererBuffer[index];
                 if (renderer == null || !renderer.enabled)
                 {
                     continue;
@@ -187,6 +252,7 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     bounds.Encapsulate(renderer.bounds);
                 }
             }
+            RendererBuffer.Clear();
             return bounds;
         }
     }

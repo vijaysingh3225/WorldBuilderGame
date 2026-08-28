@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using UnityEngine.InputSystem;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Input;
@@ -29,6 +28,7 @@ namespace WorldBuilder.Gameplay.Characters
         {
             Idle,
             Patrolling,
+            Staggered,
             Alerted,
             Investigating,
             Pursuing,
@@ -43,6 +43,21 @@ namespace WorldBuilder.Gameplay.Characters
             Closing,
             Attacking,
             Disengaging
+        }
+
+        private enum AuthoredTraversalKind
+        {
+            None,
+            BridgeApproach,
+            Bridge,
+            Escarpment
+        }
+
+        private enum LookoutMovementMode
+        {
+            None,
+            Stationary,
+            PlatformPatrol
         }
 
         [SerializeField] private Transform target;
@@ -158,8 +173,10 @@ namespace WorldBuilder.Gameplay.Characters
         private float patrolWaitTimer;
         private bool hasPatrolDestination;
         private Vector3[] patrolRoute;
+        private Vector3[] patrolRouteLookDirections;
         private int patrolRouteIndex;
         private int patrolRouteDirection = 1;
+        private LookoutMovementMode lookoutMovementMode;
         private WeaponLoadout weaponLoadout;
         private float alertReactionTimer;
         private float alertFacingDelayTimer;
@@ -172,10 +189,12 @@ namespace WorldBuilder.Gameplay.Characters
         private bool rangedStrafeActive;
         private bool rangedStrafeInitialized;
         private Vector3 patrolLookDirection;
+        private Vector3 authoredPatrolLookDirection;
         private EnemyBrain patrolConversationPartner;
         private float patrolConversationScanCooldown;
         private float patrolConversationScanRemaining;
         private Vector3 patrolConversationScanDirection;
+        private float hitStaggerEndsAt = float.NegativeInfinity;
         private int lastHeardArrowId;
         private float passiveAwareness;
         private ThirdPersonMotor targetMotor;
@@ -186,6 +205,8 @@ namespace WorldBuilder.Gameplay.Characters
             new RaycastHit[32];
         private readonly Collider[] navigationOverlapColliders =
             new Collider[32];
+        private readonly RaycastHit[] sightProbeHits =
+            new RaycastHit[32];
         private Vector3 navigationDetourDirection;
         private Vector3 navigationProgressOrigin;
         private float navigationDetourTimer;
@@ -194,6 +215,17 @@ namespace WorldBuilder.Gameplay.Characters
         private float navigationLastRequestTime = float.NegativeInfinity;
         private float navigationAvoidanceSide = 1f;
         private bool hasNavigationProgressOrigin;
+        private AuthoredTraversalKind authoredTraversalKind;
+        private bool authoredTraversalHeadingToExit;
+        private bool authoredTraversalSteeringActive;
+        private Vector3 authoredTraversalEntry;
+        private Vector3 authoredTraversalExit;
+        private ProceduralRaidGenerator.EnemyBridgeApproachStep
+            authoredBridgeApproach;
+        private bool perceptionDefaultsCaptured;
+        private float defaultPassiveSightRange;
+        private float defaultForestSightRange;
+        private float defaultPassiveViewAngle;
 
         private const float MinimumCommittedBowCharge = 0.995f;
         private const float FullDrawSafetyDuration = 0.12f;
@@ -204,6 +236,11 @@ namespace WorldBuilder.Gameplay.Characters
         private const float NavigationMinimumProgress = 0.20f;
         private const float RangedNearbyBridgeEntryDistance = 4.5f;
         private const float RangedBridgeMinimumForwardDot = 0.25f;
+        private const float BridgeRouteReversalDeadZone = 1.1f;
+        private const float BridgeApproachWaypointArrivalDistance = 1.05f;
+        public const float BridgeExitClearanceDistance = 1.5f;
+        private const float BridgeExitArrivalTolerance = 0.20f;
+        private const float MeleeAttackFacingAngle = 35f;
         private const float EngagedAwarenessAngle = 360f;
         private static readonly float[] NavigationFanAngles =
         {
@@ -226,6 +263,7 @@ namespace WorldBuilder.Gameplay.Characters
 
         public void Configure(Transform pursuitTarget)
         {
+            ClearAuthoredTraversal();
             target = pursuitTarget;
             targetMotor = null;
             patrolWhenIdle = true;
@@ -258,6 +296,8 @@ namespace WorldBuilder.Gameplay.Characters
         public void ConfigureCampGuardLoadout(
             WeaponLoadout loadout)
         {
+            ClearAuthoredTraversal();
+            ResetLookoutBehavior();
             weaponLoadout = loadout == WeaponLoadout.SwordOnly
                 ? WeaponLoadout.SwordOnly
                 : WeaponLoadout.BowOnly;
@@ -267,7 +307,92 @@ namespace WorldBuilder.Gameplay.Characters
             ApplyConfiguredWeaponLoadout();
         }
 
+        public void ConfigureLookoutBehavior(
+            Vector3 outwardLookDirection,
+            float sightRange,
+            float forestRange,
+            float viewAngle)
+        {
+            CapturePerceptionDefaults();
+            authoredPatrolLookDirection = Vector3.ProjectOnPlane(
+                outwardLookDirection,
+                Vector3.up).normalized;
+            passiveSightRange = Mathf.Max(
+                defaultPassiveSightRange,
+                sightRange);
+            forestSightRange = Mathf.Max(
+                defaultForestSightRange,
+                forestRange);
+            passiveViewAngle = Mathf.Clamp(
+                Mathf.Max(defaultPassiveViewAngle, viewAngle),
+                10f,
+                360f);
+        }
+
+        private void CapturePerceptionDefaults()
+        {
+            if (perceptionDefaultsCaptured)
+            {
+                return;
+            }
+
+            defaultPassiveSightRange = passiveSightRange;
+            defaultForestSightRange = forestSightRange;
+            defaultPassiveViewAngle = passiveViewAngle;
+            perceptionDefaultsCaptured = true;
+        }
+
+        private void ResetLookoutBehavior()
+        {
+            CapturePerceptionDefaults();
+            authoredPatrolLookDirection = Vector3.zero;
+            patrolRouteLookDirections = null;
+            lookoutMovementMode = LookoutMovementMode.None;
+            passiveSightRange = defaultPassiveSightRange;
+            forestSightRange = defaultForestSightRange;
+            passiveViewAngle = defaultPassiveViewAngle;
+        }
+
         public void ConfigurePatrolRoute(
+            Vector3[] worldPoints,
+            int startIndex)
+        {
+            lookoutMovementMode = LookoutMovementMode.None;
+            patrolRouteLookDirections = null;
+            ConfigurePatrolRouteInternal(worldPoints, startIndex);
+        }
+
+        public void ConfigureStationaryLookout()
+        {
+            lookoutMovementMode = LookoutMovementMode.Stationary;
+            patrolRouteLookDirections = null;
+            patrolRoute = new[] { transform.position };
+            patrolRouteIndex = 0;
+            patrolRouteDirection = 1;
+            patrolDestination = transform.position;
+            patrolLookDirection =
+                authoredPatrolLookDirection.sqrMagnitude > 0.001f
+                    ? authoredPatrolLookDirection
+                    : transform.forward;
+            hasPatrolDestination = false;
+            patrolWaitTimer = 0f;
+            patrolWhenIdle = true;
+        }
+
+        public void ConfigurePlatformLookoutPatrol(
+            Vector3[] worldPoints,
+            Vector3[] waypointLookDirections,
+            int startIndex)
+        {
+            ConfigurePatrolRouteInternal(worldPoints, startIndex);
+            lookoutMovementMode = LookoutMovementMode.PlatformPatrol;
+            patrolRouteLookDirections =
+                waypointLookDirections != null
+                    ? (Vector3[])waypointLookDirections.Clone()
+                    : null;
+        }
+
+        private void ConfigurePatrolRouteInternal(
             Vector3[] worldPoints,
             int startIndex)
         {
@@ -321,6 +446,7 @@ namespace WorldBuilder.Gameplay.Characters
         public void ConfigureAsTrainingDummy(
             bool requireManualActivation = true)
         {
+            ClearAuthoredTraversal();
             target = null;
             trainingDummy = true;
             manualActivationOnly = requireManualActivation;
@@ -361,6 +487,7 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void Awake()
         {
+            CapturePerceptionDefaults();
             ResolveReferences();
             ApplyEnemyModelScale();
             navigationProgressOrigin = transform.position;
@@ -442,16 +569,24 @@ namespace WorldBuilder.Gameplay.Characters
                 return;
             }
 
+            if (!trainingDummy && Time.time < hitStaggerEndsAt)
+            {
+                bowWeapon?.AbortDraw();
+                meleeWeapon?.EndSwing();
+                drawingBow = false;
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Staggered);
+                return;
+            }
+
+            if (state == EnemyState.Staggered)
+            {
+                ChangeState(EnemyState.Alerted);
+            }
+
             if (trainingDummy)
             {
                 FreezeDormantPose();
-                if (Keyboard.current != null &&
-                    Keyboard.current.tKey.wasPressedThisFrame)
-                {
-                    ActivateCombat(
-                        preserveCurrentHealth: false,
-                        beginAlerted: true);
-                }
                 return;
             }
 
@@ -653,9 +788,12 @@ namespace WorldBuilder.Gameplay.Characters
                 animator.speed = 1f;
                 animator.cullingMode =
                     AnimatorCullingMode.AlwaysAnimate;
-                animator.SetFloat(
-                    HumanoidAnimatorPresenter.GaitPlaybackParameter,
-                    1f);
+                if (animator.runtimeAnimatorController != null)
+                {
+                    animator.SetFloat(
+                        HumanoidAnimatorPresenter.GaitPlaybackParameter,
+                        1f);
+                }
             }
             ApplyConfiguredWeaponLoadout();
             SetDormantPresenterState(false);
@@ -1104,15 +1242,32 @@ namespace WorldBuilder.Gameplay.Characters
                 return false;
             }
 
-            RaycastHit[] hits = Physics.RaycastAll(
+            RaycastHit[] hits = sightProbeHits;
+            int hitCount = Physics.RaycastNonAlloc(
                 origin,
                 toTarget / distance,
+                hits,
                 distance + 0.15f,
                 sightMask,
                 QueryTriggerInteraction.Ignore);
+
+            // Physics non-alloc queries do not guarantee the nearest result
+            // when their buffer is full. Preserve the original all-hit
+            // behavior in that rare dense case.
+            if (hitCount == hits.Length)
+            {
+                hits = Physics.RaycastAll(
+                    origin,
+                    toTarget / distance,
+                    distance + 0.15f,
+                    sightMask,
+                    QueryTriggerInteraction.Ignore);
+                hitCount = hits.Length;
+            }
+
             float closestDistance = float.PositiveInfinity;
             Transform closestTransform = null;
-            for (int index = 0; index < hits.Length; index++)
+            for (int index = 0; index < hitCount; index++)
             {
                 Transform hitTransform =
                     hits[index].collider != null
@@ -1190,25 +1345,22 @@ namespace WorldBuilder.Gameplay.Characters
                 }
             }
 
-            searchAimTimer -= Time.deltaTime;
-            if (searchAimTimer <= 0f)
-            {
-                searchSide *= -1f;
-                searchAimTimer = searchAimInterval;
-            }
-
-            Vector3 searchRight = Vector3.Cross(
-                Vector3.up,
-                direction);
-            Vector3 searchPoint =
-                lastKnownPosition +
-                Vector3.up * 0.65f +
-                searchRight * (searchSide * 1.4f);
-            SetAim(searchPoint);
-
             if (distance > investigationStopDistance)
             {
                 reachedLastKnownPosition = false;
+                if (isSwordPursuit)
+                {
+                    // ThirdPersonMotor deliberately suppresses sprinting
+                    // whenever an aim-facing override is active. A pursuing
+                    // swordsman must face through its travel direction until
+                    // it reaches the remembered point; searching starts only
+                    // after arrival.
+                    aimSource?.ClearOverride();
+                }
+                else
+                {
+                    UpdateInvestigationSearchAim(direction);
+                }
                 Vector3 movement =
                     ResolveRiverAwareDirection(
                         direction,
@@ -1226,6 +1378,7 @@ namespace WorldBuilder.Gameplay.Characters
                 return;
             }
 
+            UpdateInvestigationSearchAim(direction);
             SetIntent(Vector2.zero, false, false);
             ChangeState(EnemyState.Alerted);
             if (!reachedLastKnownPosition)
@@ -1248,8 +1401,40 @@ namespace WorldBuilder.Gameplay.Characters
             ChangeState(EnemyState.Idle);
         }
 
+        private void UpdateInvestigationSearchAim(
+            Vector3 approachDirection)
+        {
+            searchAimTimer -= Time.deltaTime;
+            if (searchAimTimer <= 0f)
+            {
+                searchSide *= -1f;
+                searchAimTimer = searchAimInterval;
+            }
+
+            Vector3 searchRight = Vector3.Cross(
+                Vector3.up,
+                approachDirection);
+            Vector3 searchPoint =
+                lastKnownPosition +
+                Vector3.up * 0.65f +
+                searchRight * (searchSide * 1.4f);
+            SetAim(searchPoint);
+        }
+
         private void UpdatePatrol()
         {
+            if (lookoutMovementMode == LookoutMovementMode.Stationary)
+            {
+                SetIntent(Vector2.zero, false, false);
+                ChangeState(EnemyState.Idle);
+                patrolLookDirection =
+                    authoredPatrolLookDirection.sqrMagnitude > 0.001f
+                        ? authoredPatrolLookDirection
+                        : transform.forward;
+                UpdatePatrolPausePresentation();
+                return;
+            }
+
             if (!hasPatrolDestination)
             {
                 patrolWaitTimer -= Time.deltaTime;
@@ -1293,9 +1478,14 @@ namespace WorldBuilder.Gameplay.Characters
                 patrolWaitTimer =
                     ResolvePatrolPauseDuration();
                 patrolLookDirection =
-                    toDestination.sqrMagnitude > 0.001f
-                        ? toDestination.normalized
-                        : transform.forward;
+                    TryResolvePatrolRouteLookDirection(
+                            out Vector3 routeLookDirection)
+                        ? routeLookDirection
+                        : authoredPatrolLookDirection.sqrMagnitude > 0.001f
+                            ? authoredPatrolLookDirection
+                            : toDestination.sqrMagnitude > 0.001f
+                                ? toDestination.normalized
+                                : transform.forward;
                 patrolConversationScanRemaining = 0f;
                 patrolConversationScanCooldown =
                     UnityEngine.Random.Range(1.8f, 3.2f);
@@ -1310,15 +1500,37 @@ namespace WorldBuilder.Gameplay.Characters
                 toDestination.sqrMagnitude > 0.001f
                     ? toDestination.normalized
                     : transform.forward;
-            direction = ResolveRiverAwareDirection(
-                direction,
-                patrolDestination);
-            direction = ResolveObstacleAwareDirection(direction);
+            if (lookoutMovementMode !=
+                LookoutMovementMode.PlatformPatrol)
+            {
+                direction = ResolveRiverAwareDirection(
+                    direction,
+                    patrolDestination);
+                direction = ResolveObstacleAwareDirection(direction);
+            }
             SetIntent(
                 WorldDirectionToInput(direction),
                 false,
-                false);
+                false,
+                allowLookoutPatrolMovement: true);
             ChangeState(EnemyState.Patrolling);
+        }
+
+        private bool TryResolvePatrolRouteLookDirection(
+            out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (patrolRouteLookDirections == null ||
+                patrolRouteIndex < 0 ||
+                patrolRouteIndex >= patrolRouteLookDirections.Length)
+            {
+                return false;
+            }
+
+            direction = Vector3.ProjectOnPlane(
+                patrolRouteLookDirections[patrolRouteIndex],
+                Vector3.up).normalized;
+            return direction.sqrMagnitude > 0.001f;
         }
 
         private void UpdatePatrolPausePresentation()
@@ -1466,6 +1678,20 @@ namespace WorldBuilder.Gameplay.Characters
                 return Vector3.zero;
             }
             desiredDirection.Normalize();
+
+            // A committed authored route already describes a safe bridge or
+            // escarpment-pass corridor. Running the local fan detour here can
+            // make recovery fight that route and alternate sides at its entry.
+            if (authoredTraversalSteeringActive)
+            {
+                navigationDetourTimer = 0f;
+                navigationRecoveryTimer = 0f;
+                navigationProgressTimer = 0f;
+                navigationProgressOrigin = transform.position;
+                hasNavigationProgressOrigin = true;
+                return desiredDirection;
+            }
+
             UpdateNavigationProgress();
             float deltaTime = Mathf.Max(0f, Time.deltaTime);
             navigationDetourTimer = Mathf.Max(
@@ -1839,9 +2065,11 @@ namespace WorldBuilder.Gameplay.Characters
 
         private Vector3 ResolveRiverAwareDirection(
             Vector3 proposedDirection,
-            Vector3 strategicDestination)
+            Vector3 strategicDestination,
+            bool destinationIsStrategic = true)
         {
             ResolveRaidEnvironment();
+            authoredTraversalSteeringActive = false;
             Vector3 flatDirection = Vector3.ProjectOnPlane(
                 proposedDirection,
                 Vector3.up);
@@ -1852,24 +2080,17 @@ namespace WorldBuilder.Gameplay.Characters
             }
             flatDirection.Normalize();
 
-            if (raidEnvironment.TryResolveEnemyRiverWaypoint(
-                    transform.position,
+            if (TryResolveAuthoredTraversalDirection(
                     strategicDestination,
-                    out Vector3 waypoint))
+                    allowNewBridgeCommitment:
+                        destinationIsStrategic,
+                    allowNewEscarpmentCommitment:
+                        destinationIsStrategic,
+                    destinationIsStrategic:
+                        destinationIsStrategic,
+                    out Vector3 authoredDirection))
             {
-                Vector3 towardWaypoint = Vector3.ProjectOnPlane(
-                    waypoint - transform.position,
-                    Vector3.up);
-                if (towardWaypoint.sqrMagnitude > 0.001f)
-                {
-                    // A bridge waypoint is an authored safe route. Keep it
-                    // authoritative through the bridge rather than letting
-                    // local obstacle detours turn a melee pursuer around at
-                    // the near bank.
-                    return ConstrainImmediateRiverStep(
-                        towardWaypoint.normalized,
-                        allowRiverWaypoint: true);
-                }
+                return authoredDirection;
             }
 
             Vector3 step = transform.position +
@@ -1887,7 +2108,7 @@ namespace WorldBuilder.Gameplay.Characters
             if (raidEnvironment.TryResolveEnemyRiverWaypoint(
                     transform.position,
                     step,
-                    out waypoint))
+                    out Vector3 waypoint))
             {
                 Vector3 towardWaypoint = Vector3.ProjectOnPlane(
                     waypoint - transform.position,
@@ -1898,6 +2119,384 @@ namespace WorldBuilder.Gameplay.Characters
                 }
             }
             return Vector3.zero;
+        }
+
+        private bool TryResolveAuthoredTraversalDirection(
+            Vector3 strategicDestination,
+            bool allowNewBridgeCommitment,
+            bool allowNewEscarpmentCommitment,
+            bool destinationIsStrategic,
+            out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            ResolveRaidEnvironment();
+            if (raidEnvironment == null)
+            {
+                ClearAuthoredTraversal();
+                return false;
+            }
+
+            if (authoredTraversalKind == AuthoredTraversalKind.None)
+            {
+                bool canOpenBridge = CanOpenNewAuthoredTraversal(
+                    destinationIsStrategic,
+                    allowNewBridgeCommitment);
+                if (canOpenBridge &&
+                    raidEnvironment.TryResolveEnemyBridgeRoute(
+                        transform.position,
+                        strategicDestination,
+                        out Vector3 bridgeEntry,
+                        out Vector3 bridgeExit) &&
+                    StrategicDestinationRequiresAuthoredTraversal(
+                         transform.position,
+                         bridgeEntry,
+                         bridgeExit,
+                         strategicDestination))
+                {
+                    // River safety remains the first routing authority when
+                    // both a bridge and an elevation pass could be relevant.
+                    authoredTraversalKind =
+                        AuthoredTraversalKind.Bridge;
+                    authoredTraversalEntry = bridgeEntry;
+                    authoredTraversalExit = bridgeExit;
+                }
+                else if (canOpenBridge &&
+                    raidEnvironment.TryResolveEnemyBridgeBankApproach(
+                        transform.position,
+                        strategicDestination,
+                        out ProceduralRaidGenerator
+                            .EnemyBridgeApproachStep bridgeApproach))
+                {
+                    // A long concave bank may not have one dry straight chord
+                    // to a bridge. Hold the selected bridge and advance along
+                    // stable river-bank samples before entering its corridor.
+                    // The generator has already validated both local river-bank
+                    // sides; a bridge-center half-plane test is not valid where
+                    // the meandering bank wraps behind that center.
+                    CommitBridgeBankApproach(bridgeApproach);
+                }
+                else if (CanOpenNewAuthoredTraversal(
+                             destinationIsStrategic,
+                             allowNewEscarpmentCommitment) &&
+                    raidEnvironment.TryResolveEnemyEscarpmentRoute(
+                        transform.position,
+                        strategicDestination,
+                        out Vector3 escarpmentEntry,
+                        out Vector3 escarpmentExit) &&
+                    StrategicDestinationRequiresAuthoredTraversal(
+                         transform.position,
+                         escarpmentEntry,
+                         escarpmentExit,
+                         strategicDestination))
+                {
+                    authoredTraversalKind =
+                        AuthoredTraversalKind.Escarpment;
+                    authoredTraversalEntry = escarpmentEntry;
+                    authoredTraversalExit = escarpmentExit;
+                }
+                else
+                {
+                    return false;
+                }
+                authoredTraversalHeadingToExit = false;
+                navigationDetourTimer = 0f;
+                navigationRecoveryTimer = 0f;
+            }
+
+            if (authoredTraversalKind ==
+                    AuthoredTraversalKind.BridgeApproach)
+            {
+                if (destinationIsStrategic &&
+                    !raidEnvironment
+                        .IsEnemyBridgeBankApproachDestinationCompatible(
+                            authoredBridgeApproach,
+                            strategicDestination))
+                {
+                    ClearAuthoredTraversal();
+                    return TryResolveAuthoredTraversalDirection(
+                        strategicDestination,
+                        allowNewBridgeCommitment,
+                        allowNewEscarpmentCommitment,
+                        destinationIsStrategic,
+                        out direction);
+                }
+
+                float approachWaypointDistance =
+                    Vector3.ProjectOnPlane(
+                        authoredBridgeApproach.Waypoint -
+                        transform.position,
+                        Vector3.up).magnitude;
+                if (approachWaypointDistance <=
+                    BridgeApproachWaypointArrivalDistance)
+                {
+                    if (!raidEnvironment
+                        .TryAdvanceEnemyBridgeBankApproach(
+                            transform.position,
+                            authoredBridgeApproach,
+                            out ProceduralRaidGenerator
+                                .EnemyBridgeApproachStep nextApproach))
+                    {
+                        ClearAuthoredTraversal();
+                        return false;
+                    }
+
+                    authoredBridgeApproach = nextApproach;
+                    authoredTraversalEntry =
+                        nextApproach.BridgeEntry;
+                    authoredTraversalExit =
+                        nextApproach.BridgeExit;
+                    if (nextApproach.CanCommitBridge)
+                    {
+                        authoredTraversalKind =
+                            AuthoredTraversalKind.Bridge;
+                        authoredTraversalHeadingToExit = false;
+                    }
+                }
+
+                if (authoredTraversalKind ==
+                    AuthoredTraversalKind.BridgeApproach)
+                {
+                    Vector3 towardApproachWaypoint =
+                        Vector3.ProjectOnPlane(
+                            authoredBridgeApproach.Waypoint -
+                            transform.position,
+                            Vector3.up);
+                    if (towardApproachWaypoint.sqrMagnitude <= 0.001f)
+                    {
+                        ClearAuthoredTraversal();
+                        return false;
+                    }
+
+                    direction = towardApproachWaypoint.normalized;
+                    // This is open-bank steering, not a narrow authored
+                    // corridor. Preserve ordinary prop avoidance until the
+                    // strict bridge entry becomes directly reachable.
+                    authoredTraversalSteeringActive = false;
+                    return true;
+                }
+            }
+
+            Vector3 route = Vector3.ProjectOnPlane(
+                authoredTraversalExit - authoredTraversalEntry,
+                Vector3.up);
+            float routeLength = route.magnitude;
+            if (routeLength <= 0.25f)
+            {
+                ClearAuthoredTraversal();
+                return false;
+            }
+
+            Vector3 routeDirection = route / routeLength;
+            Vector3 fromEntry = Vector3.ProjectOnPlane(
+                transform.position - authoredTraversalEntry,
+                Vector3.up);
+            float progress = Vector3.Dot(fromEntry, routeDirection);
+            float entryDistance = Vector3.ProjectOnPlane(
+                authoredTraversalEntry - transform.position,
+                Vector3.up).magnitude;
+            bool insideAuthoredLane =
+                authoredTraversalKind == AuthoredTraversalKind.Bridge
+                    ? raidEnvironment.IsInsideEnemyBridgeLane(
+                        transform.position,
+                        0.10f)
+                    : raidEnvironment.IsInsideEnemyEscarpmentPassLane(
+                        transform.position,
+                        0.10f);
+            if (!authoredTraversalHeadingToExit &&
+                (entryDistance <= 1.05f ||
+                 (progress >= -0.20f &&
+                  insideAuthoredLane)))
+            {
+                authoredTraversalHeadingToExit = true;
+            }
+
+            if (ShouldCancelUnenteredAuthoredTraversal(
+                    authoredTraversalEntry,
+                    authoredTraversalExit,
+                    strategicDestination,
+                    authoredTraversalHeadingToExit,
+                    destinationIsStrategic))
+            {
+                ClearAuthoredTraversal();
+                // Re-run route selection once so a changed patrol/combat
+                // goal can immediately choose another bridge or pass. The
+                // strategic candidate gate above prevents a bridge approach
+                // lane from reopening as a pointless cross-and-back route.
+                return TryResolveAuthoredTraversalDirection(
+                    strategicDestination,
+                    allowNewBridgeCommitment,
+                    allowNewEscarpmentCommitment,
+                    destinationIsStrategic,
+                    out direction);
+            }
+
+            if (authoredTraversalHeadingToExit &&
+                HasClearedCommittedBridgeRoute(
+                    transform.position,
+                    authoredTraversalEntry,
+                    authoredTraversalExit))
+            {
+                ClearAuthoredTraversal();
+                return false;
+            }
+
+            Vector3 waypoint = authoredTraversalHeadingToExit
+                ? ResolveCommittedBridgeExitClearancePoint(
+                    authoredTraversalEntry,
+                    authoredTraversalExit)
+                : authoredTraversalEntry;
+            Vector3 towardWaypoint = Vector3.ProjectOnPlane(
+                waypoint - transform.position,
+                Vector3.up);
+            if (towardWaypoint.sqrMagnitude <= 0.001f)
+            {
+                direction = routeDirection;
+            }
+            else
+            {
+                direction = towardWaypoint.normalized;
+            }
+
+            // Finish an entered corridor before reconsidering it. Local orbit
+            // and disengage probes are not strategic destinations, so using
+            // them to reverse a bridge/pass route can create a foot-of-route
+            // oscillation. Before entry, ordinary obstacle avoidance still
+            // owns distant props; near/inside the corridor the authored route
+            // becomes authoritative through its exit-clearance point.
+            authoredTraversalSteeringActive =
+                authoredTraversalHeadingToExit ||
+                insideAuthoredLane ||
+                entryDistance <= RangedNearbyBridgeEntryDistance;
+            return true;
+        }
+
+        public static Vector3 ResolveCommittedBridgeExitClearancePoint(
+            Vector3 entry,
+            Vector3 exit)
+        {
+            Vector3 route = Vector3.ProjectOnPlane(
+                exit - entry,
+                Vector3.up);
+            if (route.sqrMagnitude <= 0.0625f)
+            {
+                return exit;
+            }
+            return exit + route.normalized * BridgeExitClearanceDistance;
+        }
+
+        public static bool HasClearedCommittedBridgeRoute(
+            Vector3 position,
+            Vector3 entry,
+            Vector3 exit)
+        {
+            Vector3 route = Vector3.ProjectOnPlane(
+                exit - entry,
+                Vector3.up);
+            float routeLength = route.magnitude;
+            if (routeLength <= 0.25f)
+            {
+                return true;
+            }
+            float progress = Vector3.Dot(
+                Vector3.ProjectOnPlane(position - entry, Vector3.up),
+                route / routeLength);
+            return progress >=
+                routeLength +
+                BridgeExitClearanceDistance -
+                BridgeExitArrivalTolerance;
+        }
+
+        public static bool ShouldReverseCommittedBridgeRoute(
+            Vector3 entry,
+            Vector3 exit,
+            Vector3 strategicDestination)
+        {
+            Vector3 route = Vector3.ProjectOnPlane(
+                exit - entry,
+                Vector3.up);
+            if (route.sqrMagnitude <= 0.0625f)
+            {
+                return false;
+            }
+
+            Vector3 center = (entry + exit) * 0.5f;
+            float destinationProgress = Vector3.Dot(
+                Vector3.ProjectOnPlane(
+                    strategicDestination - center,
+                    Vector3.up),
+                route.normalized);
+            return destinationProgress <
+                -BridgeRouteReversalDeadZone;
+        }
+
+        public static bool StrategicDestinationRequiresAuthoredTraversal(
+            Vector3 position,
+            Vector3 entry,
+            Vector3 exit,
+            Vector3 strategicDestination)
+        {
+            Vector3 route = Vector3.ProjectOnPlane(
+                exit - entry,
+                Vector3.up);
+            if (route.sqrMagnitude <= 0.0625f)
+            {
+                return false;
+            }
+
+            Vector3 center = (entry + exit) * 0.5f;
+            float positionProgress = Vector3.Dot(
+                Vector3.ProjectOnPlane(
+                    position - center,
+                    Vector3.up),
+                route.normalized);
+            return positionProgress <=
+                    -BridgeRouteReversalDeadZone &&
+                !ShouldReverseCommittedBridgeRoute(
+                    entry,
+                    exit,
+                    strategicDestination);
+        }
+
+        public static bool CanOpenNewAuthoredTraversal(
+            bool destinationIsStrategic,
+            bool movementModeAllowsNewCommitment)
+        {
+            return destinationIsStrategic &&
+                movementModeAllowsNewCommitment;
+        }
+
+        public static bool ShouldCancelUnenteredAuthoredTraversal(
+            Vector3 entry,
+            Vector3 exit,
+            Vector3 strategicDestination,
+            bool traversalEntered,
+            bool destinationIsStrategic)
+        {
+            return destinationIsStrategic &&
+                !traversalEntered &&
+                ShouldReverseCommittedBridgeRoute(
+                    entry,
+                    exit,
+                    strategicDestination);
+        }
+
+        private void CommitBridgeBankApproach(
+            ProceduralRaidGenerator.EnemyBridgeApproachStep approach)
+        {
+            authoredTraversalKind = AuthoredTraversalKind.BridgeApproach;
+            authoredBridgeApproach = approach;
+            authoredTraversalEntry = approach.BridgeEntry;
+            authoredTraversalExit = approach.BridgeExit;
+        }
+
+        private void ClearAuthoredTraversal()
+        {
+            authoredTraversalKind = AuthoredTraversalKind.None;
+            authoredTraversalHeadingToExit = false;
+            authoredTraversalSteeringActive = false;
+            authoredTraversalEntry = Vector3.zero;
+            authoredTraversalExit = Vector3.zero;
+            authoredBridgeApproach = default;
         }
 
         private Vector3 ResolveSightOrigin()
@@ -2226,36 +2825,88 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 proposedMovement)
         {
             ResolveRaidEnvironment();
+            authoredTraversalSteeringActive = false;
             Vector3 movement = Vector3.ProjectOnPlane(
                 proposedMovement,
                 Vector3.up);
-            if (movement.sqrMagnitude <= 0.0001f ||
-                raidEnvironment == null)
+            if (raidEnvironment == null)
             {
                 return movement;
             }
 
-            movement.Normalize();
-            if (target != null &&
-                raidEnvironment.TryResolveEnemyRiverWaypoint(
-                    transform.position,
+            if (authoredTraversalKind != AuthoredTraversalKind.None &&
+                target != null &&
+                TryResolveAuthoredTraversalDirection(
                     target.position,
-                    out Vector3 bridgeWaypoint) &&
-                ShouldTakeNearbyRangedBridge(
-                    transform.position,
-                    target.position,
-                    bridgeWaypoint))
+                    allowNewBridgeCommitment: false,
+                    allowNewEscarpmentCommitment: false,
+                    destinationIsStrategic: true,
+                    out Vector3 committedDirection))
             {
-                Vector3 towardBridge = Vector3.ProjectOnPlane(
-                    bridgeWaypoint - transform.position,
-                    Vector3.up);
-                if (towardBridge.sqrMagnitude > 0.001f)
+                return committedDirection;
+            }
+
+            if (target != null)
+            {
+                if (raidEnvironment.TryResolveEnemyRiverWaypoint(
+                        transform.position,
+                        target.position,
+                        out Vector3 bridgeWaypoint) &&
+                    ShouldTakeNearbyRangedBridge(
+                        transform.position,
+                        target.position,
+                        bridgeWaypoint))
                 {
-                    return ConstrainImmediateRiverStep(
-                        towardBridge.normalized,
-                        allowRiverWaypoint: false);
+                    if (TryResolveAuthoredTraversalDirection(
+                            target.position,
+                            allowNewBridgeCommitment: true,
+                            allowNewEscarpmentCommitment: false,
+                            destinationIsStrategic: true,
+                            out Vector3 bridgeDirection))
+                    {
+                        return bridgeDirection;
+                    }
+                }
+                else if (raidEnvironment
+                        .TryResolveEnemyBridgeBankApproach(
+                            transform.position,
+                            target.position,
+                            RangedNearbyBridgeEntryDistance,
+                            out ProceduralRaidGenerator
+                                .EnemyBridgeApproachStep rangedApproach) &&
+                    ShouldTakeNearbyRangedBridge(
+                        transform.position,
+                        target.position,
+                        rangedApproach.BridgeEntry) &&
+                    ShouldTakeNearbyRangedBridge(
+                        transform.position,
+                        target.position,
+                        rangedApproach.Waypoint))
+                {
+                    // Preserve the archer's existing nearby/forward policy:
+                    // both the committed entry and first dry bank step must
+                    // qualify before opening a staged route.
+                    CommitBridgeBankApproach(rangedApproach);
+                    authoredTraversalHeadingToExit = false;
+                    navigationDetourTimer = 0f;
+                    navigationRecoveryTimer = 0f;
+                    if (TryResolveAuthoredTraversalDirection(
+                            target.position,
+                            allowNewBridgeCommitment: false,
+                            allowNewEscarpmentCommitment: false,
+                            destinationIsStrategic: true,
+                            out Vector3 bankDirection))
+                    {
+                        return bankDirection;
+                    }
                 }
             }
+
+            if (movement.sqrMagnitude <= 0.0001f)
+            {
+                return Vector3.zero;
+            }
+            movement.Normalize();
 
             float padding = controller != null
                 ? controller.radius + 0.12f
@@ -2573,7 +3224,8 @@ namespace WorldBuilder.Gameplay.Characters
 
             movement = ResolveRiverAwareDirection(
                 movement,
-                transform.position + movement * 2f);
+                transform.position + movement * 2f,
+                destinationIsStrategic: false);
             movement = ResolveObstacleAwareDirection(movement);
 
             SetIntent(
@@ -2594,7 +3246,10 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 direction,
             float distance)
         {
-            if (distance > swordRange + 0.20f)
+            if (distance > swordRange + 0.20f ||
+                !IsMeleeAttackFacingReady(
+                    transform.forward,
+                    direction))
             {
                 Vector3 movement = ResolveRiverAwareDirection(
                     direction,
@@ -2625,8 +3280,31 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 direction,
             float distance)
         {
+            bool attackInProgress =
+                swordAttack != null && swordAttack.IsAttacking;
+            bool facingTarget = IsMeleeAttackFacingReady(
+                transform.forward,
+                direction);
+            if (!facingTarget && !attackInProgress)
+            {
+                Vector3 turnMovement = ResolveRiverAwareDirection(
+                    direction,
+                    target != null
+                        ? target.position
+                        : transform.position + direction * distance);
+                turnMovement =
+                    ResolveObstacleAwareDirection(turnMovement);
+                SetIntent(
+                    WorldDirectionToInput(turnMovement),
+                    false,
+                    false,
+                    true);
+                ChangeState(EnemyState.Pursuing);
+                return;
+            }
+
             bool attackPressed = false;
-            if (comboPulsesRemaining > 0)
+            if (facingTarget && comboPulsesRemaining > 0)
             {
                 nextAttackPulse -= Time.deltaTime;
                 if (nextAttackPulse <= 0f)
@@ -2655,7 +3333,7 @@ namespace WorldBuilder.Gameplay.Characters
                 true);
             ChangeState(
                 attackPressed ||
-                (swordAttack != null && swordAttack.IsAttacking)
+                attackInProgress
                     ? EnemyState.Windup
                     : EnemyState.Recovering);
 
@@ -2668,6 +3346,26 @@ namespace WorldBuilder.Gameplay.Characters
                 meleePhaseTimer =
                     UnityEngine.Random.Range(0.35f, 0.60f);
             }
+        }
+
+        public static bool IsMeleeAttackFacingReady(
+            Vector3 forward,
+            Vector3 targetDirection)
+        {
+            Vector3 flatForward = Vector3.ProjectOnPlane(
+                forward,
+                Vector3.up);
+            Vector3 flatTarget = Vector3.ProjectOnPlane(
+                targetDirection,
+                Vector3.up);
+            if (flatForward.sqrMagnitude <= 0.001f ||
+                flatTarget.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            return Vector3.Angle(flatForward, flatTarget) <=
+                MeleeAttackFacingAngle;
         }
 
         private void UpdateMeleeDisengage(
@@ -2685,7 +3383,8 @@ namespace WorldBuilder.Gameplay.Characters
                 : tangent * 0.30f;
             movement = ResolveRiverAwareDirection(
                 movement,
-                transform.position + movement * 2f);
+                transform.position + movement * 2f,
+                destinationIsStrategic: false);
             movement = ResolveObstacleAwareDirection(movement);
             SetIntent(
                 WorldDirectionToInput(movement),
@@ -2920,8 +3619,17 @@ namespace WorldBuilder.Gameplay.Characters
             Vector2 move,
             bool attack,
             bool block,
-            bool sprint = false)
+            bool sprint = false,
+            bool allowLookoutPatrolMovement = false)
         {
+            if (lookoutMovementMode == LookoutMovementMode.Stationary ||
+                lookoutMovementMode ==
+                    LookoutMovementMode.PlatformPatrol &&
+                !allowLookoutPatrolMovement)
+            {
+                move = Vector2.zero;
+                sprint = false;
+            }
             input?.SetDiagnosticOverride(
                 new PlayerIntent(
                     move,
@@ -3029,6 +3737,11 @@ namespace WorldBuilder.Gameplay.Characters
             }
 
             animator.speed = 0f;
+            if (animator.runtimeAnimatorController == null)
+            {
+                return;
+            }
+
             animator.SetFloat(
                 HumanoidAnimatorPresenter.SpeedParameter,
                 0f);
@@ -3120,6 +3833,26 @@ namespace WorldBuilder.Gameplay.Characters
                 return;
             }
 
+            if (request.Amount > 0f &&
+                !trainingDummy &&
+                health.IsAlive &&
+                string.Equals(
+                    request.SourceId,
+                    MeleeWeapon.PrototypeSwordSourceId,
+                    StringComparison.Ordinal))
+            {
+                hitStaggerEndsAt = Mathf.Max(
+                    hitStaggerEndsAt,
+                    Time.time +
+                        (request.StaggerDuration > 0f
+                            ? request.StaggerDuration
+                            : HitReactionPresenter.SwordStaggerDuration));
+                drawingBow = false;
+                bowWeapon?.AbortDraw();
+                meleeWeapon?.EndSwing();
+                SetIntent(Vector2.zero, false, false);
+            }
+
             if (trainingDummy)
             {
                 if (manualActivationOnly)
@@ -3147,36 +3880,28 @@ namespace WorldBuilder.Gameplay.Characters
                 enabled = true;
             }
 
-            Vector3 incomingDirection = Vector3.ProjectOnPlane(
-                request.Direction,
-                Vector3.up);
             Vector3 believedSource;
-            if (incomingDirection.sqrMagnitude > 0.001f)
+            if (request.Instigator != null)
             {
-                believedSource =
-                    request.HitPoint -
-                    incomingDirection.normalized *
-                    investigationGuessDistance;
-            }
-            else if (request.Instigator != null)
-            {
-                Vector3 towardInstigator =
-                    request.Instigator.transform.position -
-                    transform.position;
-                believedSource =
-                    transform.position +
-                    Vector3.ClampMagnitude(
-                        Vector3.ProjectOnPlane(
-                            towardInstigator,
-                            Vector3.up),
-                        investigationGuessDistance);
+                // A direct hit identifies the attacker, so pursue their real
+                // position. The old short guess along the incoming arrow only
+                // moved a swordsman's investigation point toward the river;
+                // it never put the destination on the opposite bank and thus
+                // never committed the guard to a bridge route.
+                believedSource = request.Instigator.transform.position;
             }
             else
             {
-                believedSource =
-                    transform.position -
-                    transform.forward *
-                    investigationGuessDistance;
+                Vector3 incomingDirection = Vector3.ProjectOnPlane(
+                    request.Direction,
+                    Vector3.up);
+                believedSource = incomingDirection.sqrMagnitude > 0.001f
+                    ? request.HitPoint -
+                        incomingDirection.normalized *
+                        investigationGuessDistance
+                    : transform.position -
+                        transform.forward *
+                        investigationGuessDistance;
             }
 
             believedSource.y = transform.position.y;

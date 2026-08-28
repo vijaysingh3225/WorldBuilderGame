@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using WorldBuilder.Gameplay.Core;
 using WorldBuilder.Gameplay.Input;
+using WorldBuilder.Gameplay.Weapons;
 
 namespace WorldBuilder.Gameplay.Combat
 {
@@ -33,20 +34,25 @@ namespace WorldBuilder.Gameplay.Combat
     [RequireComponent(typeof(PlayerInputSource))]
     public sealed class MeleeWeapon : MonoBehaviour
     {
-        public const float DefaultSwordDamage = 60f;
+        public const string PrototypeSwordSourceId = "prototype-sword";
+        public const float DefaultSwordDamage = 40f;
         private const float LegacySwordDamage = 20f;
+        private const float PreviousSwordDamage = 60f;
         private const int MaximumSweepSteps = 24;
 
         private readonly Collider[] hits = new Collider[24];
         private readonly HashSet<IDamageable> damagedRecipientsThisSwing =
             new HashSet<IDamageable>();
 
-        [SerializeField] private string weaponId = "prototype-sword";
+        [SerializeField] private string weaponId = PrototypeSwordSourceId;
         [SerializeField, Min(0f)] private float damage = DefaultSwordDamage;
         [SerializeField, Min(0.05f)] private float cooldown = 0.15f;
         [SerializeField] private Transform bladeTransform;
         [SerializeField, Min(0.1f)] private float bladeLength = 0.78f;
         [SerializeField, Min(0.005f)] private float bladeRadius = 0.06f;
+        [SerializeField] private bool usesExplicitBladeSegment;
+        [SerializeField] private Vector3 bladeLocalBase;
+        [SerializeField] private Vector3 bladeLocalTip = Vector3.up * 0.78f;
         [SerializeField] private LayerMask hitMask = ~0;
 
         private PlayerInputSource input;
@@ -61,6 +67,8 @@ namespace WorldBuilder.Gameplay.Combat
         private bool hasPreviousBladePose;
         private Vector3 previousBladeBase;
         private Vector3 previousBladeTip;
+        private ShortSwordCombatProfile combatProfile =
+            ShortSwordCombatProfile.Default;
 
         public event Action AttackRequested;
         public event Action AttackHoldStarted;
@@ -72,16 +80,41 @@ namespace WorldBuilder.Gameplay.Combat
         public float CooldownRemaining => Mathf.Max(0f, nextAttackTime - Time.time);
         public bool AttackInputHeld =>
             input != null && input.CurrentIntent.AttackHeld;
+        public bool OpeningHoldInputHeld =>
+            openingHoldEnabled &&
+            input != null &&
+            !input.DiagnosticOverrideActive &&
+            input.CurrentIntent.AttackHeld;
         public float Damage =>
             Mathf.Max(
                 0f,
-                ResolveConfiguredDamage(
-                    weaponId,
-                    damage) +
+                ResolveConfiguredDamage(weaponId, damage) *
+                    ActiveCombatProfile.DamageMultiplier +
                 runtimeDamageBonus);
-        public float Cooldown => cooldown;
+        public float Cooldown => cooldown /
+            Mathf.Max(0.01f, ActiveCombatProfile.AttackSpeedMultiplier);
         public float Reach => bladeLength;
         public float Radius => bladeRadius;
+        public bool DamageWindowOpen => damageWindowOpen;
+        public ShortSwordCombatProfile CombatProfile => ActiveCombatProfile;
+        public float AttackSpeedMultiplier =>
+            ActiveCombatProfile.AttackSpeedMultiplier;
+        public float HitPauseDuration =>
+            ActiveCombatProfile.HitPauseDuration;
+        public float StaggerDuration =>
+            ActiveCombatProfile.StaggerDuration;
+        public float ImpactShakeMultiplier =>
+            ActiveCombatProfile.ImpactShakeMultiplier;
+        public float SwingPitchMultiplier =>
+            ActiveCombatProfile.SwingPitchMultiplier;
+        public float SwingVolumeMultiplier =>
+            ActiveCombatProfile.SwingVolumeMultiplier;
+        public float TrailPersistenceMultiplier =>
+            ActiveCombatProfile.TrailPersistenceMultiplier;
+        public float TrailOpacityMultiplier =>
+            ActiveCombatProfile.TrailOpacityMultiplier;
+        public float Heft => ActiveCombatProfile.Heft;
+        public float Handling => ActiveCombatProfile.Handling;
         public Vector3 AttackDirection
         {
             get
@@ -113,12 +146,42 @@ namespace WorldBuilder.Gameplay.Combat
             bladeTransform = visibleBlade;
             bladeLength = Mathf.Max(0.1f, visibleBladeLength);
             bladeRadius = Mathf.Max(0.005f, visibleBladeRadius);
+            usesExplicitBladeSegment = false;
+            CaptureBladePose();
+        }
+
+        public void ConfigureBladeSegment(
+            Transform visibleBlade,
+            Vector3 localBladeBase,
+            Vector3 localBladeTip,
+            float visibleBladeRadius = 0.06f)
+        {
+            bladeTransform = visibleBlade;
+            bladeLocalBase = localBladeBase;
+            bladeLocalTip = localBladeTip;
+            usesExplicitBladeSegment = visibleBlade != null;
+            bladeLength = visibleBlade != null
+                ? Mathf.Max(
+                    0.1f,
+                    Vector3.Distance(
+                        visibleBlade.TransformPoint(localBladeBase),
+                        visibleBlade.TransformPoint(localBladeTip)))
+                : 0.1f;
+            bladeRadius = Mathf.Max(0.005f, visibleBladeRadius);
             CaptureBladePose();
         }
 
         public void SetRuntimeDamageBonus(float bonus)
         {
             runtimeDamageBonus = bonus;
+        }
+
+        public void ConfigureGeneratedCombatProfile(
+            ShortSwordCombatProfile profile)
+        {
+            combatProfile = profile.IsValid
+                ? profile
+                : ShortSwordCombatProfile.Default;
         }
 
         public void SetOpeningHoldEnabled(bool enabled)
@@ -224,7 +287,7 @@ namespace WorldBuilder.Gameplay.Combat
                 return false;
             }
 
-            nextAttackTime = Time.time + cooldown;
+            nextAttackTime = Time.time + Cooldown;
             swingStarted = true;
             damageWindowOpen = false;
             activeDamageMultiplier = Mathf.Max(0f, damageMultiplier);
@@ -351,13 +414,24 @@ namespace WorldBuilder.Gameplay.Combat
 
                 uniqueDamageables++;
                 Vector3 hitPoint = hit.ClosestPoint(bladeCenter);
+                float chargedImpact = Mathf.Lerp(
+                    1f,
+                    1.25f,
+                    Mathf.InverseLerp(
+                        1f,
+                        1.5f,
+                        activeDamageMultiplier));
+                ShortSwordCombatProfile profile = ActiveCombatProfile;
                 DamageRequest request =
                     new DamageRequest(
                         gameObject,
                         Damage * activeDamageMultiplier,
                         hitPoint,
                         damageDirection,
-                        weaponId);
+                        weaponId,
+                        profile.StaggerDuration * chargedImpact,
+                        profile.HitPauseDuration * chargedImpact,
+                        profile.ImpactShakeMultiplier * chargedImpact);
                 if (DamageService.TryApply(hit, request))
                 {
                     damagedTargets++;
@@ -375,6 +449,11 @@ namespace WorldBuilder.Gameplay.Combat
             }
         }
 
+        private ShortSwordCombatProfile ActiveCombatProfile =>
+            combatProfile.IsValid
+                ? combatProfile
+                : ShortSwordCombatProfile.Default;
+
         private void CaptureBladePose()
         {
             if (bladeTransform == null)
@@ -391,8 +470,14 @@ namespace WorldBuilder.Gameplay.Combat
         {
             if (bladeTransform != null)
             {
-                bladeBase = bladeTransform.TransformPoint(Vector3.zero);
-                bladeTip = bladeTransform.TransformPoint(Vector3.up * bladeLength);
+                bladeBase = bladeTransform.TransformPoint(
+                    usesExplicitBladeSegment
+                        ? bladeLocalBase
+                        : Vector3.zero);
+                bladeTip = bladeTransform.TransformPoint(
+                    usesExplicitBladeSegment
+                        ? bladeLocalTip
+                        : Vector3.up * bladeLength);
                 return;
             }
 
@@ -437,12 +522,15 @@ namespace WorldBuilder.Gameplay.Combat
             string configuredWeaponId,
             float configuredDamage)
         {
-            bool legacyPrototypeSword =
+            bool outdatedPrototypeSwordDamage =
                 configuredWeaponId == "prototype-sword" &&
-                Mathf.Approximately(
-                    configuredDamage,
-                    LegacySwordDamage);
-            return legacyPrototypeSword
+                (Mathf.Approximately(
+                     configuredDamage,
+                     LegacySwordDamage) ||
+                 Mathf.Approximately(
+                     configuredDamage,
+                     PreviousSwordDamage));
+            return outdatedPrototypeSwordDamage
                 ? DefaultSwordDamage
                 : Mathf.Max(0f, configuredDamage);
         }

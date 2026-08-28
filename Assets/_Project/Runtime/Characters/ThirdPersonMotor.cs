@@ -18,8 +18,17 @@ namespace WorldBuilder.Gameplay.Characters
         public const float DefaultSprintSpeed = 4.6f;
         public const float DefaultCrouchSpeed = 1.0f;
         public const float DefaultCrouchTransitionSpeed = 2.75f;
-        public const float MinimumTraversalStepOffset = 0.34f;
+        // Generated bridge decks sit 0.35 m above their fitted bank height.
+        // Keep a small controller margin above that lip so AI and player
+        // capsules can mount the deck without relying on a jump.
+        public const float MinimumTraversalStepOffset = 0.42f;
         public const float DefaultSteepSlopeSlideSpeed = 5.25f;
+        public const float DefaultDamageSprintInterruption = 0.35f;
+        public const float BowSprintBufferGrace = 0.20f;
+        public const float MinimumStableGroundProbeDistance = 0.28f;
+        public const float DefaultLadderClimbSpeed = 1.5f;
+        public const float LadderAlignmentDuration = 0.18f;
+        public const float LadderDismountDuration = 0.32f;
 
         [SerializeField, Min(0f)] private float walkSpeed = DefaultWalkSpeed;
         [SerializeField, Min(0f)] private float sprintSpeed = DefaultSprintSpeed;
@@ -46,6 +55,8 @@ namespace WorldBuilder.Gameplay.Characters
         [SerializeField, Min(0.01f)] private float groundProbeDistance = 0.15f;
         [SerializeField, Min(0f)] private float steepSlopeSlideSpeed =
             DefaultSteepSlopeSlideSpeed;
+        [SerializeField, Min(0f)] private float damageSprintInterruption =
+            DefaultDamageSprintInterruption;
 
         private CharacterController controller;
         private PlayerInputSource input;
@@ -57,6 +68,9 @@ namespace WorldBuilder.Gameplay.Characters
         private float planarDashDistanceRemaining;
         private float planarDashSpeed;
         private float planarDashEndsAt = float.NegativeInfinity;
+        private float sprintInterruptedUntil = float.NegativeInfinity;
+        private float bowSprintBufferedUntil = float.NegativeInfinity;
+        private float hitStaggerUntil = float.NegativeInfinity;
         private Transform cameraTransform;
         private float standingHeight;
         private Vector3 standingCenter;
@@ -76,6 +90,18 @@ namespace WorldBuilder.Gameplay.Characters
         private Vector3 lockedMovementCameraForward;
         private Vector3 lockedMovementCameraRight;
         private bool movementCameraUnlockPending;
+        private bool isClimbingLadder;
+        private bool ladderControllerWasEnabled;
+        private float ladderClimbStartedAt;
+        private float ladderAscentDuration;
+        private Vector3 ladderApproachStart;
+        private Vector3 ladderBottom;
+        private Vector3 ladderVerticalTop;
+        private Vector3 ladderDismountTop;
+        private Quaternion ladderStartRotation;
+        private Quaternion ladderFacingRotation;
+        private readonly RaycastHit[] groundProbeHits =
+            new RaycastHit[16];
 
         public Vector3 HorizontalVelocity => horizontalVelocity;
         public Vector3 LocalHorizontalVelocity => transform.InverseTransformDirection(horizontalVelocity);
@@ -120,6 +146,15 @@ namespace WorldBuilder.Gameplay.Characters
         public float CrouchTransitionSpeed => crouchTransitionSpeed;
         public bool MovementCameraBasisLocked =>
             movementCameraBasisLocked;
+        public bool IsSprintInterrupted =>
+            Time.time < sprintInterruptedUntil;
+        public bool BowSprintBuffered =>
+            Time.time <= bowSprintBufferedUntil;
+        public bool IsHitStaggered => Time.time < hitStaggerUntil;
+        public bool IsClimbingLadder => isClimbingLadder;
+        public float LadderClimbProgress { get; private set; }
+        public event System.Action LadderClimbStarted;
+        public event System.Action LadderClimbEnded;
 
         private bool UsesWalkGait
         {
@@ -158,12 +193,16 @@ namespace WorldBuilder.Gameplay.Characters
 
         public void StopMotion()
         {
+            CancelLadderClimb();
             horizontalVelocity = Vector3.zero;
             verticalVelocity = -2f;
             desiredWorldDirection = Vector3.zero;
             targetHorizontalSpeed = 0f;
             airborneSpeedLimit = standingJumpAirSpeedLimit;
             isBrakingForReversal = false;
+            sprintInterruptedUntil = float.NegativeInfinity;
+            bowSprintBufferedUntil = float.NegativeInfinity;
+            hitStaggerUntil = float.NegativeInfinity;
             ClearPlanarDash();
         }
 
@@ -192,6 +231,7 @@ namespace WorldBuilder.Gameplay.Characters
 
         public void ResetForDiagnostics(Vector3 worldPosition, Quaternion worldRotation)
         {
+            CancelLadderClimb();
             if (controller == null)
             {
                 controller = GetComponent<CharacterController>();
@@ -207,15 +247,85 @@ namespace WorldBuilder.Gameplay.Characters
             targetHorizontalSpeed = 0f;
             airborneSpeedLimit = standingJumpAirSpeedLimit;
             isBrakingForReversal = false;
+            sprintInterruptedUntil = float.NegativeInfinity;
+            bowSprintBufferedUntil = float.NegativeInfinity;
             ClearPlanarDash();
             movementCameraBasisLocked = false;
             movementCameraUnlockPending = false;
             lastGroundedTime = Time.time;
             lastJumpRequestedTime = float.NegativeInfinity;
-            isGrounded = HasSupportedGroundContact();
+            isGrounded = HasGroundContact();
             facingOverrideBehaviours =
                 GetComponentsInChildren<MonoBehaviour>(true);
-            hasGroundControl = isGrounded;
+            hasGroundControl = HasWalkableGroundContact();
+        }
+
+        public bool TryBeginLadderClimb(
+            Vector3 bottomPosition,
+            Vector3 topPosition,
+            Vector3 ladderFacing)
+        {
+            if (isClimbingLadder ||
+                !CompareTag("Player") ||
+                health == null ||
+                !health.IsAlive ||
+                topPosition.y <= bottomPosition.y + 0.5f)
+            {
+                return false;
+            }
+
+            Vector3 planarFacing = Vector3.ProjectOnPlane(
+                ladderFacing,
+                Vector3.up);
+            if (planarFacing.sqrMagnitude <= 0.001f)
+            {
+                return false;
+            }
+
+            input ??= GetComponent<PlayerInputSource>();
+            input?.CancelSprintToggle();
+            UpdateCrouch(false);
+            ClearPlanarDash();
+            horizontalVelocity = Vector3.zero;
+            verticalVelocity = 0f;
+            desiredWorldDirection = Vector3.zero;
+            targetHorizontalSpeed = 0f;
+            isBrakingForReversal = false;
+            hasGroundControl = false;
+            isGrounded = false;
+
+            isClimbingLadder = true;
+            LadderClimbProgress = 0f;
+            ladderClimbStartedAt = Time.time;
+            ladderApproachStart = transform.position;
+            ladderBottom = bottomPosition;
+            ladderVerticalTop = new Vector3(
+                bottomPosition.x,
+                topPosition.y,
+                bottomPosition.z);
+            ladderDismountTop = topPosition;
+            ladderAscentDuration = Mathf.Max(
+                0.1f,
+                (ladderVerticalTop.y - ladderBottom.y) /
+                DefaultLadderClimbSpeed);
+            ladderStartRotation = transform.rotation;
+            ladderFacingRotation = Quaternion.LookRotation(
+                planarFacing.normalized,
+                Vector3.up);
+            ladderControllerWasEnabled =
+                controller != null && controller.enabled;
+            if (controller != null)
+            {
+                controller.enabled = false;
+            }
+
+            LadderClimbStarted?.Invoke();
+            return true;
+        }
+
+        public void CancelLadderClimb()
+        {
+            FinishLadderClimb(false);
         }
 
         private void Awake()
@@ -226,7 +336,7 @@ namespace WorldBuilder.Gameplay.Characters
                 MinimumTraversalStepOffset);
             input = GetComponent<PlayerInputSource>();
             health = GetComponent<Health>();
-            bowWeapon = GetComponent<BowWeapon>();
+            bowWeapon = GetComponentInChildren<BowWeapon>(true);
             EnsurePlayerDamageNumbers();
             EnsureAnatomicalDamageHitboxes();
             standingHeight = controller.height;
@@ -234,9 +344,65 @@ namespace WorldBuilder.Gameplay.Characters
             crouchingHeight = Mathf.Clamp(crouchingHeight, controller.radius * 2f, standingHeight);
             crouchingCenter = standingCenter + Vector3.down * ((standingHeight - crouchingHeight) * 0.5f);
             airborneSpeedLimit = standingJumpAirSpeedLimit;
-            isGrounded = HasSupportedGroundContact();
+            isGrounded = HasGroundContact();
             facingOverrideBehaviours =
                 GetComponentsInChildren<MonoBehaviour>(true);
+        }
+
+        private void OnEnable()
+        {
+            health ??= GetComponent<Health>();
+            if (health != null)
+            {
+                health.Damaged -= HandleDamaged;
+                health.Damaged += HandleDamaged;
+            }
+        }
+
+        private void OnDisable()
+        {
+            CancelLadderClimb();
+            if (health != null)
+            {
+                health.Damaged -= HandleDamaged;
+            }
+        }
+
+        private void HandleDamaged(DamageRequest request)
+        {
+            if (request.Amount <= 0f)
+            {
+                return;
+            }
+
+            if (string.Equals(
+                    request.SourceId,
+                    MeleeWeapon.PrototypeSwordSourceId,
+                    System.StringComparison.Ordinal))
+            {
+                hitStaggerUntil = Mathf.Max(
+                    hitStaggerUntil,
+                    Time.time +
+                        (request.StaggerDuration > 0f
+                            ? request.StaggerDuration
+                            : HitReactionPresenter.SwordStaggerDuration));
+                ClearPlanarDash();
+            }
+
+            if (!CompareTag("Player"))
+            {
+                return;
+            }
+
+            input ??= GetComponent<PlayerInputSource>();
+            input?.CancelSprintToggle();
+            sprintInterruptedUntil = Mathf.Max(
+                sprintInterruptedUntil,
+                Time.time + damageSprintInterruption);
+            if (targetHorizontalSpeed > WalkSpeed)
+            {
+                targetHorizontalSpeed = WalkSpeed;
+            }
         }
 
         private void EnsureAnatomicalDamageHitboxes()
@@ -282,10 +448,17 @@ namespace WorldBuilder.Gameplay.Characters
         {
             if (health != null && !health.IsAlive)
             {
+                CancelLadderClimb();
                 desiredWorldDirection = Vector3.zero;
                 targetHorizontalSpeed = 0f;
                 hasGroundControl = false;
                 ApplyGravityOnly();
+                return;
+            }
+
+            if (isClimbingLadder)
+            {
+                UpdateLadderClimb();
                 return;
             }
 
@@ -294,18 +467,38 @@ namespace WorldBuilder.Gameplay.Characters
                 cameraTransform = Camera.main.transform;
             }
 
-            PlayerIntent intent = input.CurrentIntent;
+            PlayerIntent intent = IsHitStaggered
+                ? default
+                : input.CurrentIntent;
+            bool bowPresentationLocked =
+                bowWeapon != null &&
+                bowWeapon.PresentationAimLocked;
+            if (bowPresentationLocked && intent.SprintHeld)
+            {
+                bowSprintBufferedUntil = Mathf.Max(
+                    bowSprintBufferedUntil,
+                    Time.time +
+                    bowWeapon.PostShotPoseRemaining +
+                    BowSprintBufferGrace);
+            }
+            bool bufferedBowSprint =
+                !bowPresentationLocked &&
+                BowSprintBuffered;
+            if (IsHitStaggered)
+            {
+                ClearPlanarDash();
+            }
             UpdateCrouch(intent.CrouchHeld);
             UpdateMovementCameraBasis(input.CameraOrbitHeld);
             Vector3 desiredDirection = ToWorldDirection(intent.Move);
             bool facingOverridden =
                 TryGetFacingOverride(out Vector3 overrideFacingDirection);
             desiredWorldDirection = desiredDirection;
-            hasGroundControl = HasSupportedGroundContact();
+            hasGroundControl = HasWalkableGroundContact();
             if (hasGroundControl)
             {
                 // Aim-locked movement keeps the deliberate walk gait even
-                // when the player is holding the sprint input.
+                // when the player's sprint toggle is active.
                 bool inspectionMovementOrbit =
                     input.CameraOrbitHeld ||
                     movementCameraBasisLocked;
@@ -314,12 +507,19 @@ namespace WorldBuilder.Gameplay.Characters
                 // facing-locked gait.
                 bool combatAimHeld =
                     intent.BlockHeld ||
-                    (bowWeapon != null && bowWeapon.DrawInputHeld);
-                bool sprintAllowed = CalculateSprintAllowed(
-                    facingOverridden,
-                    inspectionMovementOrbit,
-                    combatAimHeld,
-                    intent.SprintHeld);
+                    bowPresentationLocked;
+                bool sprintAllowed =
+                    !IsSprintInterrupted &&
+                    CalculateSprintAllowed(
+                        facingOverridden,
+                        inspectionMovementOrbit,
+                        combatAimHeld,
+                        intent.SprintHeld || bufferedBowSprint);
+                if (sprintAllowed &&
+                    desiredDirection.sqrMagnitude > 0.001f)
+                {
+                    bowSprintBufferedUntil = float.NegativeInfinity;
+                }
                 float targetSpeed = isCrouched
                     ? CrouchSpeed
                     : sprintAllowed
@@ -370,7 +570,95 @@ namespace WorldBuilder.Gameplay.Characters
                     steepSlopeSlideSpeed);
             }
             controller.Move(motion * Time.deltaTime);
-            isGrounded = HasSupportedGroundContact();
+            isGrounded = CalculateGroundedPresentation(
+                HasGroundContact(),
+                verticalVelocity);
+        }
+
+        private void UpdateLadderClimb()
+        {
+            float elapsed = Mathf.Max(
+                0f,
+                Time.time - ladderClimbStartedAt);
+            float ascentStart = LadderAlignmentDuration;
+            float dismountStart = ascentStart + ladderAscentDuration;
+            float totalDuration =
+                dismountStart + LadderDismountDuration;
+
+            Vector3 position;
+            Quaternion rotation;
+            if (elapsed < ascentStart)
+            {
+                float alignment = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    elapsed / Mathf.Max(0.01f, ascentStart));
+                position = Vector3.Lerp(
+                    ladderApproachStart,
+                    ladderBottom,
+                    alignment);
+                rotation = Quaternion.Slerp(
+                    ladderStartRotation,
+                    ladderFacingRotation,
+                    alignment);
+            }
+            else if (elapsed < dismountStart)
+            {
+                float ascent = Mathf.Clamp01(
+                    (elapsed - ascentStart) /
+                    Mathf.Max(0.01f, ladderAscentDuration));
+                position = Vector3.Lerp(
+                    ladderBottom,
+                    ladderVerticalTop,
+                    ascent);
+                rotation = ladderFacingRotation;
+            }
+            else
+            {
+                float dismount = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    (elapsed - dismountStart) /
+                    LadderDismountDuration);
+                position = Vector3.Lerp(
+                    ladderVerticalTop,
+                    ladderDismountTop,
+                    dismount);
+                rotation = ladderFacingRotation;
+            }
+
+            transform.SetPositionAndRotation(position, rotation);
+            LadderClimbProgress = Mathf.Clamp01(
+                elapsed / Mathf.Max(0.01f, totalDuration));
+            if (elapsed >= totalDuration)
+            {
+                FinishLadderClimb(true);
+            }
+        }
+
+        private void FinishLadderClimb(bool completed)
+        {
+            if (!isClimbingLadder)
+            {
+                return;
+            }
+
+            isClimbingLadder = false;
+            LadderClimbProgress = completed ? 1f : 0f;
+            if (controller != null && ladderControllerWasEnabled)
+            {
+                controller.enabled = true;
+            }
+            ladderControllerWasEnabled = false;
+            horizontalVelocity = Vector3.zero;
+            verticalVelocity = -2f;
+            desiredWorldDirection = Vector3.zero;
+            targetHorizontalSpeed = 0f;
+            isGrounded = controller != null &&
+                controller.enabled &&
+                HasGroundContact();
+            hasGroundControl = isGrounded;
+            LadderClimbEnded?.Invoke();
         }
 
         private Vector3 CalculatePlanarDashVelocity()
@@ -590,12 +878,14 @@ namespace WorldBuilder.Gameplay.Characters
             horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, Vector3.zero, acceleration * Time.deltaTime);
             UpdatePassiveGravity();
             controller.Move((horizontalVelocity + Vector3.up * verticalVelocity) * Time.deltaTime);
-            isGrounded = HasSupportedGroundContact();
+            isGrounded = CalculateGroundedPresentation(
+                HasGroundContact(),
+                verticalVelocity);
         }
 
         private void UpdateVerticalMotion(PlayerIntent intent)
         {
-            bool groundedBeforeMove = HasSupportedGroundContact();
+            bool groundedBeforeMove = HasWalkableGroundContact();
             if (groundedBeforeMove)
             {
                 lastGroundedTime = Time.time;
@@ -631,7 +921,7 @@ namespace WorldBuilder.Gameplay.Characters
 
         private void UpdatePassiveGravity()
         {
-            if (HasSupportedGroundContact() && verticalVelocity < 0f)
+            if (HasGroundContact() && verticalVelocity < 0f)
             {
                 verticalVelocity = -2f;
             }
@@ -668,15 +958,24 @@ namespace WorldBuilder.Gameplay.Characters
             return !Physics.CheckCapsule(bottom, top, radius, overheadObstructionMask, QueryTriggerInteraction.Ignore);
         }
 
-        private bool HasSupportedGroundContact()
+        private bool HasGroundContact()
         {
-            if (!controller.isGrounded)
-            {
-                return false;
-            }
+            return TryGetGroundSurface(out _);
+        }
 
+        private bool HasWalkableGroundContact()
+        {
             return TryGetGroundSurface(out RaycastHit hit) &&
                 !IsSteepSlope(hit.normal, controller.slopeLimit);
+        }
+
+        public static bool CalculateGroundedPresentation(
+            bool hasGroundContact,
+            float verticalVelocity)
+        {
+            // Nearby terrain keeps locomotion grounded across seams and
+            // slopes, but an authored jump always owns its upward takeoff.
+            return hasGroundContact && verticalVelocity <= 0.05f;
         }
 
         private bool TryGetGroundSurface(out RaycastHit closestHit)
@@ -685,15 +984,37 @@ namespace WorldBuilder.Gameplay.Characters
             Vector3 worldCenter = transform.TransformPoint(controller.center);
             Vector3 controllerBottom = worldCenter - Vector3.up * (controller.height * 0.5f);
             Vector3 probeOrigin = controllerBottom + Vector3.up * (groundProbeRadius + 0.05f);
-            RaycastHit[] hits = Physics.SphereCastAll(
+            RaycastHit[] hits = groundProbeHits;
+            int hitCount = Physics.SphereCastNonAlloc(
                 probeOrigin,
                 groundProbeRadius,
                 Vector3.down,
-                groundProbeDistance,
+                hits,
+                Mathf.Max(
+                    groundProbeDistance,
+                    MinimumStableGroundProbeDistance),
                 groundSupportMask,
                 QueryTriggerInteraction.Ignore);
+
+            // Physics non-alloc queries do not guarantee the nearest result
+            // when their buffer is full. Fall back to the complete query in
+            // that rare dense case so ground selection remains identical.
+            if (hitCount == hits.Length)
+            {
+                hits = Physics.SphereCastAll(
+                    probeOrigin,
+                    groundProbeRadius,
+                    Vector3.down,
+                    Mathf.Max(
+                        groundProbeDistance,
+                        MinimumStableGroundProbeDistance),
+                    groundSupportMask,
+                    QueryTriggerInteraction.Ignore);
+                hitCount = hits.Length;
+            }
+
             float closestDistance = float.PositiveInfinity;
-            for (int index = 0; index < hits.Length; index++)
+            for (int index = 0; index < hitCount; index++)
             {
                 Collider hitCollider = hits[index].collider;
                 if (hitCollider == null ||

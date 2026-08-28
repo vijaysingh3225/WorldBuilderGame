@@ -29,6 +29,9 @@ namespace WorldBuilder.Gameplay.Presentation
         private static Texture2D borderedPanelTexture;
         private static Texture2D weaponGridCellTexture;
         private static Texture2D sectionTexture;
+        private static Texture2D storageSectionTexture;
+        private static Texture2D storageDividerTexture;
+        private static Texture2D storageGridFrameTexture;
         private static Texture2D scrollTrackTexture;
         private static Texture2D scrollThumbTexture;
         private static Texture2D scrollThumbHoverTexture;
@@ -38,6 +41,8 @@ namespace WorldBuilder.Gameplay.Presentation
 
         public static Color CellColor => new Color32(0x27, 0x29, 0x28, 0xff);
         public static Color BorderColor => new Color32(0x82, 0x7b, 0x6c, 0xff);
+        public static Color StorageBorderColor =>
+            new Color32(0x62, 0x5e, 0x54, 0xff);
         public static Color InventoryBackgroundColor =>
             new Color32(0x14, 0x19, 0x1b, 0xff);
 
@@ -95,6 +100,33 @@ namespace WorldBuilder.Gameplay.Presentation
             }
         }
 
+        public static Texture2D StorageSectionTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return storageSectionTexture;
+            }
+        }
+
+        public static Texture2D StorageDividerTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return storageDividerTexture;
+            }
+        }
+
+        public static Texture2D StorageGridFrameTexture
+        {
+            get
+            {
+                EnsurePaletteTextures();
+                return storageGridFrameTexture;
+            }
+        }
+
         public static Font UiFont
         {
             get
@@ -129,6 +161,9 @@ namespace WorldBuilder.Gameplay.Presentation
             borderedPanelTexture = null;
             weaponGridCellTexture = null;
             sectionTexture = null;
+            storageSectionTexture = null;
+            storageDividerTexture = null;
+            storageGridFrameTexture = null;
             scrollTrackTexture = null;
             scrollThumbTexture = null;
             scrollThumbHoverTexture = null;
@@ -219,6 +254,18 @@ namespace WorldBuilder.Gameplay.Presentation
             sectionTexture = CreateChamferedTexture(
                 "UI Section Chamfer",
                 InventoryBackgroundColor);
+            storageSectionTexture = CreateChamferedTexture(
+                "UI Storage Section Chamfer",
+                InventoryBackgroundColor,
+                StorageBorderColor,
+                cut: 2,
+                border: 1);
+            storageDividerTexture = CreateSolidTexture(
+                "UI Storage Grid Divider",
+                StorageBorderColor);
+            storageGridFrameTexture = CreateSolidTexture(
+                "UI Storage Grid Frame",
+                StorageBorderColor);
             scrollTrackTexture = CreateSolidTexture(
                 "UI Minimal Scroll Track",
                 new Color(
@@ -292,11 +339,12 @@ namespace WorldBuilder.Gameplay.Presentation
 
         private static Texture2D CreateChamferedTexture(
             string name,
-            Color fill)
+            Color fill,
+            Color? borderColor = null,
+            int cut = 4,
+            int border = 2)
         {
             const int size = 13;
-            const int cut = 4;
-            const int border = 2;
             var texture = new Texture2D(
                 size,
                 size,
@@ -309,6 +357,7 @@ namespace WorldBuilder.Gameplay.Presentation
                 hideFlags = HideFlags.HideAndDontSave
             };
             Color clear = new Color(0f, 0f, 0f, 0f);
+            Color borderTint = borderColor ?? BorderColor;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
@@ -330,7 +379,7 @@ namespace WorldBuilder.Gameplay.Presentation
                             ? clear
                             : insideInner
                                 ? fill
-                                : BorderColor);
+                                : borderTint);
                 }
             }
             texture.Apply(false, false);

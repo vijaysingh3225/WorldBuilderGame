@@ -12,6 +12,7 @@ namespace WorldBuilder.Gameplay.Input
         private bool diagnosticOverrideActive;
         private PlayerIntent diagnosticIntent;
         private bool crouchToggled;
+        private bool sprintToggled;
         private bool userInterfaceCaptureActive;
         private bool gameplayCursorCaptureRequested;
         private int shoulderSide = 1;
@@ -22,6 +23,7 @@ namespace WorldBuilder.Gameplay.Input
             userInterfaceCaptureActive;
         public bool GameplayCursorCaptureRequested =>
             gameplayCursorCaptureRequested;
+        public bool SprintToggleActive => sprintToggled;
         public bool CameraOrbitHeld { get; private set; }
         public int ShoulderSide => shoulderSide;
         public event Action<int> WeaponSlotRequested;
@@ -31,8 +33,35 @@ namespace WorldBuilder.Gameplay.Input
             userInterfaceCaptureActive = captured;
             if (captured)
             {
+                CancelSprintToggle();
                 CurrentIntent = default;
                 CameraOrbitHeld = false;
+            }
+        }
+
+        public void RequestSprintToggle()
+        {
+            if (!userInterfaceCaptureActive)
+            {
+                sprintToggled = !sprintToggled;
+            }
+        }
+
+        public void CancelSprintToggle()
+        {
+            sprintToggled = false;
+            if (!diagnosticOverrideActive && CurrentIntent.SprintHeld)
+            {
+                CurrentIntent = new PlayerIntent(
+                    CurrentIntent.Move,
+                    CurrentIntent.Look,
+                    false,
+                    CurrentIntent.JumpPressed,
+                    CurrentIntent.JumpHeld,
+                    CurrentIntent.CrouchHeld,
+                    CurrentIntent.AttackPressed,
+                    CurrentIntent.BlockHeld,
+                    CurrentIntent.AttackHeld);
             }
         }
 
@@ -52,6 +81,7 @@ namespace WorldBuilder.Gameplay.Input
         {
             diagnosticOverrideActive = false;
             diagnosticIntent = default;
+            sprintToggled = false;
             CurrentIntent = default;
         }
 
@@ -70,6 +100,7 @@ namespace WorldBuilder.Gameplay.Input
             diagnosticOverrideActive = false;
             diagnosticIntent = default;
             crouchToggled = false;
+            sprintToggled = false;
             userInterfaceCaptureActive = false;
             gameplayCursorCaptureRequested = false;
             CameraOrbitHeld = false;
@@ -171,9 +202,13 @@ namespace WorldBuilder.Gameplay.Input
                 cursorLocked &&
                 mouse != null &&
                 mouse.rightButton.isPressed;
-            bool sprintHeld = PlayerControlBindings.IsPressed(
-                keyboard,
-                PlayerControl.Sprint);
+            if (PlayerControlBindings.WasPressedThisFrame(
+                    keyboard,
+                    PlayerControl.Sprint))
+            {
+                RequestSprintToggle();
+            }
+            bool sprintHeld = sprintToggled;
             bool jumpPressed = PlayerControlBindings.WasPressedThisFrame(
                 keyboard,
                 PlayerControl.Jump);

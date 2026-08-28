@@ -1,15 +1,123 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
+using WorldBuilder.Gameplay.Characters;
 using WorldBuilder.Gameplay.Combat;
 using WorldBuilder.Gameplay.Loop;
 using WorldBuilder.Gameplay.Loop.Scenes;
+using WorldBuilder.Gameplay.Presentation;
+using WorldBuilder.Gameplay.WeaponGrid;
 
 namespace WorldBuilder.Tests.EditMode
 {
     public sealed class LootItemSystemTests
     {
+        [Test]
+        public void GridDividersFadeOnlyInsideOneMultiCellItem()
+        {
+            StorageEntry sword = StorageEntry.Create(
+                ItemDefinitionIds.LootShortSword,
+                1);
+            StorageEntry anotherSword = StorageEntry.Create(
+                ItemDefinitionIds.LootShortSword,
+                1);
+            StorageEntry arrows = StorageEntry.Create(
+                ItemDefinitionIds.Arrow,
+                12);
+
+            Assert.That(
+                HomeInventoryController.
+                    AreCellsInsideSameMultiCellItem(sword, sword),
+                Is.True,
+                "Adjacent cells occupied by one sword should use the faded internal divider.");
+            Assert.That(
+                HomeInventoryController.
+                    AreCellsInsideSameMultiCellItem(
+                        sword,
+                        anotherSword),
+                Is.False,
+                "Separate items must keep the divider between them.");
+            Assert.That(
+                HomeInventoryController.
+                    AreCellsInsideSameMultiCellItem(arrows, arrows),
+                Is.False,
+                "A single-cell stack should preserve its normal cell border.");
+            Assert.That(
+                HomeInventoryController.MultiCellInternalDividerStrength,
+                Is.InRange(0.10f, 0.20f),
+                "The internal footprint grid should remain barely visible rather than disappearing or matching the full border.");
+            Assert.That(
+                HomeInventoryController.MultiCellInternalDividerColor,
+                Is.Not.EqualTo(GameTypography.CellColor));
+            Assert.That(
+                HomeInventoryController.MultiCellInternalDividerColor,
+                Is.Not.EqualTo(GameTypography.StorageBorderColor));
+        }
+
+        [Test]
+        public void WeaponPreviewSnapshotsAreCompactGpuCachedImages()
+        {
+            GameObject owner = new GameObject(
+                "weapon-preview-snapshot-test");
+            var source = new RenderTexture(
+                32,
+                96,
+                24,
+                RenderTextureFormat.ARGB32);
+            Texture2D probe = null;
+            try
+            {
+                source.Create();
+                RenderTexture previous = RenderTexture.active;
+                RenderTexture.active = source;
+                GL.Clear(
+                    true,
+                    true,
+                    new Color(0.72f, 0.28f, 0.12f, 1f));
+                RenderTexture.active = previous;
+
+                InventoryPreviewRenderer renderer =
+                    owner.AddComponent<InventoryPreviewRenderer>();
+                MethodInfo snapshotMethod =
+                    typeof(InventoryPreviewRenderer).GetMethod(
+                        "SnapshotItemPreview",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(snapshotMethod, Is.Not.Null);
+                RenderTexture first = snapshotMethod.Invoke(
+                    renderer,
+                    new object[] { source, "test-sword-0" }) as RenderTexture;
+                RenderTexture second = snapshotMethod.Invoke(
+                    renderer,
+                    new object[] { source, "test-sword-0" }) as RenderTexture;
+
+                Assert.That(first, Is.Not.Null);
+                Assert.That(second, Is.SameAs(first));
+                Assert.That(first.width, Is.EqualTo(16));
+                Assert.That(first.height, Is.EqualTo(48));
+                Assert.That(first.depth, Is.EqualTo(0));
+
+                previous = RenderTexture.active;
+                RenderTexture.active = first;
+                probe = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                probe.ReadPixels(new Rect(8f, 24f, 1f, 1f), 0, 0);
+                probe.Apply();
+                RenderTexture.active = previous;
+                Assert.That(probe.GetPixel(0, 0).a, Is.GreaterThan(0.95f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(owner);
+                source.Release();
+                Object.DestroyImmediate(source);
+                if (probe != null)
+                {
+                    Object.DestroyImmediate(probe);
+                }
+            }
+        }
+
         [Test]
         public void LeftDragDistributionSplitsEveryItemAcrossVisitedCells()
         {
@@ -67,6 +175,27 @@ namespace WorldBuilder.Tests.EditMode
                 ItemDefinitionCatalog.MaximumStack(
                     ItemDefinitionIds.CopperCoin),
                 Is.EqualTo(100));
+        }
+
+        [Test]
+        public void RopeIsAStackableMaterialWithTwentyFourItemStacks()
+        {
+            Assert.That(
+                ItemDefinitionCatalog.DisplayName(ItemDefinitionIds.Rope),
+                Is.EqualTo("Rope"));
+            Assert.That(
+                ItemDefinitionCatalog.Category(ItemDefinitionIds.Rope),
+                Is.EqualTo(ItemCategory.Material));
+            Assert.That(
+                ItemDefinitionCatalog.IsStackable(ItemDefinitionIds.Rope),
+                Is.True);
+            Assert.That(
+                ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.Rope),
+                Is.EqualTo(24));
+            Assert.That(
+                ItemDefinitionCatalog.LoadIcon(ItemDefinitionIds.Rope),
+                Is.Not.Null,
+                "The rope inventory icon must remain available through Resources.");
         }
 
         [Test]
@@ -192,6 +321,127 @@ namespace WorldBuilder.Tests.EditMode
                     lShape,
                     new Vector2Int(0, 2));
             Assert.That(rotatedGrab, Is.EqualTo(Vector2Int.zero));
+        }
+
+        [Test]
+        public void MultiCellGrabCannotWrapAcrossRowsWhenItsAnchorLeavesTheGrid()
+        {
+            Assert.That(
+                ItemGridPlacement.TryCalculateAnchorSlot(
+                    hoveredSlot: 4,
+                    grabbedColumnOffset: 1,
+                    grabbedRowOffset: 0,
+                    columns: 4,
+                    rows: 6,
+                    out _),
+                Is.False,
+                "A left-edge hover cannot wrap a grabbed center/right tile into the preceding row.");
+
+            Assert.That(
+                ItemGridPlacement.TryCalculateAnchorSlot(
+                    hoveredSlot: 5,
+                    grabbedColumnOffset: 1,
+                    grabbedRowOffset: 0,
+                    columns: 4,
+                    rows: 6,
+                    out int validAnchor),
+                Is.True);
+            Assert.That(validAnchor, Is.EqualTo(4));
+        }
+
+        [Test]
+        public void SmartAutoPlacementPreservesCurrentOrientationBeforeRotating()
+        {
+            StorageEntry sword = StorageEntry.Create(
+                ItemDefinitionIds.LootShortSword);
+
+            Assert.That(
+                ItemGridPlacement.TryFindFirstAvailableSlotWithRotation(
+                    new List<StorageEntry>(),
+                    sword,
+                    columns: 3,
+                    rows: 3,
+                    out int slot,
+                    out int rotation),
+                Is.True);
+            Assert.That(slot, Is.Zero);
+            Assert.That(rotation, Is.Zero);
+            Assert.That(
+                sword.RotationQuarterTurns,
+                Is.Zero,
+                "Searching alternate orientations must not mutate the source item.");
+        }
+
+        [Test]
+        public void SmartAutoPlacementRotatesMultiCellItemsWhenOnlyRotatedFootprintsFit()
+        {
+            var emptyGrid = new List<StorageEntry>();
+            StorageEntry sword = StorageEntry.Create(
+                ItemDefinitionIds.LootShortSword);
+            StorageEntry bow = StorageEntry.Create(
+                ItemDefinitionIds.LootHuntingBow);
+
+            Assert.That(
+                ItemGridPlacement.TryFindFirstAvailableSlotWithRotation(
+                    emptyGrid,
+                    sword,
+                    columns: 3,
+                    rows: 2,
+                    out int swordSlot,
+                    out int swordRotation),
+                Is.True);
+            Assert.That(swordSlot, Is.Zero);
+            Assert.That(swordRotation, Is.EqualTo(1));
+
+            Assert.That(
+                ItemGridPlacement.TryFindFirstAvailableSlotWithRotation(
+                    emptyGrid,
+                    bow,
+                    columns: 3,
+                    rows: 2,
+                    out int bowSlot,
+                    out int bowRotation),
+                Is.True);
+            Assert.That(bowSlot, Is.Zero);
+            Assert.That(bowRotation, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void SmartAutoTransferStoresTheSelectedRotation()
+        {
+            GameObject sourceObject = new GameObject(
+                "smart-auto-transfer-rotation-test");
+            try
+            {
+                RaidLootContainer source =
+                    sourceObject.AddComponent<RaidLootContainer>();
+                const BindingFlags fields =
+                    BindingFlags.Instance | BindingFlags.NonPublic;
+                FieldInfo columns = typeof(RaidLootContainer).GetField(
+                    "columns",
+                    fields);
+                FieldInfo rows = typeof(RaidLootContainer).GetField(
+                    "rows",
+                    fields);
+                Assert.That(columns, Is.Not.Null);
+                Assert.That(rows, Is.Not.Null);
+                columns.SetValue(source, 3);
+                rows.SetValue(source, 2);
+
+                int moved = source.TryAdd(
+                    StorageEntry.Create(ItemDefinitionIds.LootShortSword),
+                    -1,
+                    true);
+
+                Assert.That(moved, Is.EqualTo(1));
+                StorageEntry stored = source.Entries.Single();
+                Assert.That(stored.SlotIndex, Is.Zero);
+                Assert.That(stored.RotationQuarterTurns, Is.EqualTo(1));
+            }
+            finally
+            {
+                Object.DestroyImmediate(sourceObject);
+            }
         }
 
         [Test]
@@ -373,10 +623,16 @@ namespace WorldBuilder.Tests.EditMode
         public void CorpsesAndCampChestsUseRequestedGridsAndLootRanges()
         {
             GameObject sourceObject = new GameObject("loot-source-test");
+            GameObject swordsmanObject = new GameObject(
+                "swordsman-loot-source-test");
             try
             {
                 RaidLootContainer source =
                     sourceObject.AddComponent<RaidLootContainer>();
+                EnemyBrain swordsman =
+                    swordsmanObject.AddComponent<EnemyBrain>();
+                swordsman.ConfigureCampGuardLoadout(
+                    EnemyBrain.WeaponLoadout.SwordOnly);
                 bool sawCorpseHealthPack = false;
                 bool sawEmptyCorpseUtilitySlot = false;
                 bool sawCorpseCoins = false;
@@ -391,6 +647,12 @@ namespace WorldBuilder.Tests.EditMode
                 bool sawChestWithoutCoins = false;
                 bool sawChestArtifact = false;
                 bool sawChestWithoutArtifact = false;
+                bool sawChestWithOneArtifact = false;
+                bool sawChestWithTwoArtifacts = false;
+                bool sawOwlEyeSeal = false;
+                bool sawWingedSeal = false;
+                bool sawObsidianShard = false;
+                bool sawChestLootAwayFromLeadingCells = false;
                 for (int seed = 0; seed < 64; seed++)
                 {
                     source.ConfigureCorpse(null, seed);
@@ -402,6 +664,23 @@ namespace WorldBuilder.Tests.EditMode
                     StorageEntry corpseBow = source.Entries.Single(entry =>
                         entry.DefinitionId == ItemDefinitionIds.LootHuntingBow);
                     Assert.That(corpseBow.Quantity, Is.EqualTo(1));
+                    Assert.That(
+                        ItemGridPlacement.TryGetOccupiedSlots(
+                            ItemDefinitionCatalog.GetFootprint(
+                                corpseBow.DefinitionId,
+                                corpseBow.RotationQuarterTurns),
+                            corpseBow.SlotIndex,
+                            source.Columns,
+                            source.Rows,
+                            out int[] bowSlots),
+                        Is.True);
+                    Assert.That(bowSlots, Has.Length.EqualTo(6));
+                    Assert.That(
+                        bowSlots.All(slot =>
+                            source.GetEntryAtSlot(slot)?.EntryId ==
+                            corpseBow.EntryId),
+                        Is.True,
+                        "Every occupied bow cell must resolve to the guard's lootable weapon.");
                     Assert.That(
                         LootWeaponData.TryParse(
                             corpseBow.CustomStateJson,
@@ -435,7 +714,43 @@ namespace WorldBuilder.Tests.EditMode
                                 RaidLootContainer.GuardMaximumCoins));
                     }
 
+                    source.ConfigureCorpse(swordsman, seed);
+                    StorageEntry corpseSword = source.Entries.Single(entry =>
+                        entry.DefinitionId ==
+                            ItemDefinitionIds.LootShortSword);
+                    Assert.That(
+                        ItemGridPlacement.TryGetOccupiedSlots(
+                            ItemDefinitionCatalog.GetFootprint(
+                                corpseSword.DefinitionId,
+                                corpseSword.RotationQuarterTurns),
+                            corpseSword.SlotIndex,
+                            source.Columns,
+                            source.Rows,
+                            out int[] swordSlots),
+                        Is.True);
+                    Assert.That(swordSlots, Has.Length.EqualTo(3));
+                    Assert.That(
+                        swordSlots.All(slot =>
+                            source.GetEntryAtSlot(slot)?.EntryId ==
+                            corpseSword.EntryId),
+                        Is.True,
+                        "Every occupied sword cell must resolve to the swordsman's lootable weapon.");
+                    Assert.That(
+                        LootWeaponData.TryParse(
+                            corpseSword.CustomStateJson,
+                            out LootWeaponData swordData),
+                        Is.True);
+                    Assert.That(
+                        source.SpawnedWeaponDefinitionId,
+                        Is.EqualTo(ItemDefinitionIds.LootShortSword));
+                    Assert.That(
+                        source.SpawnedWeaponVisualSeed,
+                        Is.EqualTo(swordData.VisualSeed),
+                        "The loot payload must preserve the exact unrestricted " +
+                        "short sword shown in the guard's hand.");
+
                     source.ConfigureChest("Camp Chest", seed);
+                    Assert.That(source.SpawnedWeaponDefinitionId, Is.Empty);
                     Assert.That(source.Columns, Is.EqualTo(4));
                     Assert.That(source.Rows, Is.EqualTo(4));
                     StorageEntry chestArrows = source.Entries.Single(entry =>
@@ -458,11 +773,25 @@ namespace WorldBuilder.Tests.EditMode
                     sawChestWithoutCoal |= coal == null;
                     sawChestCoins |= coins != null;
                     sawChestWithoutCoins |= coins == null;
-                    StorageEntry artifact = source.Entries.SingleOrDefault(
-                        entry => entry.DefinitionId ==
+                    StorageEntry[] artifacts = source.Entries.Where(entry =>
+                            RaidLootContainer.ChestArtifactPool.Contains(
+                                entry.DefinitionId))
+                        .ToArray();
+                    sawChestArtifact |= artifacts.Length > 0;
+                    sawChestWithoutArtifact |= artifacts.Length == 0;
+                    sawChestWithOneArtifact |= artifacts.Length == 1;
+                    sawChestWithTwoArtifacts |= artifacts.Length == 2;
+                    sawOwlEyeSeal |= artifacts.Any(entry =>
+                        entry.DefinitionId ==
                             ItemDefinitionIds.OwlEyeSeal);
-                    sawChestArtifact |= artifact != null;
-                    sawChestWithoutArtifact |= artifact == null;
+                    sawWingedSeal |= artifacts.Any(entry =>
+                        entry.DefinitionId ==
+                            ItemDefinitionIds.WingedSeal);
+                    sawObsidianShard |= artifacts.Any(entry =>
+                        entry.DefinitionId ==
+                            ItemDefinitionIds.ObsidianShard);
+                    sawChestLootAwayFromLeadingCells |=
+                        source.Entries.Any(entry => entry.SlotIndex >= 8);
                     Assert.That(ingots.Length, Is.InRange(0, 3));
                     Assert.That(
                         ingots.All(entry => entry.Quantity == 1),
@@ -476,14 +805,16 @@ namespace WorldBuilder.Tests.EditMode
                     {
                         Assert.That(coins.Quantity, Is.InRange(1, 10));
                     }
-                    if (artifact != null)
-                    {
-                        Assert.That(artifact.Quantity, Is.EqualTo(1));
-                    }
-                    if (artifact != null)
-                    {
-                        Assert.That(artifact.Quantity, Is.EqualTo(1));
-                    }
+                    Assert.That(artifacts.Length, Is.InRange(0, 2));
+                    Assert.That(
+                        artifacts.All(artifact => artifact.Quantity == 1),
+                        Is.True);
+                    Assert.That(
+                        source.Entries.Select(entry => entry.SlotIndex)
+                            .Distinct()
+                            .Count(),
+                        Is.EqualTo(source.Entries.Count),
+                        "Randomized chest placement must never overlap entries.");
                 }
 
                 Assert.That(sawCorpseHealthPack, Is.True);
@@ -500,14 +831,50 @@ namespace WorldBuilder.Tests.EditMode
                 Assert.That(sawChestWithoutCoins, Is.True);
                 Assert.That(sawChestArtifact, Is.True);
                 Assert.That(sawChestWithoutArtifact, Is.True);
+                Assert.That(sawChestWithOneArtifact, Is.True);
+                Assert.That(sawChestWithTwoArtifacts, Is.True);
+                Assert.That(sawOwlEyeSeal, Is.True);
+                Assert.That(sawWingedSeal, Is.True);
+                Assert.That(sawObsidianShard, Is.True);
+                Assert.That(
+                    sawChestLootAwayFromLeadingCells,
+                    Is.True,
+                    "Generated chest loot should be distributed across the grid rather than packed into its leading cells.");
                 Assert.That(
                     RaidLootContainer.ChestArtifactChance,
                     Is.EqualTo(0.30f));
                 Assert.That(
+                    RaidLootContainer.ChestArtifactRollCount,
+                    Is.EqualTo(2));
+                Assert.That(
+                    RaidLootContainer.ChestArtifactPool,
+                    Is.EquivalentTo(new[]
+                    {
+                        ItemDefinitionIds.OwlEyeSeal,
+                        ItemDefinitionIds.WingedSeal,
+                        ItemDefinitionIds.ObsidianShard
+                    }),
+                    "Each successful 30% roll must select evenly from the " +
+                    "complete three-artifact pool.");
+                Assert.That(
                     ItemDefinitionCatalog.Category(ItemDefinitionIds.OwlEyeSeal),
                     Is.EqualTo(ItemCategory.Artifact));
                 Assert.That(
+                    ItemDefinitionCatalog.Category(ItemDefinitionIds.WingedSeal),
+                    Is.EqualTo(ItemCategory.Artifact));
+                Assert.That(
+                    ItemDefinitionCatalog.Category(
+                        ItemDefinitionIds.ObsidianShard),
+                    Is.EqualTo(ItemCategory.Artifact));
+                Assert.That(
                     ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.OwlEyeSeal),
+                    Is.EqualTo(1));
+                Assert.That(
+                    ItemDefinitionCatalog.MaximumStack(ItemDefinitionIds.WingedSeal),
+                    Is.EqualTo(1));
+                Assert.That(
+                    ItemDefinitionCatalog.MaximumStack(
+                        ItemDefinitionIds.ObsidianShard),
                     Is.EqualTo(1));
                 Assert.That(
                     ItemDefinitionCatalog.MaximumStack(
@@ -531,6 +898,83 @@ namespace WorldBuilder.Tests.EditMode
                         ItemDefinitionIds.LootHuntingBow,
                         0).Count,
                     Is.EqualTo(6));
+                Assert.That(
+                    ItemDefinitionCatalog.LoadIcon(
+                        ItemDefinitionIds.OwlEyeSeal),
+                    Is.Not.Null);
+                Assert.That(
+                    ItemDefinitionCatalog.LoadIcon(
+                        ItemDefinitionIds.WingedSeal),
+                    Is.Not.Null);
+                Assert.That(
+                    ItemDefinitionCatalog.LoadIcon(
+                        ItemDefinitionIds.ObsidianShard),
+                    Is.Not.Null);
+                ArtifactDefinitionData wingedDefinition =
+                    WeaponGridRuntime.CreateSandboxDefinitions()
+                        .Single(definition => definition.DefinitionId ==
+                            ItemDefinitionIds.WingedSeal);
+                Assert.That(
+                    wingedDefinition.Shape,
+                    Is.EqualTo(new[] { GridCoordinate.Root }));
+                Assert.That(
+                    wingedDefinition.Modifiers.Any(modifier =>
+                        modifier.Stat == ArtifactStat.MoveSpeed &&
+                        Mathf.Approximately(modifier.Amount, 0.25f)),
+                    Is.True);
+                ArtifactDefinitionData obsidianDefinition =
+                    WeaponGridRuntime.CreateSandboxDefinitions()
+                        .Single(definition => definition.DefinitionId ==
+                            ItemDefinitionIds.ObsidianShard);
+                Assert.That(
+                    obsidianDefinition.Shape,
+                    Is.EqualTo(new[] { GridCoordinate.Root }));
+                Assert.That(
+                    obsidianDefinition.Modifiers.Any(modifier =>
+                        modifier.Stat == ArtifactStat.Damage &&
+                        Mathf.Approximately(modifier.Amount, 1f)),
+                    Is.True);
+                Assert.That(
+                    ItemDefinitionCatalog.LoadBackpackIcon(),
+                    Is.Not.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(sourceObject);
+                Object.DestroyImmediate(swordsmanObject);
+            }
+        }
+
+        [Test]
+        public void GuardsAndChestsEachRollTenPercentRopeLoot()
+        {
+            GameObject sourceObject = new GameObject("rope-loot-source-test");
+            try
+            {
+                RaidLootContainer source =
+                    sourceObject.AddComponent<RaidLootContainer>();
+                int guardRopes = 0;
+                int chestRopes = 0;
+                const int sampleCount = 1000;
+                for (int seed = 0; seed < sampleCount; seed++)
+                {
+                    source.ConfigureCorpse(null, seed);
+                    guardRopes += source.Entries.Count(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.Rope);
+
+                    source.ConfigureChest("Camp Chest", seed);
+                    chestRopes += source.Entries.Count(entry =>
+                        entry.DefinitionId == ItemDefinitionIds.Rope);
+                }
+
+                Assert.That(
+                    RaidLootContainer.GuardRopeChance,
+                    Is.EqualTo(0.10f));
+                Assert.That(
+                    RaidLootContainer.ChestRopeChance,
+                    Is.EqualTo(0.10f));
+                Assert.That(guardRopes, Is.InRange(70, 130));
+                Assert.That(chestRopes, Is.InRange(70, 130));
             }
             finally
             {
@@ -721,6 +1165,53 @@ namespace WorldBuilder.Tests.EditMode
                 1080f);
             Assert.That(point.x, Is.EqualTo(960f));
             Assert.That(point.y, Is.EqualTo(464.4f).Within(0.001f));
+        }
+
+        [Test]
+        public void LootFocusTracksThePlayersCenteredTorsoOnScreen()
+        {
+            GameObject cameraObject = new GameObject("loot-focus-camera");
+            GameObject playerObject = new GameObject("loot-focus-player");
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.transform.position = new Vector3(0f, 1.6f, -8f);
+                camera.transform.rotation = Quaternion.identity;
+                playerObject.transform.position = new Vector3(-1.4f, 0f, 0f);
+                CharacterController controller =
+                    playerObject.AddComponent<CharacterController>();
+                controller.height = 2f;
+                controller.center = Vector3.up;
+
+                Vector3 torso = playerObject.transform.TransformPoint(
+                    controller.center +
+                    Vector3.up * controller.height *
+                    LootInteractionPresentation.TorsoHeightOffset);
+                Vector3 expectedViewport =
+                    camera.WorldToViewportPoint(torso);
+                Vector3 point = LootInteractionPresentation.CalculateAimPoint(
+                    camera,
+                    playerObject.transform,
+                    1920f,
+                    1080f);
+
+                Assert.That(
+                    point.x,
+                    Is.EqualTo(expectedViewport.x * 1920f).Within(0.001f));
+                Assert.That(
+                    point.y,
+                    Is.EqualTo(expectedViewport.y * 1080f).Within(0.001f));
+                Assert.That(
+                    point.x,
+                    Is.LessThan(960f),
+                    "A left-composed third-person player needs the loot " +
+                    "cursor on the player, not at screen center to their right.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(playerObject);
+                Object.DestroyImmediate(cameraObject);
+            }
         }
 
         [Test]

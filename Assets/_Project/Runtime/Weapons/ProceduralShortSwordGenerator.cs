@@ -6,115 +6,848 @@ namespace WorldBuilder.Gameplay.Weapons
 {
     public enum ShortSwordBladeProfile
     {
-        StraightPoint,
-        LongTaper,
-        RoundedShoulder,
-        ForwardSwept,
-        ClipPoint
+        StraightPoint = 0,
+        LongTaper = 1,
+        RoundedShoulder = 2,
+        ForwardSwept = 3,
+        ClipPoint = 4,
+        LeafBlade = 5,
+        Gladius = 6,
+        PiercingDiamond = 7,
+        Seax = 8,
+        Falchion = 9,
+        Kopis = 10,
+        Hanger = 11
     }
 
     public enum ShortSwordBladeBackStyle
     {
-        Clean,
-        Sawback,
-        SteppedSpine
+        Clean = 0,
+        Sawback = 1,
+        SteppedSpine = 2,
+        ReinforcedSpine = 3,
+        ScallopedSpine = 4,
+        BrokenBack = 5
     }
 
     public enum ShortSwordGuardProfile
     {
-        Straight,
-        Downturned,
-        Upswept,
-        Bowed,
-        HookedQuillons,
-        Slanted,
-        OffsetQuillons
+        Straight = 0,
+        Downturned = 1,
+        Upswept = 2,
+        Bowed = 3,
+        HookedQuillons = 4,
+        Slanted = 5,
+        OffsetQuillons = 6
     }
 
     public enum ShortSwordGuardConstruction
     {
-        RazorBar,
-        BladeQuillons,
-        WingedW,
-        Crescent,
-        DirectionalSweep,
-        OffsetLeaf
+        RazorBar = 0,
+        BladeQuillons = 1,
+        WingedW = 2,
+        Crescent = 3,
+        DirectionalSweep = 4,
+        OffsetLeaf = 5,
+        MinimalBolster = 6,
+        DownturnedHooks = 7,
+        GreekWings = 8,
+        SQuillons = 9,
+        LobedCross = 10
     }
 
     public enum ShortSwordHandleProfile
     {
-        Straight,
-        Tapered,
-        Waisted
+        Straight = 0,
+        Tapered = 1,
+        Waisted = 2,
+        PalmSwell = 3,
+        FlaredEnds = 4
     }
 
     public enum ShortSwordHiltProfile
     {
-        Disc,
-        Faceted,
-        ScentStopper,
-        Crowned,
-        Hooked
+        Disc = 0,
+        Faceted = 1,
+        ScentStopper = 2,
+        Crowned = 3,
+        Hooked = 4,
+        Acorn = 5,
+        BrazilNut = 6,
+        Mushroom = 7,
+        Fishtail = 8,
+        Ring = 9,
+        Beaked = 10
     }
 
     public enum ShortSwordMetalFamily
     {
-        Iron,
-        Bronze,
-        Silver,
-        BlackenedSteel
+        Iron = 0,
+        Bronze = 1,
+        Silver = 2,
+        BlackenedSteel = 3,
+        AgedSteel = 4,
+        BlueSteel = 5,
+        CopperAlloy = 6
     }
 
     public enum ShortSwordGripStyle
     {
-        LeatherBands,
-        CrossWrappedCord,
-        RibbedWood,
-        StuddedLeather
+        LeatherBands = 0,
+        CrossWrappedCord = 1,
+        RibbedWood = 2,
+        StuddedLeather = 3,
+        SpiralLeather = 4,
+        HerringboneCord = 5,
+        HalfWrappedWood = 6,
+        FacetedLeather = 7,
+        WireBoundLeather = 8
     }
 
     public enum ShortSwordGripColor
     {
-        DarkBrown,
-        OxBlood,
-        Charcoal,
-        WornTan,
-        ForestGreen
+        DarkBrown = 0,
+        OxBlood = 1,
+        Charcoal = 2,
+        WornTan = 3,
+        ForestGreen = 4,
+        Navy = 5,
+        Bone = 6,
+        Ochre = 7
     }
 
     public enum ShortSwordOrnamentStyle
     {
-        Plain,
-        GuardGem,
-        PommelGem
+        Plain = 0,
+        GuardGem = 1,
+        PommelGem = 2
     }
 
     public enum ShortSwordGemFamily
     {
-        Ruby,
-        Emerald,
-        Sapphire,
-        Amber
+        Ruby = 0,
+        Emerald = 1,
+        Sapphire = 2,
+        Amber = 3
     }
 
     public enum ShortSwordGemCut
     {
-        Round,
-        Oval,
-        PrincessSquare,
-        Emerald,
-        Pear
+        Round = 0,
+        Oval = 1,
+        PrincessSquare = 2,
+        Emerald = 3,
+        Pear = 4
+    }
+
+    public enum ShortSwordDirectionality
+    {
+        Conventional = 0,
+        Directional = 1
+    }
+
+    public enum ShortSwordDirectionSide
+    {
+        Left = -1,
+        Right = 1
+    }
+
+    public enum ShortSwordGenerationDecision
+    {
+        Directionality = 0,
+        BladeProfile = 1,
+        BladeBackStyle = 2,
+        DirectionSide = 3,
+        GuardConstruction = 4,
+        HandleProfile = 5,
+        HiltProfile = 6,
+        MetalFamily = 7,
+        GripStyle = 8,
+        GripColor = 9,
+        OrnamentStyle = 10,
+        GemFamily = 11,
+        GemCut = 12,
+        GuardCrossSectionSides = 13,
+        GuardCurveSegments = 14,
+        Family = 15,
+        BladeBaseStyle = 16,
+        BladeSectionStyle = 17,
+        GuardBindingStyle = 18,
+        HandleCrossSection = 19,
+        FacetTier = 20,
+        HeroZone = 21
+    }
+
+    [Serializable]
+    public struct ShortSwordGenerationLock
+    {
+        [SerializeField] private ShortSwordGenerationDecision decision;
+        [SerializeField] private int value;
+
+        public ShortSwordGenerationLock(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            this.decision = decision;
+            this.value = value;
+        }
+
+        public ShortSwordGenerationDecision Decision => decision;
+        public int Value => value;
+    }
+
+    [Serializable]
+    public sealed class ProceduralShortSwordGenerationConstraints
+    {
+        [SerializeField] private List<ShortSwordGenerationLock> locks =
+            new List<ShortSwordGenerationLock>();
+
+        public int ActiveLockCount => locks?.Count ?? 0;
+        public IReadOnlyList<ShortSwordGenerationLock> Locks
+        {
+            get
+            {
+                EnsureLocks();
+                return locks;
+            }
+        }
+
+        public bool IsLocked(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            return TryGetValue(decision, out int lockedValue) &&
+                lockedValue == value;
+        }
+
+        public bool TryGetValue(
+            ShortSwordGenerationDecision decision,
+            out int value)
+        {
+            EnsureLocks();
+            for (int index = 0; index < locks.Count; index++)
+            {
+                if (locks[index].Decision != decision)
+                {
+                    continue;
+                }
+
+                value = locks[index].Value;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        public bool Toggle(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            if (!IsCatalogValue(decision, value))
+            {
+                return false;
+            }
+            EnsureLocks();
+            for (int index = 0; index < locks.Count; index++)
+            {
+                if (locks[index].Decision != decision)
+                {
+                    continue;
+                }
+                if (locks[index].Value == value)
+                {
+                    locks.RemoveAt(index);
+                    return false;
+                }
+
+                locks[index] = new ShortSwordGenerationLock(
+                    decision,
+                    value);
+                ResolveConflicts(decision, value);
+                return true;
+            }
+
+            locks.Add(new ShortSwordGenerationLock(decision, value));
+            ResolveConflicts(decision, value);
+            return true;
+        }
+
+        public void Clear()
+        {
+            EnsureLocks();
+            locks.Clear();
+        }
+
+        private void ResolveConflicts(
+            ShortSwordGenerationDecision changedDecision,
+            int changedValue)
+        {
+            switch (changedDecision)
+            {
+                case ShortSwordGenerationDecision.Directionality:
+                    ResolveDirectionalityConflicts(
+                        (ShortSwordDirectionality)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.BladeProfile:
+                    ResolveBladeProfileConflicts(
+                        (ShortSwordBladeProfile)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.BladeBackStyle:
+                    if ((ShortSwordBladeBackStyle)changedValue ==
+                        ShortSwordBladeBackStyle.Sawback)
+                    {
+                        RemoveConventionalBladeConstraints();
+                    }
+                    break;
+                case ShortSwordGenerationDecision.DirectionSide:
+                    RemoveConventionalBladeConstraints();
+                    break;
+                case ShortSwordGenerationDecision.GuardConstruction:
+                    ResolveGuardConflicts(
+                        (ShortSwordGuardConstruction)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.GuardBindingStyle:
+                    ResolveGuardBindingConflicts(
+                        (ShortSwordGuardBindingStyle)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.HiltProfile:
+                    ResolveHiltConflicts(
+                        (ShortSwordHiltProfile)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.FacetTier:
+                    ResolveFacetTierConflicts(
+                        (ShortSwordFacetTier)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.GuardCrossSectionSides:
+                case ShortSwordGenerationDecision.GuardCurveSegments:
+                case ShortSwordGenerationDecision.HandleCrossSection:
+                    RemoveFacetTierIfIncompatible(
+                        changedDecision,
+                        changedValue);
+                    break;
+                case ShortSwordGenerationDecision.OrnamentStyle:
+                    ResolveOrnamentConflicts(
+                        (ShortSwordOrnamentStyle)changedValue);
+                    break;
+                case ShortSwordGenerationDecision.GemFamily:
+                case ShortSwordGenerationDecision.GemCut:
+                    RemoveIncompatibleGemHilt();
+                    if (IsLocked(
+                            ShortSwordGenerationDecision.OrnamentStyle,
+                            (int)ShortSwordOrnamentStyle.Plain))
+                    {
+                        Remove(ShortSwordGenerationDecision.OrnamentStyle);
+                    }
+                    break;
+            }
+
+            ResolveFamilyGrammar(changedDecision, changedValue);
+        }
+
+        private void ResolveFamilyGrammar(
+            ShortSwordGenerationDecision changedDecision,
+            int changedValue)
+        {
+            if (changedDecision == ShortSwordGenerationDecision.Family)
+            {
+                var family = (ShortSwordFamily)changedValue;
+                for (int index = locks.Count - 1; index >= 0; index--)
+                {
+                    ShortSwordGenerationLock generationLock = locks[index];
+                    if (generationLock.Decision ==
+                            ShortSwordGenerationDecision.Family)
+                    {
+                        continue;
+                    }
+                    if (!ShortSwordGenerationBranchCatalog.IsFamilyCompatible(
+                            family,
+                            generationLock.Decision,
+                            generationLock.Value))
+                    {
+                        locks.RemoveAt(index);
+                    }
+                }
+                if (!ShortSwordGenerationBranchCatalog.
+                    IsFamilyCompatibleWithLocks(family, locks))
+                {
+                    Remove(ShortSwordGenerationDecision.FacetTier);
+                    Remove(
+                        ShortSwordGenerationDecision.
+                            GuardCrossSectionSides);
+                    Remove(
+                        ShortSwordGenerationDecision.GuardCurveSegments);
+                    Remove(
+                        ShortSwordGenerationDecision.HandleCrossSection);
+                }
+                return;
+            }
+
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.Family,
+                    out int familyValue) &&
+                !ShortSwordGenerationBranchCatalog.
+                    IsFamilyCompatibleWithLocks(
+                        (ShortSwordFamily)familyValue,
+                        locks))
+            {
+                Remove(ShortSwordGenerationDecision.Family);
+            }
+
+            IReadOnlyList<ShortSwordFamily> changedFamilies =
+                ShortSwordGenerationBranchCatalog.GetCompatibleFamilies(
+                    changedDecision,
+                    changedValue);
+            for (int index = locks.Count - 1; index >= 0; index--)
+            {
+                ShortSwordGenerationLock generationLock = locks[index];
+                if (generationLock.Decision == changedDecision ||
+                    generationLock.Decision ==
+                        ShortSwordGenerationDecision.Family)
+                {
+                    continue;
+                }
+                IReadOnlyList<ShortSwordFamily> otherFamilies =
+                    ShortSwordGenerationBranchCatalog.GetCompatibleFamilies(
+                        generationLock.Decision,
+                        generationLock.Value);
+                if (!SharesFamily(changedFamilies, otherFamilies))
+                {
+                    locks.RemoveAt(index);
+                }
+            }
+
+            while (!HasCompatibleFamilyForCurrentLocks())
+            {
+                int removableIndex = -1;
+                for (int index = 0; index < locks.Count; index++)
+                {
+                    if (locks[index].Decision != changedDecision &&
+                        locks[index].Decision !=
+                            ShortSwordGenerationDecision.Family)
+                    {
+                        removableIndex = index;
+                        break;
+                    }
+                }
+                if (removableIndex < 0)
+                {
+                    break;
+                }
+                locks.RemoveAt(removableIndex);
+            }
+        }
+
+        private bool HasCompatibleFamilyForCurrentLocks()
+        {
+            IReadOnlyList<ShortSwordFamily> families =
+                ShortSwordGenerationBranchCatalog.Families;
+            for (int index = 0; index < families.Count; index++)
+            {
+                if (ShortSwordGenerationBranchCatalog.
+                    IsFamilyCompatibleWithLocks(
+                        families[index],
+                        locks))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool SharesFamily(
+            IReadOnlyList<ShortSwordFamily> left,
+            IReadOnlyList<ShortSwordFamily> right)
+        {
+            for (int leftIndex = 0; leftIndex < left.Count; leftIndex++)
+            {
+                for (int rightIndex = 0;
+                     rightIndex < right.Count;
+                     rightIndex++)
+                {
+                    if (left[leftIndex] == right[rightIndex])
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static bool IsCatalogValue(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            if (!ShortSwordGenerationBranchCatalog.TryGetGroup(
+                    decision,
+                    out ShortSwordGenerationBranchGroup group))
+            {
+                return false;
+            }
+            for (int index = 0; index < group.Options.Count; index++)
+            {
+                if (group.Options[index].Value == value)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void ResolveDirectionalityConflicts(
+            ShortSwordDirectionality directionality)
+        {
+            if (directionality == ShortSwordDirectionality.Directional)
+            {
+                RemoveBladeProfileIf(directional: false);
+                RemoveGuardIf(
+                    ShortSwordGuardConstruction.RazorBar);
+                return;
+            }
+
+            RemoveBladeProfileIf(directional: true);
+            Remove(ShortSwordGenerationDecision.DirectionSide);
+            RemoveBladeBackIf(ShortSwordBladeBackStyle.Sawback);
+            RemoveDirectionalGuard();
+        }
+
+        private void ResolveBladeProfileConflicts(
+            ShortSwordBladeProfile profile)
+        {
+            bool directional = IsDirectionalBladeProfile(profile);
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.Directionality,
+                    out int directionality) &&
+                ((ShortSwordDirectionality)directionality ==
+                    ShortSwordDirectionality.Directional) != directional)
+            {
+                Remove(ShortSwordGenerationDecision.Directionality);
+            }
+
+            if (directional)
+            {
+                RemoveGuardIf(ShortSwordGuardConstruction.RazorBar);
+                return;
+            }
+
+            Remove(ShortSwordGenerationDecision.DirectionSide);
+            RemoveBladeBackIf(ShortSwordBladeBackStyle.Sawback);
+            RemoveDirectionalGuard();
+        }
+
+        private void ResolveGuardConflicts(
+            ShortSwordGuardConstruction construction)
+        {
+            if (IsDirectionalGuard(construction))
+            {
+                RemoveConventionalBladeConstraints();
+                RemoveOrnamentIf(ShortSwordOrnamentStyle.GuardGem);
+                return;
+            }
+            if (construction == ShortSwordGuardConstruction.MinimalBolster)
+            {
+                RemoveOrnamentIf(ShortSwordOrnamentStyle.GuardGem);
+            }
+            if (!SupportsGuardBindingConstruction(construction))
+            {
+                Remove(ShortSwordGenerationDecision.GuardBindingStyle);
+            }
+            if (construction != ShortSwordGuardConstruction.RazorBar)
+            {
+                return;
+            }
+
+            RemoveDirectionalBladeConstraints();
+        }
+
+        private void ResolveGuardBindingConflicts(
+            ShortSwordGuardBindingStyle binding)
+        {
+            if (binding == ShortSwordGuardBindingStyle.None)
+            {
+                return;
+            }
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.GuardConstruction,
+                    out int value) &&
+                !SupportsGuardBindingConstruction(
+                    (ShortSwordGuardConstruction)value))
+            {
+                Remove(ShortSwordGenerationDecision.GuardConstruction);
+            }
+        }
+
+        private void ResolveOrnamentConflicts(
+            ShortSwordOrnamentStyle ornament)
+        {
+            if (ornament == ShortSwordOrnamentStyle.Plain)
+            {
+                Remove(ShortSwordGenerationDecision.GemFamily);
+                Remove(ShortSwordGenerationDecision.GemCut);
+                return;
+            }
+            if (ornament == ShortSwordOrnamentStyle.GuardGem)
+            {
+                RemoveDirectionalGuard();
+                RemoveGuardIf(ShortSwordGuardConstruction.MinimalBolster);
+            }
+            else if (ornament == ShortSwordOrnamentStyle.PommelGem)
+            {
+                RemoveIncompatibleGemHilt();
+            }
+        }
+
+        private void ResolveHiltConflicts(ShortSwordHiltProfile profile)
+        {
+            if (SupportsPommelGemProfile(profile))
+            {
+                return;
+            }
+            RemoveOrnamentIf(ShortSwordOrnamentStyle.PommelGem);
+            Remove(ShortSwordGenerationDecision.GemFamily);
+            Remove(ShortSwordGenerationDecision.GemCut);
+        }
+
+        private void RemoveIncompatibleGemHilt()
+        {
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.HiltProfile,
+                    out int value) &&
+                !SupportsPommelGemProfile((ShortSwordHiltProfile)value))
+            {
+                Remove(ShortSwordGenerationDecision.HiltProfile);
+            }
+        }
+
+        private void ResolveFacetTierConflicts(ShortSwordFacetTier tier)
+        {
+            RemoveIfFacetTierIncompatible(
+                tier,
+                ShortSwordGenerationDecision.GuardCrossSectionSides);
+            RemoveIfFacetTierIncompatible(
+                tier,
+                ShortSwordGenerationDecision.GuardCurveSegments);
+            RemoveIfFacetTierIncompatible(
+                tier,
+                ShortSwordGenerationDecision.HandleCrossSection);
+        }
+
+        private void RemoveIfFacetTierIncompatible(
+            ShortSwordFacetTier tier,
+            ShortSwordGenerationDecision decision)
+        {
+            if (TryGetValue(decision, out int value) &&
+                !ShortSwordGenerationBranchCatalog.IsFacetTierCompatible(
+                    tier,
+                    decision,
+                    value))
+            {
+                Remove(decision);
+            }
+        }
+
+        private void RemoveFacetTierIfIncompatible(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.FacetTier,
+                    out int tierValue) &&
+                !ShortSwordGenerationBranchCatalog.IsFacetTierCompatible(
+                    (ShortSwordFacetTier)tierValue,
+                    decision,
+                    value))
+            {
+                Remove(ShortSwordGenerationDecision.FacetTier);
+            }
+        }
+
+        private void RemoveConventionalBladeConstraints()
+        {
+            RemoveDirectionalityIf(ShortSwordDirectionality.Conventional);
+            RemoveBladeProfileIf(directional: false);
+            RemoveGuardIf(ShortSwordGuardConstruction.RazorBar);
+        }
+
+        private void RemoveDirectionalBladeConstraints()
+        {
+            RemoveDirectionalityIf(ShortSwordDirectionality.Directional);
+            RemoveBladeProfileIf(directional: true);
+            Remove(ShortSwordGenerationDecision.DirectionSide);
+            RemoveBladeBackIf(ShortSwordBladeBackStyle.Sawback);
+        }
+
+        private void RemoveDirectionalityIf(
+            ShortSwordDirectionality directionality)
+        {
+            if (IsLocked(
+                    ShortSwordGenerationDecision.Directionality,
+                    (int)directionality))
+            {
+                Remove(ShortSwordGenerationDecision.Directionality);
+            }
+        }
+
+        private void RemoveBladeProfileIf(bool directional)
+        {
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.BladeProfile,
+                    out int value) &&
+                IsDirectionalBladeProfile(
+                    (ShortSwordBladeProfile)value) == directional)
+            {
+                Remove(ShortSwordGenerationDecision.BladeProfile);
+            }
+        }
+
+        private void RemoveBladeBackIf(ShortSwordBladeBackStyle style)
+        {
+            if (IsLocked(
+                    ShortSwordGenerationDecision.BladeBackStyle,
+                    (int)style))
+            {
+                Remove(ShortSwordGenerationDecision.BladeBackStyle);
+            }
+        }
+
+        private void RemoveDirectionalGuard()
+        {
+            if (TryGetValue(
+                    ShortSwordGenerationDecision.GuardConstruction,
+                    out int value) &&
+                IsDirectionalGuard((ShortSwordGuardConstruction)value))
+            {
+                Remove(ShortSwordGenerationDecision.GuardConstruction);
+            }
+        }
+
+        private void RemoveGuardIf(ShortSwordGuardConstruction construction)
+        {
+            if (IsLocked(
+                    ShortSwordGenerationDecision.GuardConstruction,
+                    (int)construction))
+            {
+                Remove(ShortSwordGenerationDecision.GuardConstruction);
+            }
+        }
+
+        private void RemoveOrnamentIf(ShortSwordOrnamentStyle ornament)
+        {
+            if (IsLocked(
+                    ShortSwordGenerationDecision.OrnamentStyle,
+                    (int)ornament))
+            {
+                Remove(ShortSwordGenerationDecision.OrnamentStyle);
+            }
+        }
+
+        private void Remove(ShortSwordGenerationDecision decision)
+        {
+            EnsureLocks();
+            for (int index = locks.Count - 1; index >= 0; index--)
+            {
+                if (locks[index].Decision == decision)
+                {
+                    locks.RemoveAt(index);
+                }
+            }
+        }
+
+        private void EnsureLocks()
+        {
+            locks ??= new List<ShortSwordGenerationLock>();
+        }
+
+        private static bool IsDirectionalBladeProfile(
+            ShortSwordBladeProfile profile)
+        {
+            return ShortSwordGenerationBranchCatalog.
+                IsDirectionalBladeProfile(profile);
+        }
+
+        private static bool IsDirectionalGuard(
+            ShortSwordGuardConstruction construction)
+        {
+            return construction ==
+                    ShortSwordGuardConstruction.DirectionalSweep ||
+                construction == ShortSwordGuardConstruction.OffsetLeaf;
+        }
+
+        private static bool SupportsPommelGemProfile(
+            ShortSwordHiltProfile profile)
+        {
+            return profile is
+                ShortSwordHiltProfile.Disc or
+                ShortSwordHiltProfile.Faceted or
+                ShortSwordHiltProfile.ScentStopper or
+                ShortSwordHiltProfile.Crowned or
+                ShortSwordHiltProfile.Acorn or
+                ShortSwordHiltProfile.BrazilNut or
+                ShortSwordHiltProfile.Mushroom;
+        }
+
+        private static bool SupportsGuardBindingConstruction(
+            ShortSwordGuardConstruction construction)
+        {
+            return construction != ShortSwordGuardConstruction.RazorBar &&
+                construction != ShortSwordGuardConstruction.MinimalBolster;
+        }
+    }
+
+    [Serializable]
+    public struct ShortSwordCombatProfile
+    {
+        public float CraftQuality;
+        public float Heft;
+        public float Handling;
+        public float DamageMultiplier;
+        public float AttackSpeedMultiplier;
+        public float HitPauseDuration;
+        public float StaggerDuration;
+        public float ImpactShakeMultiplier;
+        public float SwingPitchMultiplier;
+        public float SwingVolumeMultiplier;
+        public float TrailPersistenceMultiplier;
+        public float TrailOpacityMultiplier;
+
+        public bool IsValid =>
+            DamageMultiplier > 0f &&
+            AttackSpeedMultiplier > 0f;
+
+        public static ShortSwordCombatProfile Default =>
+            new ShortSwordCombatProfile
+            {
+                CraftQuality = 0.5f,
+                Heft = 0.5f,
+                Handling = 0.5f,
+                DamageMultiplier = 1f,
+                AttackSpeedMultiplier = 1f,
+                HitPauseDuration = 0.04f,
+                StaggerDuration = 0.25f,
+                ImpactShakeMultiplier = 1f,
+                SwingPitchMultiplier = 1f,
+                SwingVolumeMultiplier = 1f,
+                TrailPersistenceMultiplier = 1f,
+                TrailOpacityMultiplier = 1f
+            };
     }
 
     [Serializable]
     public struct ProceduralShortSwordDefinition
     {
         public int Seed;
+        public ShortSwordFamily Family;
+        public ShortSwordHeroZone HeroZone;
+        public ShortSwordFacetTier FacetTier;
         public ShortSwordBladeProfile BladeProfile;
         public ShortSwordBladeBackStyle BladeBackStyle;
+        public ShortSwordBladeBaseStyle BladeBaseStyle;
+        public ShortSwordBladeSectionStyle BladeSectionStyle;
         public ShortSwordGuardProfile GuardProfile;
         public ShortSwordGuardConstruction GuardConstruction;
+        public ShortSwordGuardBindingStyle GuardBindingStyle;
         public ShortSwordHandleProfile HandleProfile;
+        public ShortSwordHandleCrossSection HandleCrossSection;
         public ShortSwordHiltProfile HiltProfile;
         public ShortSwordMetalFamily MetalFamily;
         public ShortSwordGripStyle GripStyle;
@@ -137,6 +870,7 @@ namespace WorldBuilder.Gameplay.Weapons
         public float HandleRadius;
         public float HiltLength;
         public float HiltRadius;
+        public ShortSwordCombatProfile CombatProfile;
 
         public float TotalLength =>
             BladeLength + HandleLength + HiltLength;
@@ -145,12 +879,25 @@ namespace WorldBuilder.Gameplay.Weapons
     [DisallowMultipleComponent]
     public sealed class ProceduralShortSwordGenerator : MonoBehaviour
     {
+        public const string WorldShaderName =
+            "Universal Render Pipeline/Lit";
+        public const string WorldMaterialName =
+            "Generated Sword Standard Lit";
         public const string BladePartName = "Blade";
         public const string GuardPartName = "Guard";
         public const string HandlePartName = "Handle";
         public const string HiltPartName = "Hilt / Pommel";
         public const string BladeFracturePrefix = "Blade Fracture";
         public const float TargetFacetLength = 0.052f;
+        public const float WovenGripRadialOffset = 0.0035f;
+        public const float WovenGripAirGap = 0.0008f;
+        // The controlled sword stays on URP/Lit for diffuse light, probes, and
+        // shadows. Metallic must remain zero when its view-dependent specular
+        // paths are disabled; otherwise the metallic workflow removes diffuse
+        // energy and recreates the dark-sword workaround this material replaces.
+        public const float WorldSwordMetallic = 0f;
+        public const float WorldSwordSmoothness = 0.08f;
+        public const float WovenGripLowPolyAllowance = 0.0006f;
 
         [SerializeField] private bool generateOnStart = true;
         [SerializeField] private int startingSeed = 1201;
@@ -158,8 +905,16 @@ namespace WorldBuilder.Gameplay.Weapons
         [SerializeField] private Material guardMaterial;
         [SerializeField] private Material handleMaterial;
         [SerializeField] private Material hiltMaterial;
+        [SerializeField] private bool neutralizeBaseTextures;
+        [SerializeField] private bool useColumnFurnitureStandard = true;
+        [SerializeField] private ProceduralShortSwordGenerationConstraints
+            generationConstraints =
+                new ProceduralShortSwordGenerationConstraints();
 
         private readonly List<Mesh> generatedMeshes = new List<Mesh>();
+        private readonly List<Material> ownedRuntimeMaterials =
+            new List<Material>();
+        private Material missingSourceMaterial;
         private readonly List<GameObject> generatedParts =
             new List<GameObject>();
         private ProceduralShortSwordDefinition currentDefinition;
@@ -179,6 +934,40 @@ namespace WorldBuilder.Gameplay.Weapons
         public int MissingFracturePieceCount => missingFracturePieceCount;
         public float MinimumFractureSegmentRise => minimumFractureSegmentRise;
         public IReadOnlyList<GameObject> GeneratedParts => generatedParts;
+        public ProceduralShortSwordGenerationConstraints GenerationConstraints =>
+            generationConstraints ??=
+                new ProceduralShortSwordGenerationConstraints();
+        public int ActiveGenerationLockCount =>
+            GenerationConstraints.ActiveLockCount;
+
+        public void SetGenerateOnStart(bool value)
+        {
+            generateOnStart = value;
+        }
+
+        public void SetUseColumnFurnitureStandard(bool value)
+        {
+            useColumnFurnitureStandard = value;
+        }
+
+        public bool IsGenerationLocked(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            return GenerationConstraints.IsLocked(decision, value);
+        }
+
+        public bool ToggleGenerationLock(
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            return GenerationConstraints.Toggle(decision, value);
+        }
+
+        public void ClearGenerationLocks()
+        {
+            GenerationConstraints.Clear();
+        }
 
         private void Start()
         {
@@ -191,18 +980,207 @@ namespace WorldBuilder.Gameplay.Weapons
         private void OnDestroy()
         {
             ClearGeneratedSword();
+            ReleaseRuntimeMaterials();
         }
 
         public void ConfigureMaterials(
             Material blade,
             Material guard,
             Material handle,
-            Material hilt)
+            Material hilt,
+            bool useProceduralPalette = false)
         {
-            bladeMaterial = blade;
-            guardMaterial = guard;
-            handleMaterial = handle;
-            hiltMaterial = hilt;
+            neutralizeBaseTextures = useProceduralPalette;
+            ReleaseRuntimeMaterials();
+            if (!useProceduralPalette)
+            {
+                bladeMaterial = blade;
+                guardMaterial = guard;
+                handleMaterial = handle;
+                hiltMaterial = hilt;
+                return;
+            }
+
+            var sanitized = new Dictionary<Material, Material>();
+            bladeMaterial = CreateSanitizedWorldMaterial(blade, sanitized);
+            guardMaterial = CreateSanitizedWorldMaterial(guard, sanitized);
+            handleMaterial = CreateSanitizedWorldMaterial(handle, sanitized);
+            hiltMaterial = CreateSanitizedWorldMaterial(hilt, sanitized);
+        }
+
+        private Material CreateSanitizedWorldMaterial(
+            Material source,
+            Dictionary<Material, Material> sanitized)
+        {
+            if (source == null && missingSourceMaterial != null)
+            {
+                return missingSourceMaterial;
+            }
+            if (source != null &&
+                sanitized.TryGetValue(source, out Material existing))
+            {
+                return existing;
+            }
+
+            // Use the project's ordinary URP lighting path. The previous
+            // diffuse-only safety shader removed the flash, but it also made
+            // swords flat and under-lit in the world and inventory previews.
+            // Keep Lit diffuse illumination, probes, and real shadows while
+            // compiling out only the hard-faced sword's unstable view-dependent
+            // highlight and environment-reflection lobes.
+            Shader worldShader =
+                Shader.Find(WorldShaderName) ??
+                Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("Unlit/Color") ??
+                Shader.Find("Hidden/InternalErrorShader");
+            var material = new Material(worldShader)
+            {
+                name = WorldMaterialName,
+                globalIlluminationFlags =
+                    MaterialGlobalIlluminationFlags.EmissiveIsBlack,
+                renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry,
+                enableInstancing = false
+            };
+            material.shaderKeywords = Array.Empty<string>();
+            material.DisableKeyword("_EMISSION");
+            material.DisableKeyword("_NORMALMAP");
+            material.DisableKeyword("_PARALLAXMAP");
+            material.DisableKeyword("_DETAIL_MULX2");
+            material.DisableKeyword("_DETAIL_SCALED");
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.DisableKeyword("_CLEARCOAT");
+            material.DisableKeyword("_CLEARCOATMAP");
+            material.DisableKeyword("_OCCLUSIONMAP");
+            material.DisableKeyword("_RECEIVE_SHADOWS_OFF");
+            material.DisableKeyword("_SPECULAR_SETUP");
+            material.DisableKeyword("_METALLICSPECGLOSSMAP");
+            material.DisableKeyword("_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A");
+            material.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            material.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+            SetMaterialColorIfPresent(material, "_BaseColor", Color.white);
+            SetMaterialColorIfPresent(material, "_Color", Color.white);
+            SetMaterialColorIfPresent(material, "_EmissionColor", Color.black);
+            SetMaterialColorIfPresent(
+                material,
+                "_SpecColor",
+                new Color(0.20f, 0.21f, 0.22f, 1f));
+            SetMaterialFloatIfPresent(material, "_Surface", 0f);
+            SetMaterialFloatIfPresent(material, "_Blend", 0f);
+            SetMaterialFloatIfPresent(material, "_AlphaClip", 0f);
+            SetMaterialFloatIfPresent(material, "_ZWrite", 1f);
+            SetMaterialFloatIfPresent(material, "_Cull", 2f);
+            SetMaterialFloatIfPresent(material, "_WorkflowMode", 1f);
+            SetMaterialFloatIfPresent(
+                material,
+                "_SmoothnessTextureChannel",
+                0f);
+            SetMaterialFloatIfPresent(material, "_Metallic", WorldSwordMetallic);
+            SetMaterialFloatIfPresent(
+                material,
+                "_Smoothness",
+                WorldSwordSmoothness);
+            SetMaterialFloatIfPresent(material, "_ClearCoatMask", 0f);
+            SetMaterialFloatIfPresent(material, "_ClearCoatSmoothness", 0f);
+            SetMaterialFloatIfPresent(material, "_SpecularHighlights", 0f);
+            SetMaterialFloatIfPresent(material, "_EnvironmentReflections", 0f);
+            SetMaterialTextureIfPresent(
+                material,
+                "_EmissionMap",
+                Texture2D.blackTexture);
+            SetMaterialTextureIfPresent(
+                material,
+                "_BaseMap",
+                Texture2D.whiteTexture);
+            SetMaterialTextureIfPresent(
+                material,
+                "_MainTex",
+                Texture2D.whiteTexture);
+            SetMaterialTextureIfPresent(
+                material,
+                "_SpecGlossMap",
+                null);
+            SetMaterialTextureIfPresent(
+                material,
+                "_MetallicGlossMap",
+                null);
+            SetMaterialTextureIfPresent(material, "_BumpMap", null);
+            SetMaterialTextureIfPresent(material, "_DetailNormalMap", null);
+            SetMaterialTextureIfPresent(material, "_DetailAlbedoMap", null);
+            SetMaterialTextureIfPresent(material, "_ParallaxMap", null);
+            SetMaterialTextureIfPresent(material, "_OcclusionMap", null);
+            SetMaterialTextureIfPresent(
+                material,
+                "_ClearCoatMap",
+                Texture2D.blackTexture);
+            if (source != null)
+            {
+                sanitized[source] = material;
+            }
+            else
+            {
+                // A legacy socket can lack a guard/grip material entirely.
+                // Do not fall back to Unity's uncontrolled default material:
+                // reuse this controlled Lit fallback for every missing slot.
+                missingSourceMaterial = material;
+            }
+            ownedRuntimeMaterials.Add(material);
+            return material;
+        }
+
+        private static void SetMaterialColorIfPresent(
+            Material material,
+            string property,
+            Color value)
+        {
+            if (material.HasProperty(property))
+            {
+                material.SetColor(property, value);
+            }
+        }
+
+        private static void SetMaterialFloatIfPresent(
+            Material material,
+            string property,
+            float value)
+        {
+            if (material.HasProperty(property))
+            {
+                material.SetFloat(property, value);
+            }
+        }
+
+        private static void SetMaterialTextureIfPresent(
+            Material material,
+            string property,
+            Texture value)
+        {
+            if (material.HasProperty(property))
+            {
+                material.SetTexture(property, value);
+            }
+        }
+
+        private void ReleaseRuntimeMaterials()
+        {
+            for (int index = 0; index < ownedRuntimeMaterials.Count; index++)
+            {
+                Material material = ownedRuntimeMaterials[index];
+                if (material == null)
+                {
+                    continue;
+                }
+                if (Application.isPlaying)
+                {
+                    Destroy(material);
+                }
+                else
+                {
+                    DestroyImmediate(material);
+                }
+            }
+            ownedRuntimeMaterials.Clear();
+            missingSourceMaterial = null;
         }
 
         public ProceduralShortSwordDefinition GenerateNext()
@@ -215,8 +1193,60 @@ namespace WorldBuilder.Gameplay.Weapons
 
         public ProceduralShortSwordDefinition Generate(int seed)
         {
+            return GenerateDefinition(
+                CreateDefinition(
+                    seed,
+                    GenerationConstraints,
+                    useColumnFurnitureStandard));
+        }
+
+        public ProceduralShortSwordDefinition GenerateForFamily(
+            int seed,
+            ShortSwordFamily family)
+        {
+            if (!ShortSwordGenerationBranchCatalog.IsActiveFamily(family))
+            {
+                return Generate(seed);
+            }
+
+            var constraints = new ProceduralShortSwordGenerationConstraints();
+            IReadOnlyList<ShortSwordGenerationLock> sourceLocks =
+                GenerationConstraints.Locks;
+            for (int index = 0; index < sourceLocks.Count; index++)
+            {
+                ShortSwordGenerationLock generationLock = sourceLocks[index];
+                constraints.Toggle(
+                    generationLock.Decision,
+                    generationLock.Value);
+            }
+            constraints.Toggle(
+                ShortSwordGenerationDecision.Family,
+                (int)family);
+            return GenerateDefinition(CreateDefinition(
+                seed,
+                constraints,
+                useColumnFurnitureStandard));
+        }
+
+        /// <summary>
+        /// Generates from the complete authored short-sword pool, ignoring any
+        /// lab locks stored on this component. Runtime actors, camp props, and
+        /// loot presentations use this path so no spawn context narrows the
+        /// available families or child branches.
+        /// </summary>
+        public ProceduralShortSwordDefinition GenerateUnrestricted(int seed)
+        {
+            return GenerateDefinition(CreateDefinition(
+                seed,
+                null,
+                useColumnFurnitureStandard));
+        }
+
+        private ProceduralShortSwordDefinition GenerateDefinition(
+            ProceduralShortSwordDefinition definition)
+        {
             ClearGeneratedSword();
-            currentDefinition = CreateDefinition(seed);
+            currentDefinition = definition;
 
             CreatePart(
                 BladePartName,
@@ -663,54 +1693,251 @@ namespace WorldBuilder.Gameplay.Weapons
         public static ProceduralShortSwordDefinition CreateDefinition(
             int seed)
         {
-            var random = new System.Random(seed);
-            float bladeLength = Lerp(random, 0.94f, 1.08f);
+            return CreateDefinition(seed, null, true);
+        }
+
+        public static ProceduralShortSwordDefinition CreateDefinition(
+            int seed,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            return CreateDefinition(seed, constraints, true);
+        }
+
+        public static ProceduralShortSwordDefinition CreateDefinition(
+            int seed,
+            ProceduralShortSwordGenerationConstraints constraints,
+            bool useColumnFurnitureStandard)
+        {
+            ShortSwordFamily family = SelectFamily(seed, constraints);
+            ShortSwordHeroZone heroZone =
+                (ShortSwordHeroZone)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.HeroZone,
+                    constraints);
+            ShortSwordFacetTier facetTier =
+                SelectFacetTier(seed, family, constraints);
+
+            var proportionRandom = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.Family,
+                17);
+            ResolveFamilyBladeLengthRange(
+                family,
+                out float minimumBladeLength,
+                out float maximumBladeLength);
+            ResolveFamilyBladeWidthRange(
+                family,
+                out float minimumBladeWidth,
+                out float maximumBladeWidth);
+            float bladeLength = Lerp(
+                proportionRandom,
+                minimumBladeLength,
+                maximumBladeLength);
             float normalizedLength = Mathf.InverseLerp(
                 0.94f,
                 1.08f,
                 bladeLength);
-            float bladeWidth = Lerp(random, 0.074f, 0.112f);
+            float bladeWidth = Lerp(
+                proportionRandom,
+                minimumBladeWidth,
+                maximumBladeWidth);
             float handleLength = Lerp(
-                random,
+                proportionRandom,
                 0.205f + normalizedLength * 0.008f,
                 0.250f + normalizedLength * 0.008f);
             ShortSwordBladeProfile bladeProfile =
-                (ShortSwordBladeProfile)random.Next(0, 5);
-            int directionSign = random.Next(0, 2) == 0 ? -1 : 1;
-            bool directionalBlade = IsDirectionalBlade(bladeProfile);
-            ShortSwordBladeBackStyle bladeBackStyle = directionalBlade
-                ? (ShortSwordBladeBackStyle)random.Next(0, 3)
-                : (random.Next(0, 2) == 0
-                    ? ShortSwordBladeBackStyle.Clean
-                    : ShortSwordBladeBackStyle.SteppedSpine);
+                (ShortSwordBladeProfile)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.BladeProfile,
+                    constraints);
+            ShortSwordBladeBackStyle bladeBackStyle =
+                (ShortSwordBladeBackStyle)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.BladeBackStyle,
+                    constraints);
+            ShortSwordBladeBaseStyle bladeBaseStyle =
+                (ShortSwordBladeBaseStyle)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.BladeBaseStyle,
+                    constraints);
+            ShortSwordBladeSectionStyle bladeSectionStyle =
+                (ShortSwordBladeSectionStyle)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.BladeSectionStyle,
+                    constraints);
+
+            var directionRandom = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.DirectionSide);
+            int directionSign = directionRandom.Next(0, 2) == 0 ? -1 : 1;
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.DirectionSide,
+                    out int lockedDirectionSign))
+            {
+                directionSign = lockedDirectionSign < 0 ? -1 : 1;
+            }
+
+            ApplyHeroZoneToBlade(
+                seed,
+                family,
+                heroZone,
+                constraints,
+                ref bladeBackStyle,
+                ref bladeBaseStyle,
+                ref bladeSectionStyle);
             float normalizedBladeWidth = Mathf.InverseLerp(
                 0.074f,
                 0.112f,
                 bladeWidth);
             ShortSwordGuardConstruction guardConstruction =
-                SelectGuardConstruction(
-                    random,
-                    bladeProfile,
-                    normalizedBladeWidth);
+                (ShortSwordGuardConstruction)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.GuardConstruction,
+                    constraints,
+                    salt: Mathf.RoundToInt(normalizedBladeWidth * 100f));
+            bool forcesGuardBinding = TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.GuardBindingStyle,
+                    out int lockedGuardBinding) &&
+                (ShortSwordGuardBindingStyle)lockedGuardBinding !=
+                    ShortSwordGuardBindingStyle.None;
+            if (forcesGuardBinding &&
+                !SupportsGuardBinding(guardConstruction))
+            {
+                guardConstruction = SelectGuardSupportingBinding(
+                    seed,
+                    family,
+                    guardConstruction);
+            }
+            bool forcesGuardGem = IsLocked(
+                constraints,
+                ShortSwordGenerationDecision.OrnamentStyle,
+                (int)ShortSwordOrnamentStyle.GuardGem);
+            if ((forcesGuardBinding &&
+                 !SupportsGuardBinding(guardConstruction)) ||
+                (forcesGuardGem &&
+                 !SupportsGuardGem(guardConstruction)))
+            {
+                guardConstruction = SelectGuardSupportingRequirements(
+                    seed,
+                    family,
+                    guardConstruction,
+                    forcesGuardBinding,
+                    forcesGuardGem);
+            }
             ShortSwordGuardProfile guardProfile =
                 ResolveGuardProfile(guardConstruction);
             ShortSwordHandleProfile handleProfile =
-                (ShortSwordHandleProfile)random.Next(0, 3);
+                (ShortSwordHandleProfile)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.HandleProfile,
+                    constraints);
+            ShortSwordHandleCrossSection handleCrossSection =
+                SelectHandleCrossSection(
+                    seed,
+                    family,
+                    facetTier,
+                    constraints);
             ShortSwordHiltProfile hiltProfile =
-                (ShortSwordHiltProfile)random.Next(0, 5);
+                (ShortSwordHiltProfile)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.HiltProfile,
+                    constraints);
             ShortSwordMetalFamily metalFamily =
-                (ShortSwordMetalFamily)random.Next(0, 4);
-            ShortSwordGripStyle gripStyle =
-                (ShortSwordGripStyle)random.Next(0, 4);
+                (ShortSwordMetalFamily)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.MetalFamily,
+                    constraints);
+            ShortSwordGripStyle gripStyle = SelectGripStyle(
+                seed,
+                family,
+                heroZone,
+                constraints);
             ShortSwordGripColor gripColor =
-                (ShortSwordGripColor)random.Next(0, 5);
-            ShortSwordOrnamentStyle ornamentStyle =
-                SelectOrnamentStyle(random);
+                (ShortSwordGripColor)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.GripColor,
+                    constraints);
+            ShortSwordGuardBindingStyle guardBindingStyle =
+                SelectGuardBindingStyle(
+                    seed,
+                    family,
+                    heroZone,
+                    guardConstruction,
+                    constraints);
+            ShortSwordOrnamentStyle ornamentStyle = SelectOrnamentStyle(
+                CreateGenerationRandom(
+                    seed,
+                    ShortSwordGenerationDecision.OrnamentStyle),
+                heroZone);
+            ornamentStyle = (ShortSwordOrnamentStyle)LockedOrRolled(
+                constraints,
+                ShortSwordGenerationDecision.OrnamentStyle,
+                (int)ornamentStyle);
+            if (!TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.OrnamentStyle,
+                    out _) &&
+                (HasLock(
+                     constraints,
+                     ShortSwordGenerationDecision.GemFamily) ||
+                 HasLock(
+                     constraints,
+                     ShortSwordGenerationDecision.GemCut)))
+            {
+                ornamentStyle = ShortSwordOrnamentStyle.PommelGem;
+            }
+            bool requiresPommelGem = ornamentStyle ==
+                    ShortSwordOrnamentStyle.PommelGem &&
+                (IsLocked(
+                     constraints,
+                     ShortSwordGenerationDecision.OrnamentStyle,
+                     (int)ShortSwordOrnamentStyle.PommelGem) ||
+                 HasLock(
+                     constraints,
+                     ShortSwordGenerationDecision.GemFamily) ||
+                 HasLock(
+                     constraints,
+                     ShortSwordGenerationDecision.GemCut));
+            if (ornamentStyle == ShortSwordOrnamentStyle.PommelGem &&
+                !SupportsPommelGem(hiltProfile))
+            {
+                if (requiresPommelGem)
+                {
+                    hiltProfile = SelectHiltSupportingGem(
+                        seed,
+                        family,
+                        hiltProfile);
+                }
+                else
+                {
+                    ornamentStyle = ShortSwordOrnamentStyle.Plain;
+                }
+            }
             ShortSwordGemFamily gemFamily =
-                (ShortSwordGemFamily)random.Next(0, 4);
+                (ShortSwordGemFamily)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.GemFamily,
+                    constraints);
             ShortSwordGemCut gemCut =
-                (ShortSwordGemCut)random.Next(0, 5);
-            float handleRadius = Lerp(random, 0.027f, 0.032f);
+                (ShortSwordGemCut)SelectFamilyBranch(
+                    seed,
+                    family,
+                    ShortSwordGenerationDecision.GemCut,
+                    constraints);
+            float handleRadius = Lerp(proportionRandom, 0.027f, 0.032f);
             float handleTopRadius = ResolveHandleEndRadius(
                 handleRadius,
                 handleProfile,
@@ -721,18 +1948,20 @@ namespace WorldBuilder.Gameplay.Weapons
                 top: false);
             float guardConnectionSize = handleTopRadius * 2f + 0.008f;
             float guardSpan = Mathf.Max(
-                Lerp(random, 0.255f, 0.292f) +
+                Lerp(proportionRandom, 0.255f, 0.292f) +
                     normalizedBladeWidth * 0.070f,
                 guardConnectionSize * 3.4f);
-            float guardSectionBias = Lerp(random, -1f, 1f);
-            int[] guardSideOptions = { 4, 6, 8, 10, 12 };
-            int guardCrossSectionSides =
-                guardSideOptions[random.Next(0, guardSideOptions.Length)];
-            int[] guardCurveOptions = { 6, 8, 10, 12, 14 };
-            int guardCurveSegments =
-                guardCurveOptions[random.Next(0, guardCurveOptions.Length)];
+            float guardSectionBias = Lerp(proportionRandom, -1f, 1f);
+            int guardCrossSectionSides = SelectGuardCrossSectionSides(
+                seed,
+                facetTier,
+                constraints);
+            int guardCurveSegments = SelectGuardCurveSegments(
+                seed,
+                facetTier,
+                constraints);
             float guardCrossSectionRotation = Lerp(
-                random,
+                proportionRandom,
                 0f,
                 Mathf.PI / guardCrossSectionSides);
             float guardHorizontalFactor = ResolveCrossSectionHorizontalFactor(
@@ -740,25 +1969,27 @@ namespace WorldBuilder.Gameplay.Weapons
                 guardCrossSectionRotation);
             float guardHeight = Mathf.Clamp(
                 ResolveGuardBaseHeight(
-                    random,
+                    proportionRandom,
                     guardConstruction,
                     normalizedBladeWidth) *
                     Mathf.Lerp(0.76f, 1.58f, (guardSectionBias + 1f) * 0.5f),
                 0.014f,
                 0.055f);
             float guardDepth = Mathf.Max(
-                (Lerp(random, 0.050f, 0.069f) +
+                (Lerp(proportionRandom, 0.050f, 0.069f) +
                     normalizedBladeWidth * 0.008f) *
                     Mathf.Lerp(1.20f, 0.86f, (guardSectionBias + 1f) * 0.5f),
                 (handleTopRadius + 0.002f) * 2f / guardHorizontalFactor);
             if (ornamentStyle == ShortSwordOrnamentStyle.GuardGem)
             {
+                if (forcesGuardGem)
+                {
+                    guardHeight = Mathf.Max(guardHeight, 0.028f);
+                    guardSpan = Mathf.Max(guardSpan, 0.300f);
+                }
                 bool hasJewelSocket = guardHeight >= 0.028f &&
                     guardSpan >= 0.300f &&
-                    guardConstruction !=
-                        ShortSwordGuardConstruction.DirectionalSweep &&
-                    guardConstruction !=
-                        ShortSwordGuardConstruction.OffsetLeaf;
+                    SupportsGuardGem(guardConstruction);
                 if (hasJewelSocket)
                 {
                 }
@@ -768,14 +1999,45 @@ namespace WorldBuilder.Gameplay.Weapons
                 }
             }
 
-            return new ProceduralShortSwordDefinition
+            float bladeThickness = Lerp(
+                proportionRandom,
+                0.026f,
+                0.034f);
+            float tipLength = Lerp(
+                proportionRandom,
+                0.18f,
+                0.285f);
+            float hiltLength = Lerp(
+                proportionRandom,
+                0.066f,
+                0.096f);
+            float hiltRadius = Lerp(
+                proportionRandom,
+                handleBottomRadius + 0.010f,
+                handleBottomRadius + 0.021f);
+            if (useColumnFurnitureStandard)
+            {
+                float furnitureScale =
+                    ProceduralColumnBladeGenerator
+                        .ResolveFurnitureRadialScale(seed);
+                handleRadius *= furnitureScale;
+                hiltRadius *= furnitureScale;
+            }
+            var definition = new ProceduralShortSwordDefinition
             {
                 Seed = seed,
+                Family = family,
+                HeroZone = heroZone,
+                FacetTier = facetTier,
                 BladeProfile = bladeProfile,
                 BladeBackStyle = bladeBackStyle,
+                BladeBaseStyle = bladeBaseStyle,
+                BladeSectionStyle = bladeSectionStyle,
                 GuardProfile = guardProfile,
                 GuardConstruction = guardConstruction,
+                GuardBindingStyle = guardBindingStyle,
                 HandleProfile = handleProfile,
+                HandleCrossSection = handleCrossSection,
                 HiltProfile = hiltProfile,
                 MetalFamily = metalFamily,
                 GripStyle = gripStyle,
@@ -786,8 +2048,8 @@ namespace WorldBuilder.Gameplay.Weapons
                 DirectionSign = directionSign,
                 BladeLength = bladeLength,
                 BladeWidth = bladeWidth,
-                BladeThickness = Lerp(random, 0.026f, 0.034f),
-                TipLength = Lerp(random, 0.18f, 0.285f),
+                BladeThickness = bladeThickness,
+                TipLength = tipLength,
                 GuardSpan = guardSpan,
                 GuardHeight = guardHeight,
                 GuardDepth = guardDepth,
@@ -796,23 +2058,909 @@ namespace WorldBuilder.Gameplay.Weapons
                 GuardCrossSectionRotation = guardCrossSectionRotation,
                 HandleLength = handleLength,
                 HandleRadius = handleRadius,
-                HiltLength = Lerp(random, 0.066f, 0.096f),
-                HiltRadius = Lerp(
-                    random,
-                    handleBottomRadius + 0.010f,
-                    handleBottomRadius + 0.021f)
+                HiltLength = hiltLength,
+                HiltRadius = hiltRadius
+            };
+            definition.CombatProfile = CalculateCombatProfile(definition);
+            return definition;
+        }
+
+        public static ShortSwordCombatProfile CalculateCombatProfile(
+            ProceduralShortSwordDefinition definition)
+        {
+            float width = Mathf.InverseLerp(
+                0.074f,
+                0.112f,
+                definition.BladeWidth);
+            float thickness = Mathf.InverseLerp(
+                0.026f,
+                0.034f,
+                definition.BladeThickness);
+            float length = Mathf.InverseLerp(
+                0.94f,
+                1.08f,
+                definition.BladeLength);
+            float furniture = Mathf.Clamp01(
+                Mathf.InverseLerp(
+                    0.255f,
+                    0.362f,
+                    definition.GuardSpan) * 0.45f +
+                Mathf.InverseLerp(
+                    0.037f,
+                    0.053f,
+                    definition.HiltRadius) * 0.55f);
+            float familyHeft = definition.Family switch
+            {
+                ShortSwordFamily.Falchion => 0.10f,
+                ShortSwordFamily.Kopis => 0.12f,
+                ShortSwordFamily.Hanger => 0.07f,
+                ShortSwordFamily.Legionary => 0.04f,
+                ShortSwordFamily.Piercer => -0.10f,
+                ShortSwordFamily.Seax => -0.04f,
+                _ => 0f
+            };
+            float heft = Mathf.Clamp01(
+                width * 0.34f +
+                thickness * 0.31f +
+                length * 0.20f +
+                furniture * 0.15f +
+                familyHeft);
+
+            float edgeBias = Mathf.Clamp01(
+                (1f - thickness) * 0.46f +
+                (1f - width) * 0.24f +
+                ResolveSectionEdgeBias(
+                    definition.BladeSectionStyle) * 0.30f);
+            float counterBalance = Mathf.Clamp01(
+                Mathf.InverseLerp(
+                    0.037f,
+                    0.053f,
+                    definition.HiltRadius) * 0.55f +
+                Mathf.InverseLerp(
+                    0.205f,
+                    0.258f,
+                    definition.HandleLength) * 0.25f +
+                (1f - length) * 0.20f);
+
+            var qualityRandom = new System.Random(unchecked(
+                definition.Seed * 1103515245 + 0x5A17C9D));
+            float quality = (float)qualityRandom.NextDouble();
+            quality += definition.OrnamentStyle switch
+            {
+                ShortSwordOrnamentStyle.GuardGem => 0.14f,
+                ShortSwordOrnamentStyle.PommelGem => 0.14f,
+                _ => 0f
+            };
+            quality += definition.FacetTier ==
+                    ShortSwordFacetTier.Intricate
+                ? 0.045f
+                : 0f;
+            quality += definition.GripStyle is
+                    ShortSwordGripStyle.WireBoundLeather or
+                    ShortSwordGripStyle.HerringboneCord or
+                    ShortSwordGripStyle.SpiralLeather
+                ? 0.025f
+                : 0f;
+            quality += definition.MetalFamily is
+                    ShortSwordMetalFamily.Silver or
+                    ShortSwordMetalFamily.BlueSteel or
+                    ShortSwordMetalFamily.BlackenedSteel
+                ? 0.025f
+                : 0f;
+            quality = Mathf.Clamp01(quality);
+            float exceptionalQuality = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.62f, 1f, quality));
+
+            float handling = Mathf.Clamp01(
+                0.84f - heft * 0.76f +
+                counterBalance * 0.23f +
+                edgeBias * 0.12f +
+                exceptionalQuality * 0.16f);
+            float physicalAttackSpeed = Mathf.Lerp(
+                0.68f,
+                1.44f,
+                handling);
+            float attackSpeed = physicalAttackSpeed +
+                exceptionalQuality *
+                (0.035f +
+                 Mathf.Max(0f, 1f - physicalAttackSpeed) * 0.30f);
+            attackSpeed = Mathf.Clamp(attackSpeed, 0.68f, 1.52f);
+
+            float damageMultiplier = Mathf.Clamp(
+                0.66f + heft * 0.68f + edgeBias * 0.08f +
+                exceptionalQuality * 0.17f,
+                0.68f,
+                1.55f);
+
+            return new ShortSwordCombatProfile
+            {
+                CraftQuality = quality,
+                Heft = heft,
+                Handling = handling,
+                DamageMultiplier = damageMultiplier,
+                AttackSpeedMultiplier = attackSpeed,
+                HitPauseDuration = Mathf.Lerp(
+                    0.006f,
+                    0.140f,
+                    Mathf.Pow(heft, 1.15f)) +
+                    exceptionalQuality * 0.012f,
+                StaggerDuration = Mathf.Lerp(
+                    0.07f,
+                    0.58f,
+                    Mathf.Pow(heft, 1.10f)) +
+                    exceptionalQuality * 0.04f,
+                ImpactShakeMultiplier = Mathf.Lerp(
+                    0.32f,
+                    2.15f,
+                    Mathf.Pow(heft, 1.05f)) +
+                    exceptionalQuality * 0.15f,
+                SwingPitchMultiplier = Mathf.Clamp(
+                    1.25f - heft * 0.49f +
+                    exceptionalQuality * 0.025f,
+                    0.76f,
+                    1.28f),
+                SwingVolumeMultiplier = Mathf.Clamp(
+                    Mathf.Lerp(0.78f, 1.35f, heft) +
+                    exceptionalQuality * 0.08f,
+                    0.78f,
+                    1.43f),
+                TrailPersistenceMultiplier = Mathf.Clamp(
+                    Mathf.Lerp(1.75f, 0.70f, heft) *
+                    Mathf.Lerp(0.94f, 1.08f, edgeBias),
+                    0.65f,
+                    1.85f),
+                TrailOpacityMultiplier = Mathf.Clamp(
+                    Mathf.Lerp(1.40f, 0.82f, heft) *
+                    Mathf.Lerp(0.95f, 1.05f, edgeBias),
+                    0.75f,
+                    1.48f)
             };
         }
 
+        private static float ResolveSectionEdgeBias(
+            ShortSwordBladeSectionStyle section)
+        {
+            return section switch
+            {
+                ShortSwordBladeSectionStyle.FlatBevel => 1f,
+                ShortSwordBladeSectionStyle.ShallowFuller => 0.82f,
+                ShortSwordBladeSectionStyle.DiamondRidge => 0.70f,
+                ShortSwordBladeSectionStyle.HexagonalRidge => 0.55f,
+                ShortSwordBladeSectionStyle.BroadMidrib => 0.35f,
+                _ => 0.60f
+            };
+        }
+
+        private static ShortSwordFamily SelectFamily(
+            int seed,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.Family,
+                    out int lockedFamily) &&
+                Enum.IsDefined(typeof(ShortSwordFamily), lockedFamily) &&
+                ShortSwordGenerationBranchCatalog.IsActiveFamily(
+                    (ShortSwordFamily)lockedFamily))
+            {
+                return (ShortSwordFamily)lockedFamily;
+            }
+
+            var candidates = new List<ShortSwordFamily>();
+            IReadOnlyList<ShortSwordFamily> values =
+                ShortSwordGenerationBranchCatalog.Families;
+            for (int index = 0; index < values.Count; index++)
+            {
+                ShortSwordFamily family = values[index];
+                if (ShortSwordGenerationBranchCatalog.IsFamilyCompatibleWithLocks(
+                        family,
+                        constraints?.Locks))
+                {
+                    candidates.Add(family);
+                }
+            }
+            if (candidates.Count == 0)
+            {
+                for (int index = 0; index < values.Count; index++)
+                {
+                    candidates.Add(values[index]);
+                }
+            }
+
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.Family);
+            return candidates[random.Next(0, candidates.Count)];
+        }
+
+        private static int SelectFamilyBranch(
+            int seed,
+            ShortSwordFamily family,
+            ShortSwordGenerationDecision decision,
+            ProceduralShortSwordGenerationConstraints constraints,
+            int salt = 0)
+        {
+            if (TryGetLockedValue(constraints, decision, out int lockedValue) &&
+                ShortSwordGenerationBranchCatalog.IsFamilyCompatible(
+                    family,
+                    decision,
+                    lockedValue))
+            {
+                return lockedValue;
+            }
+
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    decision);
+            if (candidates.Count == 0 &&
+                ShortSwordGenerationBranchCatalog.TryGetGroup(
+                    decision,
+                    out ShortSwordGenerationBranchGroup group) &&
+                group.Options.Count > 0)
+            {
+                var fallback = CreateGenerationRandom(seed, decision, salt);
+                return group.Options[fallback.Next(0, group.Options.Count)].Value;
+            }
+            if (candidates.Count == 0)
+            {
+                return 0;
+            }
+
+            var random = CreateGenerationRandom(seed, decision, salt);
+            if (decision == ShortSwordGenerationDecision.BladeProfile &&
+                random.NextDouble() < 0.72)
+            {
+                int signature = (int)ResolveSignatureBladeProfile(family);
+                for (int index = 0; index < candidates.Count; index++)
+                {
+                    if (candidates[index] == signature)
+                    {
+                        return signature;
+                    }
+                }
+            }
+            if (decision == ShortSwordGenerationDecision.GuardConstruction &&
+                random.NextDouble() < 0.55)
+            {
+                int signature = (int)ResolveSignatureGuardConstruction(family);
+                for (int index = 0; index < candidates.Count; index++)
+                {
+                    if (candidates[index] == signature)
+                    {
+                        return signature;
+                    }
+                }
+            }
+            return candidates[random.Next(0, candidates.Count)];
+        }
+
+        private static ShortSwordBladeProfile ResolveSignatureBladeProfile(
+            ShortSwordFamily family)
+        {
+            return family switch
+            {
+                ShortSwordFamily.Leafblade => ShortSwordBladeProfile.LeafBlade,
+                ShortSwordFamily.Legionary => ShortSwordBladeProfile.Gladius,
+                ShortSwordFamily.Piercer =>
+                    ShortSwordBladeProfile.PiercingDiamond,
+                ShortSwordFamily.Seax => ShortSwordBladeProfile.Seax,
+                ShortSwordFamily.Falchion => ShortSwordBladeProfile.Falchion,
+                ShortSwordFamily.Kopis => ShortSwordBladeProfile.Kopis,
+                ShortSwordFamily.Hanger => ShortSwordBladeProfile.Hanger,
+                _ => ShortSwordBladeProfile.StraightPoint
+            };
+        }
+
+        private static ShortSwordGuardConstruction
+            ResolveSignatureGuardConstruction(ShortSwordFamily family)
+        {
+            return family switch
+            {
+                ShortSwordFamily.Leafblade =>
+                    ShortSwordGuardConstruction.GreekWings,
+                ShortSwordFamily.Legionary =>
+                    ShortSwordGuardConstruction.MinimalBolster,
+                ShortSwordFamily.Piercer =>
+                    ShortSwordGuardConstruction.RazorBar,
+                ShortSwordFamily.Seax =>
+                    ShortSwordGuardConstruction.DownturnedHooks,
+                ShortSwordFamily.Falchion =>
+                    ShortSwordGuardConstruction.DirectionalSweep,
+                ShortSwordFamily.Kopis =>
+                    ShortSwordGuardConstruction.Crescent,
+                ShortSwordFamily.Hanger =>
+                    ShortSwordGuardConstruction.SQuillons,
+                _ => ShortSwordGuardConstruction.BladeQuillons
+            };
+        }
+
+        private static ShortSwordFacetTier SelectFacetTier(
+            int seed,
+            ShortSwordFamily family,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.FacetTier,
+                    out int lockedTier))
+            {
+                return (ShortSwordFacetTier)lockedTier;
+            }
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.FacetTier);
+            var compatible = new List<ShortSwordFacetTier>();
+            for (int index = 0; index < candidates.Count; index++)
+            {
+                var tier = (ShortSwordFacetTier)candidates[index];
+                if (IsFacetTierCompatibleWithLocks(tier, constraints))
+                {
+                    compatible.Add(tier);
+                }
+            }
+            if (compatible.Count == 0)
+            {
+                for (int index = 0; index < candidates.Count; index++)
+                {
+                    compatible.Add((ShortSwordFacetTier)candidates[index]);
+                }
+            }
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.FacetTier);
+            return compatible[random.Next(0, compatible.Count)];
+        }
+
+        private static bool IsFacetTierCompatibleWithLocks(
+            ShortSwordFacetTier tier,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (constraints == null)
+            {
+                return true;
+            }
+            IReadOnlyList<ShortSwordGenerationLock> locks = constraints.Locks;
+            for (int index = 0; index < locks.Count; index++)
+            {
+                if (!ShortSwordGenerationBranchCatalog.IsFacetTierCompatible(
+                        tier,
+                        locks[index].Decision,
+                        locks[index].Value))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static ShortSwordHandleCrossSection SelectHandleCrossSection(
+            int seed,
+            ShortSwordFamily family,
+            ShortSwordFacetTier facetTier,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.HandleCrossSection,
+                    out int lockedSection))
+            {
+                return (ShortSwordHandleCrossSection)lockedSection;
+            }
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.HandleCrossSection);
+            var compatible = new List<ShortSwordHandleCrossSection>();
+            for (int index = 0; index < candidates.Count; index++)
+            {
+                if (ShortSwordGenerationBranchCatalog.IsFacetTierCompatible(
+                        facetTier,
+                        ShortSwordGenerationDecision.HandleCrossSection,
+                        candidates[index]))
+                {
+                    compatible.Add(
+                        (ShortSwordHandleCrossSection)candidates[index]);
+                }
+            }
+            if (compatible.Count == 0)
+            {
+                for (int index = 0; index < candidates.Count; index++)
+                {
+                    compatible.Add(
+                        (ShortSwordHandleCrossSection)candidates[index]);
+                }
+            }
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.HandleCrossSection);
+            return compatible[random.Next(0, compatible.Count)];
+        }
+
+        private static System.Random CreateGenerationRandom(
+            int seed,
+            ShortSwordGenerationDecision decision,
+            int salt = 0)
+        {
+            int mixed = unchecked(
+                seed * 486187739 +
+                ((int)decision + 1) * 16777619 +
+                (salt + 1) * 374761393);
+            mixed ^= mixed >> 13;
+            mixed = unchecked(mixed * 1274126177);
+            mixed ^= mixed >> 16;
+            return new System.Random(mixed);
+        }
+
+        private static void ResolveFamilyBladeLengthRange(
+            ShortSwordFamily family,
+            out float minimum,
+            out float maximum)
+        {
+            switch (family)
+            {
+                case ShortSwordFamily.Legionary:
+                    minimum = 0.94f;
+                    maximum = 1.01f;
+                    break;
+                case ShortSwordFamily.Piercer:
+                    minimum = 1.00f;
+                    maximum = 1.08f;
+                    break;
+                case ShortSwordFamily.Kopis:
+                case ShortSwordFamily.Falchion:
+                    minimum = 0.96f;
+                    maximum = 1.04f;
+                    break;
+                default:
+                    minimum = 0.94f;
+                    maximum = 1.08f;
+                    break;
+            }
+        }
+
+        private static void ResolveFamilyBladeWidthRange(
+            ShortSwordFamily family,
+            out float minimum,
+            out float maximum)
+        {
+            switch (family)
+            {
+                case ShortSwordFamily.Piercer:
+                    minimum = 0.074f;
+                    maximum = 0.088f;
+                    break;
+                case ShortSwordFamily.Leafblade:
+                case ShortSwordFamily.Legionary:
+                    minimum = 0.090f;
+                    maximum = 0.112f;
+                    break;
+                case ShortSwordFamily.Falchion:
+                case ShortSwordFamily.Kopis:
+                    minimum = 0.094f;
+                    maximum = 0.112f;
+                    break;
+                default:
+                    minimum = 0.080f;
+                    maximum = 0.108f;
+                    break;
+            }
+        }
+
+        private static void ApplyHeroZoneToBlade(
+            int seed,
+            ShortSwordFamily family,
+            ShortSwordHeroZone heroZone,
+            ProceduralShortSwordGenerationConstraints constraints,
+            ref ShortSwordBladeBackStyle backStyle,
+            ref ShortSwordBladeBaseStyle baseStyle,
+            ref ShortSwordBladeSectionStyle sectionStyle)
+        {
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.HeroZone,
+                31);
+            if (heroZone == ShortSwordHeroZone.Blade)
+            {
+                return;
+            }
+            if (!HasLock(
+                    constraints,
+                    ShortSwordGenerationDecision.BladeBackStyle) &&
+                random.NextDouble() < 0.68)
+            {
+                backStyle = ShortSwordBladeBackStyle.Clean;
+            }
+            if (heroZone == ShortSwordHeroZone.Grip &&
+                !HasLock(
+                    constraints,
+                    ShortSwordGenerationDecision.BladeBaseStyle) &&
+                ShortSwordGenerationBranchCatalog.IsFamilyCompatible(
+                    family,
+                    ShortSwordGenerationDecision.BladeBaseStyle,
+                    (int)ShortSwordBladeBaseStyle.Plain) &&
+                random.NextDouble() < 0.55)
+            {
+                baseStyle = ShortSwordBladeBaseStyle.Plain;
+            }
+            if (heroZone == ShortSwordHeroZone.Guard &&
+                !HasLock(
+                    constraints,
+                    ShortSwordGenerationDecision.BladeSectionStyle) &&
+                ShortSwordGenerationBranchCatalog.IsFamilyCompatible(
+                    family,
+                    ShortSwordGenerationDecision.BladeSectionStyle,
+                    (int)ShortSwordBladeSectionStyle.FlatBevel) &&
+                random.NextDouble() < 0.52)
+            {
+                sectionStyle = ShortSwordBladeSectionStyle.FlatBevel;
+            }
+        }
+
+        private static ShortSwordGripStyle SelectGripStyle(
+            int seed,
+            ShortSwordFamily family,
+            ShortSwordHeroZone heroZone,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.GripStyle,
+                    out int lockedGrip))
+            {
+                return (ShortSwordGripStyle)lockedGrip;
+            }
+
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.GripStyle);
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.GripStyle);
+            // Every authored grip construction is already curated by family.
+            // Do not apply a second "quiet" roll here: that made most world
+            // swords converge on simple leather bands even though their blade
+            // definitions were visibly diverse.
+            return (ShortSwordGripStyle)candidates[
+                random.Next(0, candidates.Count)];
+        }
+
+        private static ShortSwordGuardConstruction
+            SelectGuardSupportingRequirements(
+                int seed,
+                ShortSwordFamily family,
+                ShortSwordGuardConstruction fallback,
+                bool requiresBinding,
+                bool requiresGem)
+        {
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.GuardConstruction);
+            var compatible = new List<ShortSwordGuardConstruction>();
+            for (int index = 0; index < candidates.Count; index++)
+            {
+                var construction =
+                    (ShortSwordGuardConstruction)candidates[index];
+                if ((!requiresBinding || SupportsGuardBinding(construction)) &&
+                    (!requiresGem || SupportsGuardGem(construction)))
+                {
+                    compatible.Add(construction);
+                }
+            }
+            if (compatible.Count == 0)
+            {
+                return fallback;
+            }
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.GuardConstruction,
+                97);
+            return compatible[random.Next(0, compatible.Count)];
+        }
+
+        private static bool SupportsGuardGem(
+            ShortSwordGuardConstruction construction)
+        {
+            return !IsDirectionalGuardConstruction(construction) &&
+                construction != ShortSwordGuardConstruction.MinimalBolster;
+        }
+
+        private static ShortSwordGuardConstruction
+            SelectGuardSupportingBinding(
+                int seed,
+                ShortSwordFamily family,
+                ShortSwordGuardConstruction fallback)
+        {
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.GuardConstruction);
+            var compatible = new List<ShortSwordGuardConstruction>();
+            for (int index = 0; index < candidates.Count; index++)
+            {
+                var construction =
+                    (ShortSwordGuardConstruction)candidates[index];
+                if (SupportsGuardBinding(construction))
+                {
+                    compatible.Add(construction);
+                }
+            }
+            if (compatible.Count == 0)
+            {
+                return fallback;
+            }
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.GuardBindingStyle,
+                61);
+            return compatible[random.Next(0, compatible.Count)];
+        }
+
+        private static bool SupportsGuardBinding(
+            ShortSwordGuardConstruction construction)
+        {
+            return construction != ShortSwordGuardConstruction.RazorBar &&
+                construction != ShortSwordGuardConstruction.MinimalBolster;
+        }
+
+        private static ShortSwordHiltProfile SelectHiltSupportingGem(
+            int seed,
+            ShortSwordFamily family,
+            ShortSwordHiltProfile fallback)
+        {
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.HiltProfile);
+            var compatible = new List<ShortSwordHiltProfile>();
+            for (int index = 0; index < candidates.Count; index++)
+            {
+                var profile = (ShortSwordHiltProfile)candidates[index];
+                if (SupportsPommelGem(profile))
+                {
+                    compatible.Add(profile);
+                }
+            }
+            if (compatible.Count == 0)
+            {
+                return fallback;
+            }
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.OrnamentStyle,
+                83);
+            return compatible[random.Next(0, compatible.Count)];
+        }
+
+        private static bool SupportsPommelGem(
+            ShortSwordHiltProfile profile)
+        {
+            return profile is
+                ShortSwordHiltProfile.Disc or
+                ShortSwordHiltProfile.Faceted or
+                ShortSwordHiltProfile.ScentStopper or
+                ShortSwordHiltProfile.Crowned or
+                ShortSwordHiltProfile.Acorn or
+                ShortSwordHiltProfile.BrazilNut or
+                ShortSwordHiltProfile.Mushroom;
+        }
+
+        private static ShortSwordGuardBindingStyle SelectGuardBindingStyle(
+            int seed,
+            ShortSwordFamily family,
+            ShortSwordHeroZone heroZone,
+            ShortSwordGuardConstruction construction,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.GuardBindingStyle,
+                    out int lockedBinding))
+            {
+                var binding = (ShortSwordGuardBindingStyle)lockedBinding;
+                return binding == ShortSwordGuardBindingStyle.None ||
+                    SupportsGuardBinding(construction)
+                        ? binding
+                        : ShortSwordGuardBindingStyle.None;
+            }
+
+            bool supportsBinding = SupportsGuardBinding(construction);
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.GuardBindingStyle);
+            float unboundChance = heroZone == ShortSwordHeroZone.Guard
+                ? 0.18f
+                : 0.45f;
+            if (!supportsBinding || random.NextDouble() < unboundChance)
+            {
+                return ShortSwordGuardBindingStyle.None;
+            }
+
+            IReadOnlyList<int> candidates =
+                ShortSwordGenerationBranchCatalog.GetCandidateValues(
+                    family,
+                    ShortSwordGenerationDecision.GuardBindingStyle);
+            int firstBoundOption = candidates.Count > 1 ? 1 : 0;
+            int optionIndex = random.Next(firstBoundOption, candidates.Count);
+            return (ShortSwordGuardBindingStyle)candidates[optionIndex];
+        }
+
+        private static int SelectGuardCrossSectionSides(
+            int seed,
+            ShortSwordFacetTier facetTier,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.GuardCrossSectionSides,
+                    out int lockedValue))
+            {
+                return lockedValue;
+            }
+            int[] candidates = facetTier switch
+            {
+                ShortSwordFacetTier.Coarse => new[] { 4, 6 },
+                ShortSwordFacetTier.Intricate => new[] { 8, 10, 12 },
+                _ => new[] { 6, 8, 10 }
+            };
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.GuardCrossSectionSides);
+            return candidates[random.Next(0, candidates.Length)];
+        }
+
+        private static int SelectGuardCurveSegments(
+            int seed,
+            ShortSwordFacetTier facetTier,
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.GuardCurveSegments,
+                    out int lockedValue))
+            {
+                return lockedValue;
+            }
+            int[] candidates = facetTier switch
+            {
+                ShortSwordFacetTier.Coarse => new[] { 6, 8 },
+                ShortSwordFacetTier.Intricate => new[] { 10, 12, 14 },
+                _ => new[] { 8, 10, 12 }
+            };
+            var random = CreateGenerationRandom(
+                seed,
+                ShortSwordGenerationDecision.GuardCurveSegments);
+            return candidates[random.Next(0, candidates.Length)];
+        }
+
+        private static int LockedOrRolled(
+            ProceduralShortSwordGenerationConstraints constraints,
+            ShortSwordGenerationDecision decision,
+            int rolledValue)
+        {
+            return TryGetLockedValue(
+                constraints,
+                decision,
+                out int lockedValue)
+                    ? lockedValue
+                    : rolledValue;
+        }
+
+        private static bool TryGetLockedValue(
+            ProceduralShortSwordGenerationConstraints constraints,
+            ShortSwordGenerationDecision decision,
+            out int value)
+        {
+            if (constraints != null &&
+                constraints.TryGetValue(decision, out value))
+            {
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        private static bool HasLock(
+            ProceduralShortSwordGenerationConstraints constraints,
+            ShortSwordGenerationDecision decision)
+        {
+            return TryGetLockedValue(constraints, decision, out _);
+        }
+
+        private static bool IsLocked(
+            ProceduralShortSwordGenerationConstraints constraints,
+            ShortSwordGenerationDecision decision,
+            int value)
+        {
+            return TryGetLockedValue(
+                    constraints,
+                    decision,
+                    out int lockedValue) &&
+                lockedValue == value;
+        }
+
+        private static bool RequiresDirectionalBlade(
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            if (IsLocked(
+                    constraints,
+                    ShortSwordGenerationDecision.Directionality,
+                    (int)ShortSwordDirectionality.Directional) ||
+                HasLock(
+                    constraints,
+                    ShortSwordGenerationDecision.DirectionSide) ||
+                IsLocked(
+                    constraints,
+                    ShortSwordGenerationDecision.BladeBackStyle,
+                    (int)ShortSwordBladeBackStyle.Sawback))
+            {
+                return true;
+            }
+
+            return TryGetLockedValue(
+                    constraints,
+                    ShortSwordGenerationDecision.GuardConstruction,
+                    out int guard) &&
+                IsDirectionalGuardConstruction(
+                    (ShortSwordGuardConstruction)guard);
+        }
+
+        private static bool RequiresConventionalBlade(
+            ProceduralShortSwordGenerationConstraints constraints)
+        {
+            return IsLocked(
+                    constraints,
+                    ShortSwordGenerationDecision.Directionality,
+                    (int)ShortSwordDirectionality.Conventional) ||
+                IsLocked(
+                    constraints,
+                    ShortSwordGenerationDecision.GuardConstruction,
+                    (int)ShortSwordGuardConstruction.RazorBar);
+        }
+
+        private static bool IsDirectionalGuardConstruction(
+            ShortSwordGuardConstruction construction)
+        {
+            return construction ==
+                    ShortSwordGuardConstruction.DirectionalSweep ||
+                construction == ShortSwordGuardConstruction.OffsetLeaf;
+        }
+
+        private static int PositiveModulo(int value, int modulus)
+        {
+            int remainder = value % modulus;
+            return remainder < 0 ? remainder + modulus : remainder;
+        }
+
         private static ShortSwordOrnamentStyle SelectOrnamentStyle(
-            System.Random random)
+            System.Random random,
+            ShortSwordHeroZone heroZone)
         {
             int roll = random.Next(0, 100);
-            if (roll < 91)
+            int plainThreshold = heroZone switch
+            {
+                ShortSwordHeroZone.Blade => 62,
+                ShortSwordHeroZone.Guard => 48,
+                ShortSwordHeroZone.Grip => 54,
+                _ => 56
+            };
+            int guardThreshold = heroZone switch
+            {
+                ShortSwordHeroZone.Guard => 78,
+                ShortSwordHeroZone.Grip => 72,
+                _ => 70
+            };
+            if (roll < plainThreshold)
             {
                 return ShortSwordOrnamentStyle.Plain;
             }
-            if (roll < 95)
+            if (roll < guardThreshold)
             {
                 return ShortSwordOrnamentStyle.GuardGem;
             }
@@ -822,8 +2970,20 @@ namespace WorldBuilder.Gameplay.Weapons
         private static bool IsDirectionalBlade(
             ShortSwordBladeProfile profile)
         {
-            return profile == ShortSwordBladeProfile.ForwardSwept ||
-                profile == ShortSwordBladeProfile.ClipPoint;
+            return ShortSwordGenerationBranchCatalog.
+                IsDirectionalBladeProfile(profile);
+        }
+
+        private static bool IsSingleEdgedBlade(
+            ShortSwordBladeProfile profile)
+        {
+            return profile is
+                ShortSwordBladeProfile.ForwardSwept or
+                ShortSwordBladeProfile.ClipPoint or
+                ShortSwordBladeProfile.Seax or
+                ShortSwordBladeProfile.Falchion or
+                ShortSwordBladeProfile.Kopis or
+                ShortSwordBladeProfile.Hanger;
         }
 
         private static ShortSwordGuardConstruction SelectGuardConstruction(
@@ -881,6 +3041,14 @@ namespace WorldBuilder.Gameplay.Weapons
                     ShortSwordGuardProfile.Slanted,
                 ShortSwordGuardConstruction.OffsetLeaf =>
                     ShortSwordGuardProfile.OffsetQuillons,
+                ShortSwordGuardConstruction.DownturnedHooks =>
+                    ShortSwordGuardProfile.Downturned,
+                ShortSwordGuardConstruction.GreekWings =>
+                    ShortSwordGuardProfile.Upswept,
+                ShortSwordGuardConstruction.SQuillons =>
+                    ShortSwordGuardProfile.Slanted,
+                ShortSwordGuardConstruction.LobedCross =>
+                    ShortSwordGuardProfile.Bowed,
                 _ => ShortSwordGuardProfile.Straight
             };
         }
@@ -902,6 +3070,16 @@ namespace WorldBuilder.Gameplay.Weapons
                     Lerp(random, 0.020f, 0.026f),
                 ShortSwordGuardConstruction.DirectionalSweep =>
                     Lerp(random, 0.016f, 0.021f),
+                ShortSwordGuardConstruction.MinimalBolster =>
+                    Lerp(random, 0.019f, 0.026f),
+                ShortSwordGuardConstruction.DownturnedHooks =>
+                    Lerp(random, 0.018f, 0.024f),
+                ShortSwordGuardConstruction.GreekWings =>
+                    Lerp(random, 0.020f, 0.027f),
+                ShortSwordGuardConstruction.SQuillons =>
+                    Lerp(random, 0.017f, 0.023f),
+                ShortSwordGuardConstruction.LobedCross =>
+                    Lerp(random, 0.021f, 0.028f),
                 _ => Lerp(random, 0.017f, 0.022f)
             };
             float massScale = construction switch
@@ -909,6 +3087,8 @@ namespace WorldBuilder.Gameplay.Weapons
                 ShortSwordGuardConstruction.WingedW => 0.010f,
                 ShortSwordGuardConstruction.Crescent => 0.010f,
                 ShortSwordGuardConstruction.RazorBar => 0.006f,
+                ShortSwordGuardConstruction.MinimalBolster => 0.009f,
+                ShortSwordGuardConstruction.LobedCross => 0.011f,
                 _ => 0.007f
             };
             return baseHeight + bladeMass * massScale;
@@ -934,6 +3114,8 @@ namespace WorldBuilder.Gameplay.Weapons
             renderer.shadowCastingMode =
                 UnityEngine.Rendering.ShadowCastingMode.On;
             renderer.receiveShadows = true;
+            renderer.reflectionProbeUsage =
+                UnityEngine.Rendering.ReflectionProbeUsage.BlendProbes;
             ApplyRendererProperties(
                 renderer,
                 color,
@@ -947,6 +3129,7 @@ namespace WorldBuilder.Gameplay.Weapons
             GameObject guard,
             ProceduralShortSwordDefinition definition)
         {
+            CreateGuardBindings(guard, definition);
             if (definition.OrnamentStyle ==
                 ShortSwordOrnamentStyle.GuardGem)
             {
@@ -955,6 +3138,203 @@ namespace WorldBuilder.Gameplay.Weapons
                     definition,
                     ResolveGuardGemRadii(definition));
             }
+        }
+
+        private void CreateGuardBindings(
+            GameObject guard,
+            ProceduralShortSwordDefinition definition)
+        {
+            ShortSwordGuardBindingStyle binding =
+                definition.GuardBindingStyle;
+            if (binding == ShortSwordGuardBindingStyle.None ||
+                !SupportsGuardBinding(definition.GuardConstruction))
+            {
+                return;
+            }
+            bool bindLeft = binding is
+                ShortSwordGuardBindingStyle.LeftLeather or
+                ShortSwordGuardBindingStyle.BothArms or
+                ShortSwordGuardBindingStyle.LeftCord;
+            bool bindRight = binding is
+                ShortSwordGuardBindingStyle.RightLeather or
+                ShortSwordGuardBindingStyle.BothArms or
+                ShortSwordGuardBindingStyle.RightCord;
+            if (definition.DirectionSign < 0 &&
+                IsDirectionalBlade(definition.BladeProfile))
+            {
+                (bindLeft, bindRight) = (bindRight, bindLeft);
+            }
+            if (!bindLeft && !bindRight)
+            {
+                return;
+            }
+
+            bool cord = binding is
+                ShortSwordGuardBindingStyle.LeftCord or
+                ShortSwordGuardBindingStyle.RightCord;
+            int count = cord ? 4 : 3;
+            Color bindingColor = Color.Lerp(
+                ResolveGripColor(definition.GripColor),
+                cord ? new Color(0.68f, 0.54f, 0.34f) : Color.black,
+                cord ? 0.34f : 0.18f);
+            if (bindLeft)
+            {
+                CreateGuardBindingSide(
+                    guard,
+                    definition,
+                    negative: true,
+                    count,
+                    cord,
+                    bindingColor);
+            }
+            if (bindRight)
+            {
+                CreateGuardBindingSide(
+                    guard,
+                    definition,
+                    negative: false,
+                    count,
+                    cord,
+                    bindingColor);
+            }
+        }
+
+        private void CreateGuardBindingSide(
+            GameObject guard,
+            ProceduralShortSwordDefinition definition,
+            bool negative,
+            int count,
+            bool cord,
+            Color color)
+        {
+            float sideSpan = ResolveGuardSideSpan(definition, negative);
+            float sideSign = negative ? -1f : 1f;
+            float bindingWidth = sideSpan * (cord ? 0.032f : 0.055f);
+            for (int index = 0; index < count; index++)
+            {
+                float t = Mathf.Lerp(0.48f, 0.72f, (index + 0.5f) / count);
+                float x = sideSign * sideSpan * t;
+                CreateDecoration(
+                    guard.transform,
+                    $"{(negative ? "Left" : "Right")} Guard " +
+                    $"{(cord ? "Cord" : "Leather")} Wrap {index + 1}",
+                    BuildGuardBindingMesh(
+                        definition,
+                        x,
+                        bindingWidth,
+                        cord ? 0.0012f : 0.0018f),
+                    handleMaterial,
+                    color,
+                    0f,
+                    cord ? 0.08f : 0.12f);
+            }
+        }
+
+        private static Mesh BuildGuardBindingMesh(
+            ProceduralShortSwordDefinition definition,
+            float centerX,
+            float width,
+            float relief)
+        {
+            int sides = Mathf.Clamp(
+                definition.GuardCrossSectionSides,
+                4,
+                12);
+            var vertices = new List<Vector3>(sides * 2 + 2);
+            var triangles = new List<int>(sides * 12);
+            float firstCenterY = 0f;
+            float secondCenterY = 0f;
+            for (int end = 0; end < 2; end++)
+            {
+                float x = centerX + (end == 0 ? -width : width) * 0.5f;
+                ResolveGuardSectionAtX(
+                    definition,
+                    x,
+                    relief,
+                    out float centerY,
+                    out float halfHeight,
+                    out float halfDepth);
+                if (end == 0)
+                {
+                    firstCenterY = centerY;
+                }
+                else
+                {
+                    secondCenterY = centerY;
+                }
+                for (int side = 0; side < sides; side++)
+                {
+                    float angle = definition.GuardCrossSectionRotation +
+                        side / (float)sides * Mathf.PI * 2f;
+                    vertices.Add(new Vector3(
+                        x,
+                        centerY + Mathf.Cos(angle) * halfHeight,
+                        Mathf.Sin(angle) * halfDepth));
+                }
+            }
+            for (int side = 0; side < sides; side++)
+            {
+                int next = (side + 1) % sides;
+                AddQuad(
+                    triangles,
+                    side,
+                    next,
+                    sides + next,
+                    sides + side);
+            }
+
+            int firstCenter = vertices.Count;
+            vertices.Add(new Vector3(
+                centerX - width * 0.5f,
+                firstCenterY,
+                0f));
+            int secondCenter = vertices.Count;
+            vertices.Add(new Vector3(
+                centerX + width * 0.5f,
+                secondCenterY,
+                0f));
+            for (int side = 0; side < sides; side++)
+            {
+                int next = (side + 1) % sides;
+                triangles.Add(firstCenter);
+                triangles.Add(next);
+                triangles.Add(side);
+                triangles.Add(secondCenter);
+                triangles.Add(sides + side);
+                triangles.Add(sides + next);
+            }
+            return CreateMesh(vertices, triangles);
+        }
+
+        private static void ResolveGuardSectionAtX(
+            ProceduralShortSwordDefinition definition,
+            float x,
+            float relief,
+            out float centerY,
+            out float halfHeight,
+            out float halfDepth)
+        {
+            float leftSpan = ResolveGuardSideSpan(definition, negative: true);
+            float rightSpan = ResolveGuardSideSpan(definition, negative: false);
+            float normalizedX = x < 0f
+                ? Mathf.Clamp(x / leftSpan, -1f, 0f)
+                : Mathf.Clamp(x / rightSpan, 0f, 1f);
+            float edge = Mathf.Abs(normalizedX);
+            float bladeMass = Mathf.InverseLerp(
+                0.074f,
+                0.112f,
+                definition.BladeWidth);
+            float taper = Mathf.Lerp(
+                1f,
+                ResolveGuardTipScale(definition, normalizedX, bladeMass),
+                Mathf.Pow(
+                    edge,
+                    ResolveGuardTaperExponent(
+                        definition.GuardConstruction)));
+            centerY = ResolveGuardCenterHeight(definition, normalizedX);
+            halfHeight = definition.GuardHeight * 0.5f * taper + relief;
+            halfDepth = definition.GuardDepth * 0.5f *
+                Mathf.Lerp(1f, 0.72f, edge) + relief;
         }
 
         private void CreateMirroredGuardGem(
@@ -1029,14 +3409,91 @@ namespace WorldBuilder.Gameplay.Weapons
             switch (definition.GripStyle)
             {
                 case ShortSwordGripStyle.CrossWrappedCord:
+                    for (int strand = 0; strand < 2; strand++)
+                    {
+                        CreateDecoration(
+                            handle.transform,
+                            strand == 0
+                                ? "Cross Cord Clockwise"
+                                : "Cross Cord Counterclockwise",
+                            BuildHelixMesh(
+                                definition,
+                                clockwise: strand == 0,
+                                turns: 2.35f,
+                                thicknessScale: 0.82f,
+                                radialOffset: WovenGripRadialOffset,
+                                phaseOffset: strand * Mathf.PI * 0.20f,
+                                alternatingWeave: true,
+                                weaveStrand: strand,
+                                weavePairPhaseOffset: Mathf.PI * 0.20f),
+                            handleMaterial,
+                            Color.Lerp(
+                                grip,
+                                new Color(0.72f, 0.60f, 0.42f),
+                                0.42f),
+                            0f,
+                            0.12f);
+                    }
+                    break;
+                case ShortSwordGripStyle.SpiralLeather:
                     CreateDecoration(
                         handle.transform,
-                        "Cord Wrap",
-                        BuildHelixMesh(definition, clockwise: true),
+                        "Spiral Leather Wrap",
+                        BuildHelixMesh(
+                            definition,
+                            clockwise: definition.DirectionSign > 0,
+                            turns: 3.15f,
+                            thicknessScale: 1.45f),
                         handleMaterial,
-                        Color.Lerp(grip, new Color(0.72f, 0.60f, 0.42f), 0.42f),
+                        Color.Lerp(grip, Color.black, 0.16f),
                         0f,
                         0.12f);
+                    break;
+                case ShortSwordGripStyle.HerringboneCord:
+                    for (int strand = 0; strand < 2; strand++)
+                    {
+                        CreateDecoration(
+                            handle.transform,
+                            strand == 0
+                                ? "Herringbone Cord Clockwise"
+                                : "Herringbone Cord Counterclockwise",
+                            BuildHelixMesh(
+                                definition,
+                                clockwise: strand == 0,
+                                turns: 3.4f,
+                                thicknessScale: 0.72f,
+                                radialOffset: WovenGripRadialOffset,
+                                phaseOffset: strand * Mathf.PI * 0.25f,
+                                alternatingWeave: true,
+                                weaveStrand: strand,
+                                weavePairPhaseOffset: Mathf.PI * 0.25f),
+                            handleMaterial,
+                            Color.Lerp(
+                                grip,
+                                new Color(0.72f, 0.60f, 0.42f),
+                                0.34f),
+                            0f,
+                            0.10f);
+                    }
+                    break;
+                case ShortSwordGripStyle.WireBoundLeather:
+                    for (int strand = 0; strand < 2; strand++)
+                    {
+                        CreateDecoration(
+                            handle.transform,
+                            $"Wire Grip Strand {strand + 1}",
+                            BuildHelixMesh(
+                                definition,
+                                clockwise: true,
+                                turns: 5.2f,
+                                thicknessScale: 0.48f,
+                                radialOffset: 0.0028f,
+                                phaseOffset: strand * Mathf.PI),
+                            guardMaterial,
+                            ResolveMetalAccentColor(definition.MetalFamily),
+                            ResolveMetallic(definition.MetalFamily),
+                            0.22f);
+                    }
                     break;
                 case ShortSwordGripStyle.StuddedLeather:
                     for (int index = 0; index < 6; index++)
@@ -1049,8 +3506,12 @@ namespace WorldBuilder.Gameplay.Weapons
                         Vector3 radial = new Vector3(
                             Mathf.Cos(angle),
                             0f,
-                            Mathf.Sin(angle)) *
-                            (surfaceRadius + 0.004f);
+                            Mathf.Sin(angle));
+                        radial *= ResolveHandleDecorationRadius(
+                            definition,
+                            t,
+                            angle,
+                            surfaceRadius) + 0.004f;
                         Vector3 center = radial;
                         center.y = Mathf.Lerp(top, bottom, t);
                         CreateDecoration(
@@ -1063,6 +3524,46 @@ namespace WorldBuilder.Gameplay.Weapons
                             ResolveMetalAccentColor(definition.MetalFamily),
                             ResolveMetallic(definition.MetalFamily),
                             0.24f);
+                    }
+                    break;
+                case ShortSwordGripStyle.HalfWrappedWood:
+                    for (int index = 0; index < 4; index++)
+                    {
+                        float t = Mathf.Lerp(0.48f, 0.88f, index / 3f);
+                        CreateDecoration(
+                            handle.transform,
+                            $"Half Grip Wrap {index + 1}",
+                            BuildBandMesh(
+                                Mathf.Lerp(top, bottom, t),
+                                ResolveHandleSurfaceRadius(definition, t) +
+                                    0.003f,
+                                0.012f,
+                                ResolveHandleDepthScale(definition),
+                                ResolveHandleCrossSectionSides(definition)),
+                            handleMaterial,
+                            Color.Lerp(grip, Color.black, 0.18f),
+                            0f,
+                            0.10f);
+                    }
+                    break;
+                case ShortSwordGripStyle.FacetedLeather:
+                    for (int index = 0; index < 3; index++)
+                    {
+                        float t = index / 2f;
+                        CreateDecoration(
+                            handle.transform,
+                            $"Faceted Grip Seam {index + 1}",
+                            BuildBandMesh(
+                                Mathf.Lerp(top, bottom, t),
+                                ResolveHandleSurfaceRadius(definition, t) +
+                                    0.0024f,
+                                0.008f,
+                                ResolveHandleDepthScale(definition),
+                                ResolveHandleCrossSectionSides(definition)),
+                            handleMaterial,
+                            detail,
+                            0f,
+                            0.08f);
                     }
                     break;
                 default:
@@ -1084,7 +3585,9 @@ namespace WorldBuilder.Gameplay.Weapons
                                 definition.GripStyle ==
                                     ShortSwordGripStyle.LeatherBands
                                         ? 0.010f
-                                        : 0.007f),
+                                        : 0.007f,
+                                ResolveHandleDepthScale(definition),
+                                ResolveHandleCrossSectionSides(definition)),
                             handleMaterial,
                             detail,
                             0f,
@@ -1100,28 +3603,47 @@ namespace WorldBuilder.Gameplay.Weapons
         {
             float top = -definition.HandleLength;
             if (definition.OrnamentStyle !=
-                ShortSwordOrnamentStyle.PommelGem)
+                    ShortSwordOrnamentStyle.PommelGem ||
+                !SupportsPommelGem(definition.HiltProfile))
             {
                 return;
             }
-            Vector3 gemCenter = new Vector3(
-                definition.HiltProfile == ShortSwordHiltProfile.Hooked
-                    ? 0.060f
-                    : 0f,
-                top - definition.HiltLength - 0.008f,
-                0f);
-            CreateDecoration(
-                hilt.transform,
-                "Pommel Jewel",
-                BuildGemMesh(
-                    gemCenter,
-                    new Vector3(0.017f, 0.021f, 0.012f),
-                    definition.GemCut,
-                    1f),
-                hiltMaterial,
-                ResolveGemColor(definition.GemFamily),
-                0.10f,
-                0.62f);
+            float normalizedHeight = 0.56f;
+            float radiusScale = definition.HiltProfile switch
+            {
+                ShortSwordHiltProfile.Disc => 1f,
+                ShortSwordHiltProfile.BrazilNut => 0.99f,
+                ShortSwordHiltProfile.Mushroom => 1.06f,
+                ShortSwordHiltProfile.Acorn => 0.94f,
+                _ => 0.92f
+            };
+            float surfaceDepth = definition.HiltRadius * radiusScale *
+                ResolveCrossSectionHorizontalFactor(
+                    ResolveHiltSides(definition),
+                    0f);
+            Vector3 radii = new Vector3(
+                Mathf.Min(0.013f, definition.HiltRadius * 0.31f),
+                Mathf.Min(0.016f, definition.HiltLength * 0.20f),
+                0.003f);
+            for (int face = -1; face <= 1; face += 2)
+            {
+                Vector3 gemCenter = new Vector3(
+                    0f,
+                    top - definition.HiltLength * normalizedHeight,
+                    face * (surfaceDepth + 0.0003f));
+                CreateDecoration(
+                    hilt.transform,
+                    $"{(face > 0 ? "Front" : "Rear")} Pommel Jewel",
+                    BuildGemMesh(
+                        gemCenter,
+                        radii,
+                        definition.GemCut,
+                        face),
+                    hiltMaterial,
+                    ResolveGemColor(definition.GemFamily),
+                    0.10f,
+                    0.62f);
+            }
         }
 
         private GameObject CreateDecoration(
@@ -1144,6 +3666,8 @@ namespace WorldBuilder.Gameplay.Weapons
             renderer.shadowCastingMode =
                 UnityEngine.Rendering.ShadowCastingMode.On;
             renderer.receiveShadows = true;
+            renderer.reflectionProbeUsage =
+                UnityEngine.Rendering.ReflectionProbeUsage.BlendProbes;
             ApplyRendererProperties(
                 renderer,
                 color,
@@ -1152,7 +3676,7 @@ namespace WorldBuilder.Gameplay.Weapons
             return decoration;
         }
 
-        private static void ApplyRendererProperties(
+        private void ApplyRendererProperties(
             Renderer renderer,
             Color color,
             float metallic,
@@ -1162,8 +3686,58 @@ namespace WorldBuilder.Gameplay.Weapons
             renderer.GetPropertyBlock(properties);
             properties.SetColor("_BaseColor", color);
             properties.SetColor("_Color", color);
-            properties.SetFloat("_Metallic", metallic);
-            properties.SetFloat("_Smoothness", smoothness);
+            float boundedMetallic = neutralizeBaseTextures
+                ? Mathf.Min(metallic, WorldSwordMetallic)
+                : Mathf.Min(metallic, 0.58f);
+            float boundedSmoothness = neutralizeBaseTextures
+                ? Mathf.Min(smoothness, WorldSwordSmoothness)
+                : Mathf.Min(smoothness, 0.38f);
+            properties.SetFloat("_Metallic", boundedMetallic);
+            properties.SetFloat("_Smoothness", boundedSmoothness);
+            properties.SetFloat("_Glossiness", boundedSmoothness);
+
+            // Emission stays explicitly black on every renderer so legacy
+            // source materials cannot turn a normally-lit blade into a light
+            // source. The shared Lit material also compiles out specular and
+            // environment reflections; these matching values prevent tooling
+            // and material migration from silently opting a renderer back in.
+            properties.SetColor("_EmissionColor", Color.black);
+            properties.SetTexture("_EmissionMap", Texture2D.blackTexture);
+            properties.SetFloat("_ClearCoatMask", 0f);
+            properties.SetFloat("_ClearCoatSmoothness", 0f);
+            properties.SetTexture("_ClearCoatMap", Texture2D.blackTexture);
+            if (neutralizeBaseTextures)
+            {
+                // Raid prefabs historically supply a brown leather albedo.
+                // Replacing that sampled color with white lets the generated
+                // grip/metal palette pass through unchanged while retaining
+                // the controlled world-sword lighting response.
+                properties.SetTexture("_BaseMap", Texture2D.whiteTexture);
+                properties.SetTexture("_MainTex", Texture2D.whiteTexture);
+                properties.SetTexture(
+                    "_DetailAlbedoMap",
+                    Texture2D.blackTexture);
+                properties.SetTexture(
+                    "_SpecGlossMap",
+                    Texture2D.blackTexture);
+                properties.SetTexture(
+                    "_MetallicGlossMap",
+                    Texture2D.blackTexture);
+                properties.SetTexture(
+                    "_BumpMap",
+                    Texture2D.normalTexture);
+                properties.SetTexture(
+                    "_DetailNormalMap",
+                    Texture2D.normalTexture);
+                properties.SetTexture(
+                    "_ParallaxMap",
+                    Texture2D.blackTexture);
+                properties.SetColor(
+                    "_SpecColor",
+                    new Color(0.20f, 0.21f, 0.22f, 1f));
+                properties.SetFloat("_SpecularHighlights", 0f);
+                properties.SetFloat("_EnvironmentReflections", 0f);
+            }
             renderer.SetPropertyBlock(properties);
         }
 
@@ -1174,6 +3748,9 @@ namespace WorldBuilder.Gameplay.Weapons
                 ShortSwordMetalFamily.Bronze => new Color(0.46f, 0.29f, 0.13f),
                 ShortSwordMetalFamily.Silver => new Color(0.66f, 0.69f, 0.70f),
                 ShortSwordMetalFamily.BlackenedSteel => new Color(0.13f, 0.15f, 0.16f),
+                ShortSwordMetalFamily.AgedSteel => new Color(0.31f, 0.32f, 0.29f),
+                ShortSwordMetalFamily.BlueSteel => new Color(0.24f, 0.31f, 0.38f),
+                ShortSwordMetalFamily.CopperAlloy => new Color(0.48f, 0.25f, 0.15f),
                 _ => new Color(0.34f, 0.36f, 0.36f)
             };
         }
@@ -1188,6 +3765,12 @@ namespace WorldBuilder.Gameplay.Weapons
                     new Color(0.66f, 0.69f, 0.68f),
                 ShortSwordMetalFamily.BlackenedSteel =>
                     new Color(0.43f, 0.45f, 0.45f),
+                ShortSwordMetalFamily.AgedSteel =>
+                    new Color(0.48f, 0.49f, 0.45f),
+                ShortSwordMetalFamily.BlueSteel =>
+                    new Color(0.47f, 0.53f, 0.59f),
+                ShortSwordMetalFamily.CopperAlloy =>
+                    new Color(0.53f, 0.50f, 0.44f),
                 _ => new Color(0.56f, 0.58f, 0.57f)
             };
         }
@@ -1196,11 +3779,14 @@ namespace WorldBuilder.Gameplay.Weapons
         {
             return color switch
             {
-                ShortSwordGripColor.OxBlood => new Color(0.27f, 0.065f, 0.045f),
-                ShortSwordGripColor.Charcoal => new Color(0.075f, 0.080f, 0.078f),
-                ShortSwordGripColor.WornTan => new Color(0.42f, 0.27f, 0.13f),
-                ShortSwordGripColor.ForestGreen => new Color(0.105f, 0.19f, 0.125f),
-                _ => new Color(0.19f, 0.095f, 0.045f)
+                ShortSwordGripColor.OxBlood => new Color(0.38f, 0.08f, 0.055f),
+                ShortSwordGripColor.Charcoal => new Color(0.13f, 0.14f, 0.135f),
+                ShortSwordGripColor.WornTan => new Color(0.52f, 0.33f, 0.15f),
+                ShortSwordGripColor.ForestGreen => new Color(0.12f, 0.30f, 0.16f),
+                ShortSwordGripColor.Navy => new Color(0.07f, 0.15f, 0.33f),
+                ShortSwordGripColor.Bone => new Color(0.70f, 0.61f, 0.44f),
+                ShortSwordGripColor.Ochre => new Color(0.59f, 0.34f, 0.06f),
+                _ => new Color(0.30f, 0.13f, 0.055f)
             };
         }
 
@@ -1313,16 +3899,30 @@ namespace WorldBuilder.Gameplay.Weapons
             float halfWidth = definition.BladeWidth * 0.5f;
             float baseHeight = ResolveBladeSeatHeightAtX(definition, 0f);
             float facetedLength = definition.BladeLength - baseHeight;
+            float targetFacetLength = definition.FacetTier switch
+            {
+                ShortSwordFacetTier.Coarse => 0.074f,
+                ShortSwordFacetTier.Intricate => 0.038f,
+                _ => TargetFacetLength
+            };
             int segments = Mathf.Max(
                 8,
-                Mathf.CeilToInt(facetedLength / TargetFacetLength));
-            var vertices = new List<Vector3>(segments * 4 + 1);
-            var triangles = new List<int>(segments * 24 + 12);
+                Mathf.CeilToInt(facetedLength / targetFacetLength));
+            List<float> ringHeights = BuildBladeRingHeights(
+                definition,
+                baseHeight,
+                segments);
+            int ringCount = ringHeights.Count;
+            int ringVertexCount = ResolveBladeRingVertexCount(
+                definition.BladeSectionStyle);
+            var vertices = new List<Vector3>(
+                ringCount * ringVertexCount + 2);
+            var triangles = new List<int>(
+                ringCount * ringVertexCount * 6);
 
-            for (int ring = 0; ring < segments; ring++)
+            for (int ring = 0; ring < ringCount; ring++)
             {
-                float t = ring / (float)segments;
-                float y = Mathf.Lerp(baseHeight, definition.BladeLength, t);
+                float y = ringHeights[ring];
                 float width = ResolveBladeHalfWidthAtHeight(
                     definition,
                     y,
@@ -1335,28 +3935,23 @@ namespace WorldBuilder.Gameplay.Weapons
                     out float rightWidth);
                 float ridgeDepth = definition.BladeThickness * 0.5f *
                     Mathf.Clamp01(width / Mathf.Max(0.0001f, halfWidth));
-                float centerY = ring == 0
-                    ? ResolveBladeSeatHeightAtX(definition, 0f)
-                    : y;
-                float rightY = ring == 0
-                    ? ResolveBladeSeatHeightAtX(definition, rightWidth)
-                    : y;
-                float leftY = ring == 0
-                    ? ResolveBladeSeatHeightAtX(definition, -leftWidth)
-                    : y;
-                vertices.Add(new Vector3(0f, centerY, ridgeDepth));
-                vertices.Add(new Vector3(rightWidth, rightY, 0f));
-                vertices.Add(new Vector3(0f, centerY, -ridgeDepth));
-                vertices.Add(new Vector3(-leftWidth, leftY, 0f));
+                AddBladeRing(
+                    vertices,
+                    definition,
+                    ring == 0,
+                    y,
+                    leftWidth,
+                    rightWidth,
+                    ridgeDepth);
             }
 
-            for (int ring = 0; ring < segments - 1; ring++)
+            for (int ring = 0; ring < ringCount - 1; ring++)
             {
-                int current = ring * 4;
-                int nextRing = (ring + 1) * 4;
-                for (int side = 0; side < 4; side++)
+                int current = ring * ringVertexCount;
+                int nextRing = (ring + 1) * ringVertexCount;
+                for (int side = 0; side < ringVertexCount; side++)
                 {
-                    int nextSide = (side + 1) % 4;
+                    int nextSide = (side + 1) % ringVertexCount;
                     AddQuad(
                         triangles,
                         current + side,
@@ -1371,10 +3966,10 @@ namespace WorldBuilder.Gameplay.Weapons
                 ResolveBladeTipOffset(definition, halfWidth),
                 definition.BladeLength,
                 0f));
-            int lastRing = (segments - 1) * 4;
-            for (int side = 0; side < 4; side++)
+            int lastRing = (ringCount - 1) * ringVertexCount;
+            for (int side = 0; side < ringVertexCount; side++)
             {
-                int nextSide = (side + 1) % 4;
+                int nextSide = (side + 1) % ringVertexCount;
                 triangles.Add(lastRing + side);
                 triangles.Add(lastRing + nextSide);
                 triangles.Add(tip);
@@ -1382,9 +3977,9 @@ namespace WorldBuilder.Gameplay.Weapons
 
             int baseCenter = vertices.Count;
             vertices.Add(new Vector3(0f, baseHeight, 0f));
-            for (int side = 0; side < 4; side++)
+            for (int side = 0; side < ringVertexCount; side++)
             {
-                int nextSide = (side + 1) % 4;
+                int nextSide = (side + 1) % ringVertexCount;
                 triangles.Add(baseCenter);
                 triangles.Add(nextSide);
                 triangles.Add(side);
@@ -1392,21 +3987,340 @@ namespace WorldBuilder.Gameplay.Weapons
             return CreateMesh(vertices, triangles);
         }
 
+        private static List<float> BuildBladeRingHeights(
+            ProceduralShortSwordDefinition definition,
+            float baseHeight,
+            int uniformSegments)
+        {
+            var heights = new List<float>(uniformSegments + 32);
+            for (int ring = 0; ring < uniformSegments; ring++)
+            {
+                heights.Add(Mathf.Lerp(
+                    baseHeight,
+                    definition.BladeLength,
+                    ring / (float)uniformSegments));
+            }
+
+            switch (definition.BladeBaseStyle)
+            {
+                case ShortSwordBladeBaseStyle.NarrowRicasso:
+                    AddBladeBreakpoint(
+                        heights,
+                        Mathf.Lerp(baseHeight, definition.BladeLength, 0.13f),
+                        definition,
+                        sharp: true);
+                    AddBladeBreakpoint(
+                        heights,
+                        Mathf.Lerp(baseHeight, definition.BladeLength, 0.22f),
+                        definition);
+                    break;
+                case ShortSwordBladeBaseStyle.FlaredShoulders:
+                    AddBladeBreakpoint(
+                        heights,
+                        Mathf.Lerp(baseHeight, definition.BladeLength, 0.20f),
+                        definition);
+                    break;
+                case ShortSwordBladeBaseStyle.SteppedShoulders:
+                    AddBladeBreakpoint(
+                        heights,
+                        Mathf.Lerp(baseHeight, definition.BladeLength, 0.08f),
+                        definition,
+                        sharp: true);
+                    AddBladeBreakpoint(
+                        heights,
+                        Mathf.Lerp(baseHeight, definition.BladeLength, 0.17f),
+                        definition,
+                        sharp: true);
+                    break;
+                case ShortSwordBladeBaseStyle.SmallChoil:
+                    AddBladeBreakpoint(
+                        heights,
+                        definition.BladeLength * 0.02f,
+                        definition);
+                    AddBladeBreakpoint(
+                        heights,
+                        definition.BladeLength * 0.15f,
+                        definition);
+                    break;
+                case ShortSwordBladeBaseStyle.ReinforcedBase:
+                    AddBladeBreakpoint(
+                        heights,
+                        Mathf.Lerp(baseHeight, definition.BladeLength, 0.24f),
+                        definition);
+                    break;
+            }
+
+            int spineBreaks = definition.BladeBackStyle switch
+            {
+                ShortSwordBladeBackStyle.Sawback => 9,
+                ShortSwordBladeBackStyle.SteppedSpine => 4,
+                ShortSwordBladeBackStyle.ScallopedSpine => 6,
+                _ => 0
+            };
+            for (int breakpoint = 0;
+                 breakpoint <= spineBreaks && spineBreaks > 0;
+                 breakpoint++)
+            {
+                float t = Mathf.Lerp(
+                    0.18f,
+                    0.72f,
+                    breakpoint / (float)spineBreaks);
+                AddBladeBreakpoint(
+                    heights,
+                    definition.BladeLength * t,
+                    definition,
+                    sharp: true);
+            }
+            if (definition.BladeBackStyle ==
+                ShortSwordBladeBackStyle.BrokenBack)
+            {
+                AddBladeBreakpoint(
+                    heights,
+                    definition.BladeLength * 0.18f,
+                    definition,
+                    sharp: true);
+                AddBladeBreakpoint(
+                    heights,
+                    definition.BladeLength *
+                        Mathf.Lerp(0.18f, 0.72f, 0.58f),
+                    definition,
+                    sharp: true);
+                AddBladeBreakpoint(
+                    heights,
+                    definition.BladeLength * 0.72f,
+                    definition,
+                    sharp: true);
+            }
+
+            float taperStart = definition.BladeLength -
+                definition.TipLength * ResolveBladeTaperMultiplier(
+                    definition.BladeProfile);
+            AddBladeBreakpoint(heights, taperStart, definition);
+            heights.Sort();
+            for (int index = heights.Count - 1; index > 0; index--)
+            {
+                if (heights[index] - heights[index - 1] < 0.00045f)
+                {
+                    heights.RemoveAt(index);
+                }
+            }
+            return heights;
+        }
+
+        private static void AddBladeBreakpoint(
+            List<float> heights,
+            float height,
+            ProceduralShortSwordDefinition definition,
+            bool sharp = false)
+        {
+            float minimum = ResolveBladeSeatHeightAtX(definition, 0f) +
+                0.0005f;
+            float maximum = definition.BladeLength - 0.001f;
+            if (sharp)
+            {
+                heights.Add(Mathf.Clamp(height - 0.0012f, minimum, maximum));
+                heights.Add(Mathf.Clamp(height + 0.0012f, minimum, maximum));
+                return;
+            }
+            heights.Add(Mathf.Clamp(height, minimum, maximum));
+        }
+
+        private static int ResolveBladeRingVertexCount(
+            ShortSwordBladeSectionStyle section)
+        {
+            return section == ShortSwordBladeSectionStyle.DiamondRidge
+                ? 4
+                : 8;
+        }
+
+        private static void AddBladeRing(
+            List<Vector3> vertices,
+            ProceduralShortSwordDefinition definition,
+            bool fittedBase,
+            float y,
+            float leftWidth,
+            float rightWidth,
+            float ridgeDepth)
+        {
+            float depthScale = definition.BladeSectionStyle switch
+            {
+                ShortSwordBladeSectionStyle.BroadMidrib => 1.18f,
+                ShortSwordBladeSectionStyle.FlatBevel => 0.58f,
+                ShortSwordBladeSectionStyle.ShallowFuller => 0.82f,
+                ShortSwordBladeSectionStyle.HexagonalRidge => 0.94f,
+                _ => 1f
+            };
+            float depth = ridgeDepth * depthScale;
+            if (definition.BladeSectionStyle ==
+                ShortSwordBladeSectionStyle.DiamondRidge)
+            {
+                AddBladeRingPoint(vertices, definition, fittedBase, y, 0f, depth);
+                AddBladeRingPoint(
+                    vertices,
+                    definition,
+                    fittedBase,
+                    y,
+                    rightWidth,
+                    0f);
+                AddBladeRingPoint(vertices, definition, fittedBase, y, 0f, -depth);
+                AddBladeRingPoint(
+                    vertices,
+                    definition,
+                    fittedBase,
+                    y,
+                    -leftWidth,
+                    0f);
+                return;
+            }
+
+            float centerDepth = definition.BladeSectionStyle ==
+                    ShortSwordBladeSectionStyle.ShallowFuller
+                ? depth * 0.38f
+                : depth;
+            float shoulderDepth = definition.BladeSectionStyle switch
+            {
+                ShortSwordBladeSectionStyle.BroadMidrib => depth * 0.72f,
+                ShortSwordBladeSectionStyle.FlatBevel => depth * 0.54f,
+                ShortSwordBladeSectionStyle.ShallowFuller => depth * 0.78f,
+                _ => depth * 0.62f
+            };
+            float shoulderScale = definition.BladeSectionStyle ==
+                    ShortSwordBladeSectionStyle.BroadMidrib
+                ? 0.34f
+                : 0.68f;
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                0f,
+                centerDepth);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                rightWidth * shoulderScale,
+                shoulderDepth);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                rightWidth,
+                0f);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                rightWidth * shoulderScale,
+                -shoulderDepth);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                0f,
+                -centerDepth);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                -leftWidth * shoulderScale,
+                -shoulderDepth);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                -leftWidth,
+                0f);
+            AddBladeRingPoint(
+                vertices,
+                definition,
+                fittedBase,
+                y,
+                -leftWidth * shoulderScale,
+                shoulderDepth);
+        }
+
+        private static void AddBladeRingPoint(
+            List<Vector3> vertices,
+            ProceduralShortSwordDefinition definition,
+            bool fittedBase,
+            float y,
+            float x,
+            float z)
+        {
+            float centeredX = x + ResolveBladeCenterOffset(definition, y);
+            vertices.Add(new Vector3(
+                centeredX,
+                fittedBase
+                    ? ResolveBladeSeatHeightAtX(definition, centeredX)
+                    : y,
+                z));
+        }
+
         private static float ResolveBladeHalfWidthAtHeight(
             ProceduralShortSwordDefinition definition,
             float height,
             float halfWidth)
         {
-            float taperMultiplier = definition.BladeProfile ==
-                ShortSwordBladeProfile.LongTaper
-                    ? 1.35f
-                    : 1f;
+            float baseHeight = ResolveBladeSeatHeightAtX(definition, 0f);
+            float bladeT = Mathf.InverseLerp(
+                baseHeight,
+                definition.BladeLength,
+                height);
+            float silhouetteScale = definition.BladeProfile switch
+            {
+                ShortSwordBladeProfile.LeafBlade =>
+                    Mathf.Lerp(0.80f, 1f, Mathf.SmoothStep(0f, 1f, bladeT / 0.24f)) *
+                    (1f + Mathf.Sin(bladeT * Mathf.PI) * 0.22f),
+                ShortSwordBladeProfile.Gladius =>
+                    bladeT < 0.70f
+                        ? Mathf.Lerp(1.08f, 0.98f, bladeT / 0.70f)
+                        : 1f,
+                ShortSwordBladeProfile.PiercingDiamond =>
+                    Mathf.Lerp(0.72f, 0.60f, bladeT),
+                ShortSwordBladeProfile.Seax =>
+                    Mathf.Lerp(1.04f, 0.94f, bladeT),
+                ShortSwordBladeProfile.Falchion =>
+                    Mathf.Lerp(0.88f, 1.24f, Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        Mathf.InverseLerp(0.08f, 0.66f, bladeT))),
+                ShortSwordBladeProfile.Kopis =>
+                    bladeT < 0.36f
+                        ? Mathf.Lerp(0.94f, 0.76f, bladeT / 0.36f)
+                        : Mathf.Lerp(
+                            0.76f,
+                            1.28f,
+                            Mathf.SmoothStep(
+                                0f,
+                                1f,
+                                Mathf.InverseLerp(0.36f, 0.76f, bladeT))),
+                ShortSwordBladeProfile.Hanger =>
+                    Mathf.Lerp(0.92f, 1.08f, bladeT),
+                _ => 1f
+            };
+            float baseScale = ResolveBladeBaseScale(
+                definition.BladeBaseStyle,
+                bladeT);
+            float familyScale = ResolveFamilyBladeSilhouetteScale(
+                definition.Family,
+                bladeT);
+            halfWidth *= silhouetteScale * familyScale * baseScale;
+
+            float taperMultiplier = ResolveBladeTaperMultiplier(
+                definition.BladeProfile);
             float taperStart = definition.BladeLength -
                 definition.TipLength * taperMultiplier;
             if (height <= taperStart)
             {
                 float baseBlend = Mathf.InverseLerp(
-                    ResolveBladeSeatHeightAtX(definition, 0f),
+                    baseHeight,
                     0.075f,
                     height);
                 return halfWidth * Mathf.Lerp(0.94f, 1f, baseBlend);
@@ -1416,11 +4330,125 @@ namespace WorldBuilder.Gameplay.Weapons
                 taperStart,
                 definition.BladeLength,
                 height);
-            float remaining = definition.BladeProfile ==
-                ShortSwordBladeProfile.RoundedShoulder
-                    ? 1f - Mathf.SmoothStep(0f, 1f, taper)
-                    : 1f - taper;
+            float remaining = definition.BladeProfile switch
+            {
+                ShortSwordBladeProfile.RoundedShoulder =>
+                    1f - Mathf.SmoothStep(0f, 1f, taper),
+                ShortSwordBladeProfile.Gladius =>
+                    1f - Mathf.Pow(taper, 1.35f),
+                ShortSwordBladeProfile.Seax =>
+                    1f - Mathf.Pow(taper, 0.72f),
+                ShortSwordBladeProfile.Falchion or
+                ShortSwordBladeProfile.Kopis or
+                ShortSwordBladeProfile.Hanger =>
+                    1f - Mathf.Pow(taper, 0.78f),
+                _ => 1f - taper
+            };
             return halfWidth * Mathf.Clamp01(remaining);
+        }
+
+        private static float ResolveFamilyBladeSilhouetteScale(
+            ShortSwordFamily family,
+            float bladeT)
+        {
+            float t = Mathf.Clamp01(bladeT);
+            float middle = Mathf.Sin(t * Mathf.PI);
+            return family switch
+            {
+                // Family grammar is deliberately lower-amplitude than the
+                // selected profile. It remains present when a family rolls a
+                // secondary profile, while the profile still supplies most of
+                // the individual sword's variation.
+                ShortSwordFamily.Cruciform =>
+                    1.02f - middle * middle * 0.055f,
+                ShortSwordFamily.Leafblade =>
+                    0.94f + middle * 0.14f,
+                ShortSwordFamily.Legionary =>
+                    t < 0.62f
+                        ? Mathf.Lerp(1.08f, 0.97f, t / 0.62f)
+                        : Mathf.Lerp(0.97f, 1.01f, Mathf.InverseLerp(
+                            0.62f,
+                            0.84f,
+                            t)),
+                ShortSwordFamily.Piercer =>
+                    Mathf.Lerp(0.90f, 0.72f, t),
+                ShortSwordFamily.Seax =>
+                    Mathf.Lerp(1.05f, 0.94f, t),
+                ShortSwordFamily.Falchion =>
+                    Mathf.Lerp(
+                        0.94f,
+                        1.15f,
+                        Mathf.SmoothStep(
+                            0f,
+                            1f,
+                            Mathf.InverseLerp(0.16f, 0.72f, t))),
+                ShortSwordFamily.Kopis => t < 0.38f
+                    ? Mathf.Lerp(1.00f, 0.84f, t / 0.38f)
+                    : Mathf.Lerp(
+                        0.84f,
+                        1.18f,
+                        Mathf.SmoothStep(
+                            0f,
+                            1f,
+                            Mathf.InverseLerp(0.38f, 0.78f, t))),
+                ShortSwordFamily.Hanger =>
+                    Mathf.Lerp(
+                        0.96f,
+                        1.10f,
+                        Mathf.SmoothStep(
+                            0f,
+                            1f,
+                            Mathf.InverseLerp(0.12f, 0.82f, t))),
+                _ => 1f
+            };
+        }
+
+        private static float ResolveBladeTaperMultiplier(
+            ShortSwordBladeProfile profile)
+        {
+            return profile switch
+            {
+                ShortSwordBladeProfile.LongTaper => 1.35f,
+                ShortSwordBladeProfile.PiercingDiamond => 1.70f,
+                ShortSwordBladeProfile.LeafBlade => 0.78f,
+                ShortSwordBladeProfile.Gladius => 0.82f,
+                ShortSwordBladeProfile.Seax => 0.72f,
+                ShortSwordBladeProfile.Falchion => 0.70f,
+                ShortSwordBladeProfile.Kopis => 0.64f,
+                ShortSwordBladeProfile.Hanger => 0.72f,
+                _ => 1f
+            };
+        }
+
+        private static float ResolveBladeBaseScale(
+            ShortSwordBladeBaseStyle style,
+            float bladeT)
+        {
+            if (bladeT >= 0.24f)
+            {
+                return 1f;
+            }
+
+            return style switch
+            {
+                ShortSwordBladeBaseStyle.NarrowRicasso =>
+                    bladeT < 0.13f
+                        ? 0.70f
+                        : Mathf.Lerp(0.70f, 1f, Mathf.InverseLerp(
+                            0.13f,
+                            0.22f,
+                            bladeT)),
+                ShortSwordBladeBaseStyle.FlaredShoulders =>
+                    Mathf.Lerp(1.20f, 1f, Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        bladeT / 0.20f)),
+                ShortSwordBladeBaseStyle.SteppedShoulders =>
+                    bladeT < 0.08f ? 0.80f : bladeT < 0.17f ? 1.12f : 1f,
+                ShortSwordBladeBaseStyle.ReinforcedBase =>
+                    Mathf.Lerp(1.14f, 1f, bladeT / 0.24f),
+                _ => 1f
+            };
         }
 
         private static void ResolveBladeEdgeWidths(
@@ -1445,29 +4473,88 @@ namespace WorldBuilder.Gameplay.Weapons
                         : Mathf.Lerp(1.02f, 0.54f, Mathf.InverseLerp(0.68f, 1f, t));
                     rightWidth *= Mathf.Lerp(1f, 1.10f, t);
                     break;
+                case ShortSwordBladeProfile.Seax:
+                    leftWidth *= t < 0.68f
+                        ? 1.04f
+                        : Mathf.Lerp(
+                            1.04f,
+                            0.28f,
+                            Mathf.InverseLerp(0.68f, 1f, t));
+                    rightWidth *= Mathf.Lerp(0.96f, 1.12f, t);
+                    break;
+                case ShortSwordBladeProfile.Falchion:
+                    leftWidth *= Mathf.Lerp(0.92f, 0.72f, t);
+                    rightWidth *= Mathf.Lerp(1.04f, 1.20f, t);
+                    break;
+                case ShortSwordBladeProfile.Kopis:
+                    leftWidth *= Mathf.Lerp(0.96f, 0.68f, t);
+                    rightWidth *= Mathf.Lerp(1.02f, 1.30f, t);
+                    break;
+                case ShortSwordBladeProfile.Hanger:
+                    leftWidth *= Mathf.Lerp(0.98f, 0.78f, t);
+                    rightWidth *= Mathf.Lerp(1.02f, 1.16f, t);
+                    break;
+            }
+
+            if (definition.BladeBaseStyle ==
+                    ShortSwordBladeBaseStyle.SmallChoil &&
+                t < 0.15f &&
+                IsSingleEdgedBlade(definition.BladeProfile))
+            {
+                rightWidth *= Mathf.Lerp(
+                    0.68f,
+                    1f,
+                    Mathf.InverseLerp(0.02f, 0.15f, t));
+            }
+
+            if (t >= 0.18f && t <= 0.72f)
+            {
+                float backT = Mathf.InverseLerp(0.18f, 0.72f, t);
+                switch (definition.BladeBackStyle)
+                {
+                    case ShortSwordBladeBackStyle.Sawback:
+                        int tooth = Mathf.FloorToInt(backT * 9f);
+                        leftWidth *= tooth % 2 == 0 ? 0.72f : 1.02f;
+                        break;
+                    case ShortSwordBladeBackStyle.SteppedSpine:
+                        int step = Mathf.Min(
+                            3,
+                            Mathf.FloorToInt(backT * 4f));
+                        float stepScale = 1f - step * 0.055f;
+                        leftWidth *= stepScale;
+                        if (!IsSingleEdgedBlade(definition.BladeProfile))
+                        {
+                            rightWidth *= stepScale;
+                        }
+                        break;
+                    case ShortSwordBladeBackStyle.ReinforcedSpine:
+                        leftWidth *= 1.08f;
+                        if (!IsSingleEdgedBlade(definition.BladeProfile))
+                        {
+                            rightWidth *= 1.08f;
+                        }
+                        break;
+                    case ShortSwordBladeBackStyle.ScallopedSpine:
+                        int scallop = Mathf.FloorToInt(backT * 6f);
+                        float scallopScale = scallop % 2 == 0
+                            ? 0.86f
+                            : 1.02f;
+                        leftWidth *= scallopScale;
+                        if (!IsSingleEdgedBlade(definition.BladeProfile))
+                        {
+                            rightWidth *= scallopScale;
+                        }
+                        break;
+                    case ShortSwordBladeBackStyle.BrokenBack:
+                        leftWidth *= backT < 0.58f ? 1.04f : 0.72f;
+                        break;
+                }
             }
 
             if (definition.DirectionSign < 0 &&
                 IsDirectionalBlade(definition.BladeProfile))
             {
                 (leftWidth, rightWidth) = (rightWidth, leftWidth);
-            }
-
-            if (t < 0.18f || t > 0.70f)
-            {
-                return;
-            }
-            float backT = Mathf.InverseLerp(0.18f, 0.70f, t);
-            switch (definition.BladeBackStyle)
-            {
-                case ShortSwordBladeBackStyle.Sawback:
-                    int tooth = Mathf.FloorToInt(backT * 9f);
-                    leftWidth *= tooth % 2 == 0 ? 0.72f : 1.02f;
-                    break;
-                case ShortSwordBladeBackStyle.SteppedSpine:
-                    int step = Mathf.Min(3, Mathf.FloorToInt(backT * 4f));
-                    leftWidth *= 1f - step * 0.055f;
-                    break;
             }
         }
 
@@ -1481,6 +4568,48 @@ namespace WorldBuilder.Gameplay.Weapons
                     halfWidth * 0.44f * definition.DirectionSign,
                 ShortSwordBladeProfile.ClipPoint =>
                     halfWidth * 0.18f * definition.DirectionSign,
+                ShortSwordBladeProfile.Seax =>
+                    halfWidth * 0.22f * definition.DirectionSign,
+                ShortSwordBladeProfile.Falchion =>
+                    halfWidth * 0.34f * definition.DirectionSign,
+                ShortSwordBladeProfile.Kopis =>
+                    halfWidth * 0.50f * definition.DirectionSign,
+                ShortSwordBladeProfile.Hanger =>
+                    halfWidth * 0.30f * definition.DirectionSign,
+                _ => 0f
+            };
+        }
+
+        private static float ResolveBladeCenterOffset(
+            ProceduralShortSwordDefinition definition,
+            float height)
+        {
+            float baseHeight = ResolveBladeSeatHeightAtX(definition, 0f);
+            float t = Mathf.InverseLerp(
+                baseHeight,
+                definition.BladeLength,
+                height);
+            float halfWidth = definition.BladeWidth * 0.5f;
+            float signedWidth = halfWidth * definition.DirectionSign;
+            return definition.BladeProfile switch
+            {
+                ShortSwordBladeProfile.ForwardSwept =>
+                    signedWidth * 0.36f * Mathf.Pow(t, 1.35f),
+                ShortSwordBladeProfile.ClipPoint =>
+                    signedWidth * 0.12f * Mathf.SmoothStep(0f, 1f, t),
+                ShortSwordBladeProfile.Seax =>
+                    signedWidth * 0.14f * Mathf.Pow(t, 1.45f),
+                ShortSwordBladeProfile.Falchion =>
+                    signedWidth * 0.32f * Mathf.Pow(t, 1.35f),
+                ShortSwordBladeProfile.Kopis =>
+                    signedWidth * (
+                        -0.12f * Mathf.Sin(t * Mathf.PI) +
+                        0.50f * Mathf.SmoothStep(
+                            0f,
+                            1f,
+                            Mathf.InverseLerp(0.30f, 1f, t))),
+                ShortSwordBladeProfile.Hanger =>
+                    signedWidth * 0.26f * Mathf.SmoothStep(0f, 1f, t),
                 _ => 0f
             };
         }
@@ -1606,6 +4735,10 @@ namespace WorldBuilder.Gameplay.Weapons
                     (directionSide ? 1.05f : 0.94f),
                 ShortSwordGuardConstruction.OffsetLeaf => halfSpan *
                     (directionSide ? 1.08f : 0.88f),
+                ShortSwordGuardConstruction.MinimalBolster =>
+                    halfSpan * 0.68f,
+                ShortSwordGuardConstruction.SQuillons => halfSpan *
+                    (directionSide ? 1.04f : 0.98f),
                 _ => halfSpan
             };
         }
@@ -1635,6 +4768,18 @@ namespace WorldBuilder.Gameplay.Weapons
                     sideDirection > 0f
                         ? Mathf.Lerp(0.06f, 0.17f, bladeMass)
                         : Mathf.Lerp(0.20f, 0.32f, bladeMass),
+                ShortSwordGuardConstruction.MinimalBolster =>
+                    Mathf.Lerp(0.58f, 0.72f, bladeMass),
+                ShortSwordGuardConstruction.DownturnedHooks =>
+                    Mathf.Lerp(0.10f, 0.20f, bladeMass),
+                ShortSwordGuardConstruction.GreekWings =>
+                    Mathf.Lerp(0.12f, 0.22f, bladeMass),
+                ShortSwordGuardConstruction.SQuillons =>
+                    sideDirection > 0f
+                        ? Mathf.Lerp(0.08f, 0.18f, bladeMass)
+                        : Mathf.Lerp(0.12f, 0.23f, bladeMass),
+                ShortSwordGuardConstruction.LobedCross =>
+                    Mathf.Lerp(0.24f, 0.38f, bladeMass),
                 _ => 0.20f
             };
         }
@@ -1681,6 +4826,34 @@ namespace WorldBuilder.Gameplay.Weapons
                         definition.DirectionSign,
                         0.027f,
                         0.036f),
+                ShortSwordGuardConstruction.MinimalBolster =>
+                    -0.004f * Mathf.Pow(edge, 1.4f),
+                ShortSwordGuardConstruction.DownturnedHooks =>
+                    -0.023f * Mathf.Pow(edge, 1.32f) +
+                    0.010f * Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        Mathf.InverseLerp(0.78f, 1f, edge)),
+                ShortSwordGuardConstruction.GreekWings =>
+                    edge < 0.68f
+                        ? 0.021f * Mathf.SmoothStep(
+                            0f,
+                            1f,
+                            edge / 0.68f)
+                        : Mathf.Lerp(
+                            0.021f,
+                            -0.005f,
+                            Mathf.SmoothStep(
+                                0f,
+                                1f,
+                                Mathf.InverseLerp(0.68f, 1f, edge))),
+                ShortSwordGuardConstruction.SQuillons =>
+                    normalizedX * definition.DirectionSign * 0.021f -
+                    Mathf.Sign(normalizedX) * definition.DirectionSign *
+                    0.009f * Mathf.Sin(edge * Mathf.PI),
+                ShortSwordGuardConstruction.LobedCross =>
+                    0.010f * Mathf.Sin(edge * Mathf.PI * 2f) -
+                    0.006f * Mathf.Pow(edge, 1.8f),
                 _ => 0f
             };
         }
@@ -1833,6 +5006,11 @@ namespace WorldBuilder.Gameplay.Weapons
                 ShortSwordGuardConstruction.Crescent => 1.70f,
                 ShortSwordGuardConstruction.DirectionalSweep => 1.15f,
                 ShortSwordGuardConstruction.OffsetLeaf => 1.05f,
+                ShortSwordGuardConstruction.MinimalBolster => 1.75f,
+                ShortSwordGuardConstruction.DownturnedHooks => 1.20f,
+                ShortSwordGuardConstruction.GreekWings => 1.32f,
+                ShortSwordGuardConstruction.SQuillons => 1.05f,
+                ShortSwordGuardConstruction.LobedCross => 1.55f,
                 _ => 1.4f
             };
         }
@@ -1851,7 +5029,13 @@ namespace WorldBuilder.Gameplay.Weapons
                     Mathf.Lerp(top, bottom, t),
                     ResolveHandleSurfaceRadius(definition, t, index)));
             }
-            return BuildRevolvedMesh(rings, 8, definition);
+            int sides = ResolveHandleCrossSectionSides(definition);
+            float depthScale = ResolveHandleDepthScale(definition);
+            return BuildRevolvedMesh(
+                rings,
+                sides,
+                definition,
+                depthScale);
         }
 
         private static Mesh BuildHiltMesh(
@@ -1862,7 +5046,27 @@ namespace WorldBuilder.Gameplay.Weapons
             float radius = definition.HiltRadius;
             float connectionRadius = ResolveHiltConnectionRadius(
                 definition);
-            if (definition.HiltProfile == ShortSwordHiltProfile.Hooked)
+            if (definition.HiltProfile == ShortSwordHiltProfile.Fishtail)
+            {
+                return BuildFishtailPommelMesh(
+                    top,
+                    bottom,
+                    radius,
+                    connectionRadius,
+                    definition.FacetTier);
+            }
+            if (definition.HiltProfile == ShortSwordHiltProfile.Ring)
+            {
+                return BuildRingPommelMesh(
+                    top,
+                    bottom,
+                    radius,
+                    connectionRadius,
+                    definition.FacetTier);
+            }
+            if (definition.HiltProfile is
+                ShortSwordHiltProfile.Hooked or
+                ShortSwordHiltProfile.Beaked)
             {
                 var hookedRings = new List<Vector2>
                 {
@@ -1876,13 +5080,24 @@ namespace WorldBuilder.Gameplay.Weapons
                 var centers = new List<Vector2>
                 {
                     Vector2.zero,
-                    new Vector2(0.002f, 0f),
-                    new Vector2(0.009f, 0f),
-                    new Vector2(0.022f, 0f),
-                    new Vector2(0.040f, 0f),
-                    new Vector2(0.060f, 0f)
+                    new Vector2(0.002f * definition.DirectionSign, 0f),
+                    new Vector2(0.009f * definition.DirectionSign, 0f),
+                    new Vector2(0.022f * definition.DirectionSign, 0f),
+                    new Vector2(
+                        (definition.HiltProfile == ShortSwordHiltProfile.Beaked
+                            ? 0.050f
+                            : 0.040f) * definition.DirectionSign,
+                        0f),
+                    new Vector2(
+                        (definition.HiltProfile == ShortSwordHiltProfile.Beaked
+                            ? 0.078f
+                            : 0.060f) * definition.DirectionSign,
+                        0f)
                 };
-                return BuildRevolvedMesh(hookedRings, centers, 7);
+                return BuildRevolvedMesh(
+                    hookedRings,
+                    centers,
+                    ResolveHiltSides(definition));
             }
             List<Vector2> rings = definition.HiltProfile switch
             {
@@ -1908,6 +5123,29 @@ namespace WorldBuilder.Gameplay.Weapons
                     new Vector2(Mathf.Lerp(top, bottom, 0.68f), radius * 0.82f),
                     new Vector2(bottom, radius * 0.58f)
                 },
+                ShortSwordHiltProfile.Acorn => new List<Vector2>
+                {
+                    new Vector2(top, connectionRadius),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.18f), radius * 0.72f),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.48f), radius),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.78f), radius * 0.78f),
+                    new Vector2(bottom, radius * 0.18f)
+                },
+                ShortSwordHiltProfile.BrazilNut => new List<Vector2>
+                {
+                    new Vector2(top, connectionRadius),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.22f), radius * 0.82f),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.58f), radius),
+                    new Vector2(bottom, radius * 0.54f)
+                },
+                ShortSwordHiltProfile.Mushroom => new List<Vector2>
+                {
+                    new Vector2(top, connectionRadius),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.30f), radius * 0.64f),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.58f), radius * 1.08f),
+                    new Vector2(Mathf.Lerp(top, bottom, 0.80f), radius),
+                    new Vector2(bottom, radius * 0.72f)
+                },
                 _ => new List<Vector2>
                 {
                     new Vector2(top, connectionRadius),
@@ -1916,10 +5154,166 @@ namespace WorldBuilder.Gameplay.Weapons
                     new Vector2(bottom, radius * 0.48f)
                 }
             };
-            int sides = definition.HiltProfile == ShortSwordHiltProfile.Faceted
+            return BuildRevolvedMesh(rings, ResolveHiltSides(definition));
+        }
+
+        private static int ResolveHiltSides(
+            ProceduralShortSwordDefinition definition)
+        {
+            return definition.FacetTier switch
+            {
+                ShortSwordFacetTier.Coarse => 6,
+                ShortSwordFacetTier.Intricate => 10,
+                _ => 8
+            };
+        }
+
+        private static Mesh BuildFishtailPommelMesh(
+            float top,
+            float bottom,
+            float radius,
+            float connectionRadius,
+            ShortSwordFacetTier facetTier)
+        {
+            float upper = Mathf.Lerp(top, bottom, 0.24f);
+            float lower = Mathf.Lerp(top, bottom, 0.78f);
+            float notch = Mathf.Lerp(lower, bottom, 0.36f);
+            List<Vector2> outline;
+            if (facetTier == ShortSwordFacetTier.Coarse)
+            {
+                outline = new List<Vector2>
+                {
+                    new Vector2(-connectionRadius, top),
+                    new Vector2(connectionRadius, top),
+                    new Vector2(radius * 1.12f, lower),
+                    new Vector2(radius * 0.58f, bottom),
+                    new Vector2(0f, notch),
+                    new Vector2(-radius * 0.58f, bottom),
+                    new Vector2(-radius * 1.12f, lower)
+                };
+            }
+            else if (facetTier == ShortSwordFacetTier.Intricate)
+            {
+                float shoulder = Mathf.Lerp(top, upper, 0.48f);
+                float flare = Mathf.Lerp(upper, lower, 0.52f);
+                outline = new List<Vector2>
+                {
+                    new Vector2(-connectionRadius, top),
+                    new Vector2(connectionRadius, top),
+                    new Vector2(radius * 0.48f, shoulder),
+                    new Vector2(radius * 0.72f, upper),
+                    new Vector2(radius * 0.98f, flare),
+                    new Vector2(radius * 1.16f, lower),
+                    new Vector2(radius * 0.62f, bottom),
+                    new Vector2(0f, notch),
+                    new Vector2(-radius * 0.62f, bottom),
+                    new Vector2(-radius * 1.16f, lower),
+                    new Vector2(-radius * 0.98f, flare),
+                    new Vector2(-radius * 0.72f, upper),
+                    new Vector2(-radius * 0.48f, shoulder)
+                };
+            }
+            else
+            {
+                outline = new List<Vector2>
+                {
+                    new Vector2(-connectionRadius, top),
+                    new Vector2(connectionRadius, top),
+                    new Vector2(radius * 0.72f, upper),
+                    new Vector2(radius * 1.16f, lower),
+                    new Vector2(radius * 0.62f, bottom),
+                    new Vector2(0f, notch),
+                    new Vector2(-radius * 0.62f, bottom),
+                    new Vector2(-radius * 1.16f, lower),
+                    new Vector2(-radius * 0.72f, upper)
+                };
+            }
+            return BuildExtrudedPolygon(outline, radius * 1.18f);
+        }
+
+        private static Mesh BuildRingPommelMesh(
+            float top,
+            float bottom,
+            float radius,
+            float connectionRadius,
+            ShortSwordFacetTier facetTier)
+        {
+            int ringSegments = facetTier switch
+            {
+                ShortSwordFacetTier.Coarse => 8,
+                ShortSwordFacetTier.Intricate => 12,
+                _ => 10
+            };
+            int tubeSides = facetTier == ShortSwordFacetTier.Intricate
                 ? 6
-                : 8;
-            return BuildRevolvedMesh(rings, sides);
+                : 4;
+            float centerY = Mathf.Lerp(top, bottom, 0.68f);
+            float ringRadius = Mathf.Min(
+                radius * 0.72f,
+                Mathf.Abs(centerY - bottom) * 0.82f);
+            float tubeRadius = Mathf.Max(0.006f, radius * 0.20f);
+            var vertices = new List<Vector3>(
+                ringSegments * tubeSides + 8);
+            var triangles = new List<int>(
+                ringSegments * tubeSides * 6 + 36);
+            for (int segment = 0; segment < ringSegments; segment++)
+            {
+                float angle = segment / (float)ringSegments * Mathf.PI * 2f;
+                Vector3 radial = new Vector3(
+                    Mathf.Cos(angle),
+                    Mathf.Sin(angle),
+                    0f);
+                Vector3 center = new Vector3(
+                    radial.x * ringRadius,
+                    centerY + radial.y * ringRadius,
+                    0f);
+                for (int side = 0; side < tubeSides; side++)
+                {
+                    float tubeAngle = side / (float)tubeSides * Mathf.PI * 2f;
+                    vertices.Add(
+                        center +
+                        radial * (Mathf.Cos(tubeAngle) * tubeRadius) +
+                        Vector3.forward *
+                            (Mathf.Sin(tubeAngle) * tubeRadius));
+                }
+            }
+            for (int segment = 0; segment < ringSegments; segment++)
+            {
+                int nextSegment = (segment + 1) % ringSegments;
+                for (int side = 0; side < tubeSides; side++)
+                {
+                    int nextSide = (side + 1) % tubeSides;
+                    AddQuad(
+                        triangles,
+                        segment * tubeSides + side,
+                        nextSegment * tubeSides + side,
+                        nextSegment * tubeSides + nextSide,
+                        segment * tubeSides + nextSide);
+                }
+            }
+
+            int connectorStart = vertices.Count;
+            float connectorBottom = centerY + ringRadius * 0.78f;
+            vertices.Add(new Vector3(-connectionRadius, top, tubeRadius));
+            vertices.Add(new Vector3(connectionRadius, top, tubeRadius));
+            vertices.Add(new Vector3(connectionRadius, connectorBottom, tubeRadius));
+            vertices.Add(new Vector3(-connectionRadius, connectorBottom, tubeRadius));
+            vertices.Add(new Vector3(-connectionRadius, top, -tubeRadius));
+            vertices.Add(new Vector3(connectionRadius, top, -tubeRadius));
+            vertices.Add(new Vector3(connectionRadius, connectorBottom, -tubeRadius));
+            vertices.Add(new Vector3(-connectionRadius, connectorBottom, -tubeRadius));
+            AddBoxTriangles(triangles, connectorStart);
+            return CreateMesh(vertices, triangles);
+        }
+
+        private static void AddBoxTriangles(List<int> triangles, int start)
+        {
+            AddQuad(triangles, start, start + 3, start + 2, start + 1);
+            AddQuad(triangles, start + 4, start + 5, start + 6, start + 7);
+            AddQuad(triangles, start, start + 4, start + 7, start + 3);
+            AddQuad(triangles, start + 1, start + 2, start + 6, start + 5);
+            AddQuad(triangles, start, start + 1, start + 5, start + 4);
+            AddQuad(triangles, start + 3, start + 7, start + 6, start + 2);
         }
 
         public static float ResolveHandleEndRadius(
@@ -1931,6 +5325,8 @@ namespace WorldBuilder.Gameplay.Weapons
             {
                 ShortSwordHandleProfile.Tapered => top ? 1.06f : 0.88f,
                 ShortSwordHandleProfile.Waisted => 1.03f,
+                ShortSwordHandleProfile.PalmSwell => 0.94f,
+                ShortSwordHandleProfile.FlaredEnds => 1.10f,
                 _ => 1f
             };
             return handleRadius * multiplier;
@@ -1949,7 +5345,9 @@ namespace WorldBuilder.Gameplay.Weapons
         private static Mesh BuildBandMesh(
             float centerY,
             float radius,
-            float height)
+            float height,
+            float depthScale = 1f,
+            int sides = 8)
         {
             float halfHeight = height * 0.5f;
             var rings = new List<Vector2>
@@ -1959,7 +5357,13 @@ namespace WorldBuilder.Gameplay.Weapons
                 new Vector2(centerY - halfHeight * 0.64f, radius),
                 new Vector2(centerY - halfHeight, radius * 0.92f)
             };
-            return BuildRevolvedMesh(rings, 8);
+            var centers = new Vector2[rings.Count];
+            return BuildRevolvedMesh(
+                rings,
+                centers,
+                Mathf.Clamp(sides, 6, 10),
+                null,
+                depthScale);
         }
 
         private static Mesh BuildOctahedron(
@@ -2066,41 +5470,112 @@ namespace WorldBuilder.Gameplay.Weapons
             for (int index = 0; index < count; index++)
             {
                 int next = (index + 1) % count;
-                AddQuad(
-                    triangles,
-                    index,
-                    next,
-                    count + next,
-                    count + index);
-                triangles.Add(tableCenter);
-                triangles.Add(count + index);
-                triangles.Add(count + next);
-                triangles.Add(backCenter);
-                triangles.Add(next);
-                triangles.Add(index);
+                if (facing > 0f)
+                {
+                    AddQuad(
+                        triangles,
+                        index,
+                        count + index,
+                        count + next,
+                        next);
+                    triangles.Add(tableCenter);
+                    triangles.Add(count + next);
+                    triangles.Add(count + index);
+                    triangles.Add(backCenter);
+                    triangles.Add(index);
+                    triangles.Add(next);
+                }
+                else
+                {
+                    AddQuad(
+                        triangles,
+                        index,
+                        next,
+                        count + next,
+                        count + index);
+                    triangles.Add(tableCenter);
+                    triangles.Add(count + index);
+                    triangles.Add(count + next);
+                    triangles.Add(backCenter);
+                    triangles.Add(next);
+                    triangles.Add(index);
+                }
             }
             return CreateMesh(vertices, triangles);
         }
 
         private static Mesh BuildHelixMesh(
             ProceduralShortSwordDefinition definition,
-            bool clockwise)
+            bool clockwise,
+            float turns,
+            float thicknessScale,
+            float radialOffset = 0.0035f,
+            float phaseOffset = 0f,
+            bool alternatingWeave = false,
+            int weaveStrand = 0,
+            float weavePairPhaseOffset = 0f)
         {
-            const int sampleCount = 27;
-            const int sides = 4;
-            const float turns = 2.35f;
+            int sampleCount = definition.FacetTier switch
+            {
+                ShortSwordFacetTier.Coarse => 23,
+                ShortSwordFacetTier.Intricate => 35,
+                _ => 27
+            };
+            int sides = definition.FacetTier == ShortSwordFacetTier.Intricate
+                ? 6
+                : 4;
             float top = ResolveHandleSeatHeight(definition) - 0.016f;
             float bottom = -definition.HandleLength + 0.020f;
             float direction = clockwise ? 1f : -1f;
-            float phase = clockwise ? 0f : Mathf.PI;
+            float phase = (clockwise ? 0f : Mathf.PI) + phaseOffset;
+            List<float> sampleParameters = BuildHelixSampleParameters(
+                definition,
+                sampleCount,
+                turns,
+                thicknessScale,
+                radialOffset,
+                alternatingWeave,
+                weavePairPhaseOffset);
+            sampleCount = sampleParameters.Count;
             var centers = new List<Vector3>(sampleCount);
             for (int index = 0; index < sampleCount; index++)
             {
-                float t = index / (sampleCount - 1f);
+                float t = sampleParameters[index];
                 float angle = phase + direction * t * turns * Mathf.PI * 2f;
-                float pathRadius = ResolveHandleSurfaceRadius(
+                float surfaceRadius = ResolveHandleSurfaceRadius(
                     definition,
-                    t) + 0.0035f;
+                    t);
+                float cordRadius = ResolveHelixCordRadius(
+                    definition,
+                    t,
+                    thicknessScale);
+                float basePathRadius = ResolveHandleDecorationRadius(
+                        definition,
+                        t,
+                        angle,
+                        surfaceRadius) +
+                    radialOffset;
+                float pairedAngle = clockwise
+                    ? Mathf.PI + weavePairPhaseOffset -
+                        t * turns * Mathf.PI * 2f
+                    : t * turns * Mathf.PI * 2f;
+                float pairedBasePathRadius = ResolveHandleDecorationRadius(
+                        definition,
+                        t,
+                        pairedAngle,
+                        surfaceRadius) +
+                    radialOffset;
+                float weaveLift = alternatingWeave
+                    ? ResolveAlternatingWeaveLift(
+                        t,
+                        turns,
+                        weaveStrand,
+                        weavePairPhaseOffset,
+                        cordRadius,
+                        basePathRadius,
+                        pairedBasePathRadius)
+                    : 0f;
+                float pathRadius = basePathRadius + weaveLift;
                 centers.Add(new Vector3(
                     Mathf.Cos(angle) * pathRadius,
                     Mathf.Lerp(top, bottom, t),
@@ -2122,11 +5597,11 @@ namespace WorldBuilder.Gameplay.Weapons
                     0f,
                     centers[index].z).normalized;
                 Vector3 across = Vector3.Cross(tangent, radial).normalized;
-                float t = index / (sampleCount - 1f);
-                float cordRadius = Mathf.Clamp(
-                    ResolveHandleSurfaceRadius(definition, t) * 0.105f,
-                    0.0027f,
-                    0.0040f);
+                float t = sampleParameters[index];
+                float cordRadius = ResolveHelixCordRadius(
+                    definition,
+                    t,
+                    thicknessScale);
                 for (int side = 0; side < sides; side++)
                 {
                     float angle = side / (float)sides * Mathf.PI * 2f;
@@ -2170,6 +5645,163 @@ namespace WorldBuilder.Gameplay.Weapons
             return CreateMesh(vertices, triangles);
         }
 
+        private static List<float> BuildHelixSampleParameters(
+            ProceduralShortSwordDefinition definition,
+            int baseSampleCount,
+            float turns,
+            float thicknessScale,
+            float radialOffset,
+            bool alternatingWeave,
+            float pairPhaseOffset)
+        {
+            var parameters = new List<float>(baseSampleCount + 32);
+            for (int index = 0; index < baseSampleCount; index++)
+            {
+                parameters.Add(index / (baseSampleCount - 1f));
+            }
+            if (!alternatingWeave || turns <= 0f)
+            {
+                return parameters;
+            }
+
+            float startDifference = -(Mathf.PI + pairPhaseOffset);
+            float relativeTravel = turns * Mathf.PI * 4f;
+            int firstCrossing = Mathf.CeilToInt(
+                startDifference / (Mathf.PI * 2f));
+            int lastCrossing = Mathf.FloorToInt(
+                (startDifference + relativeTravel) / (Mathf.PI * 2f));
+            for (int crossing = firstCrossing;
+                 crossing <= lastCrossing;
+                 crossing++)
+            {
+                float crossingT =
+                    (crossing * Mathf.PI * 2f - startDifference) /
+                    relativeTravel;
+                if (crossingT < 0f || crossingT > 1f)
+                {
+                    continue;
+                }
+
+                float angle = crossingT * turns * Mathf.PI * 2f;
+                float surfaceRadius = ResolveHandleSurfaceRadius(
+                    definition,
+                    crossingT);
+                float basePathRadius = ResolveHandleDecorationRadius(
+                        definition,
+                        crossingT,
+                        angle,
+                        surfaceRadius) +
+                    radialOffset;
+                float cordRadius = ResolveHelixCordRadius(
+                    definition,
+                    crossingT,
+                    thicknessScale);
+                float targetClearance = ResolveWovenGripTargetClearance(
+                    cordRadius);
+                float boundaryAngle = 2f * Mathf.Asin(Mathf.Clamp01(
+                    targetClearance /
+                    Mathf.Max(0.0001f, basePathRadius * 2f)));
+                float boundaryT = boundaryAngle / relativeTravel;
+
+                AddUniqueSample(parameters, crossingT - boundaryT);
+                AddUniqueSample(parameters, crossingT - boundaryT * 0.5f);
+                AddUniqueSample(parameters, crossingT);
+                AddUniqueSample(parameters, crossingT + boundaryT * 0.5f);
+                AddUniqueSample(parameters, crossingT + boundaryT);
+            }
+            parameters.Sort();
+            return parameters;
+        }
+
+        private static void AddUniqueSample(
+            List<float> parameters,
+            float parameter)
+        {
+            if (parameter < 0f || parameter > 1f)
+            {
+                return;
+            }
+            for (int index = 0; index < parameters.Count; index++)
+            {
+                if (Mathf.Abs(parameters[index] - parameter) < 0.000001f)
+                {
+                    return;
+                }
+            }
+            parameters.Add(parameter);
+        }
+
+        private static float ResolveHelixCordRadius(
+            ProceduralShortSwordDefinition definition,
+            float normalizedHeight,
+            float thicknessScale)
+        {
+            return Mathf.Clamp(
+                ResolveHandleSurfaceRadius(definition, normalizedHeight) *
+                    0.105f * thicknessScale,
+                0.0015f,
+                0.0058f);
+        }
+
+        private static float ResolveAlternatingWeaveLift(
+            float normalizedHeight,
+            float turns,
+            int weaveStrand,
+            float pairPhaseOffset,
+            float cordRadius,
+            float basePathRadius,
+            float pairedBasePathRadius)
+        {
+            // The paired helices cross whenever their unwrapped angular
+            // difference reaches a multiple of two PI. Only that crossing's
+            // over-strand is raised; every other point stays seated unless its
+            // angular chord is too short to clear both faceted cord tubes.
+            float unwrappedDifference =
+                -(Mathf.PI + pairPhaseOffset) +
+                normalizedHeight * turns * Mathf.PI * 4f;
+            int crossingIndex = Mathf.RoundToInt(
+                unwrappedDifference / (Mathf.PI * 2f));
+            int raisedStrand = Mathf.Abs(crossingIndex % 2);
+            if (weaveStrand != raisedStrand)
+            {
+                return 0f;
+            }
+
+            float wrappedDifference = unwrappedDifference -
+                crossingIndex * Mathf.PI * 2f;
+            float radius = Mathf.Max(0.0001f, basePathRadius);
+            float pairedRadius = Mathf.Max(0.0001f, pairedBasePathRadius);
+            float targetClearance = ResolveWovenGripTargetClearance(cordRadius);
+            float cosine = Mathf.Cos(wrappedDifference);
+            float sine = Mathf.Sin(wrappedDifference);
+            float seatedDistanceSquared =
+                radius * radius +
+                pairedRadius * pairedRadius -
+                2f * radius * pairedRadius * cosine;
+            if (seatedDistanceSquared >= targetClearance * targetClearance)
+            {
+                return 0f;
+            }
+
+            // Intersect the raised strand's radial ray with a clearance circle
+            // around the seated strand. The farther intersection is the
+            // smallest outward-only displacement that reaches the target.
+            float radicand = targetClearance * targetClearance -
+                pairedRadius * pairedRadius * sine * sine;
+            float requiredRadius = pairedRadius * cosine +
+                Mathf.Sqrt(Mathf.Max(0f, radicand));
+            return Mathf.Max(
+                0f,
+                requiredRadius - radius);
+        }
+
+        private static float ResolveWovenGripTargetClearance(float cordRadius)
+        {
+            return cordRadius * 2f +
+                WovenGripAirGap +
+                WovenGripLowPolyAllowance;
+        }
+
         public static float ResolveHandleSurfaceRadius(
             ProceduralShortSwordDefinition definition,
             float normalizedHeight,
@@ -2181,12 +5813,63 @@ namespace WorldBuilder.Gameplay.Weapons
                 ShortSwordHandleProfile.Tapered => Mathf.Lerp(1.06f, 0.88f, t),
                 ShortSwordHandleProfile.Waisted => 0.88f +
                     Mathf.Abs(t - 0.5f) * 0.30f,
+                ShortSwordHandleProfile.PalmSwell =>
+                    0.94f + Mathf.Sin(t * Mathf.PI) * 0.16f,
+                ShortSwordHandleProfile.FlaredEnds =>
+                    0.90f + Mathf.Abs(t - 0.5f) * 0.40f,
                 _ => 1f
             };
-            float wrapRelief = ringIndex > 0 && ringIndex < 6
+            bool ringRelief = definition.GripStyle is
+                ShortSwordGripStyle.LeatherBands or
+                ShortSwordGripStyle.RibbedWood or
+                ShortSwordGripStyle.FacetedLeather;
+            float wrapRelief = ringRelief && ringIndex > 0 && ringIndex < 6
                 ? (ringIndex % 2 == 0 ? 1.035f : 0.985f)
                 : 1f;
             return definition.HandleRadius * profile * wrapRelief;
+        }
+
+        private static float ResolveHandleDepthScale(
+            ProceduralShortSwordDefinition definition)
+        {
+            return definition.HandleCrossSection ==
+                    ShortSwordHandleCrossSection.OvalFaceted
+                ? 0.76f
+                : 1f;
+        }
+
+        private static int ResolveHandleCrossSectionSides(
+            ProceduralShortSwordDefinition definition)
+        {
+            return definition.HandleCrossSection switch
+            {
+                ShortSwordHandleCrossSection.Hexagonal => 6,
+                ShortSwordHandleCrossSection.Decagonal => 10,
+                ShortSwordHandleCrossSection.OvalFaceted => 8,
+                _ => 8
+            };
+        }
+
+        private static float ResolveHandleDecorationRadius(
+            ProceduralShortSwordDefinition definition,
+            float normalizedHeight,
+            float angle,
+            float surfaceRadius = -1f)
+        {
+            float radius = surfaceRadius > 0f
+                ? surfaceRadius
+                : ResolveHandleSurfaceRadius(definition, normalizedHeight);
+            float depthScale = ResolveHandleDepthScale(definition);
+            if (Mathf.Approximately(depthScale, 1f))
+            {
+                return radius;
+            }
+            float cosine = Mathf.Cos(angle);
+            float sine = Mathf.Sin(angle);
+            float denominator = Mathf.Sqrt(
+                depthScale * depthScale * cosine * cosine +
+                sine * sine);
+            return radius * depthScale / Mathf.Max(0.0001f, denominator);
         }
 
         private static Mesh BuildExtrudedPolygon(
@@ -2207,26 +5890,155 @@ namespace WorldBuilder.Gameplay.Weapons
                 Vector2 point = outline[index];
                 vertices.Add(new Vector3(point.x, point.y, -halfDepth));
             }
-            for (int index = 1; index < count - 1; index++)
+            var faceTriangles = new List<int>((count - 2) * 3);
+            TriangulatePolygon(outline, faceTriangles);
+            bool outlineClockwise = SignedPolygonArea(outline) < 0f;
+            for (int index = 0; index < faceTriangles.Count; index += 3)
             {
-                triangles.Add(0);
-                triangles.Add(index);
-                triangles.Add(index + 1);
-                triangles.Add(count);
-                triangles.Add(count + index + 1);
-                triangles.Add(count + index);
+                int a = faceTriangles[index];
+                int b = faceTriangles[index + 1];
+                int c = faceTriangles[index + 2];
+                triangles.Add(a);
+                triangles.Add(outlineClockwise ? c : b);
+                triangles.Add(outlineClockwise ? b : c);
+                triangles.Add(count + a);
+                triangles.Add(count + (outlineClockwise ? b : c));
+                triangles.Add(count + (outlineClockwise ? c : b));
             }
             for (int index = 0; index < count; index++)
             {
                 int next = (index + 1) % count;
-                AddQuad(
-                    triangles,
-                    index,
-                    count + index,
-                    count + next,
-                    next);
+                if (outlineClockwise)
+                {
+                    AddQuad(
+                        triangles,
+                        index,
+                        next,
+                        count + next,
+                        count + index);
+                }
+                else
+                {
+                    AddQuad(
+                        triangles,
+                        index,
+                        count + index,
+                        count + next,
+                        next);
+                }
             }
             return CreateMesh(vertices, triangles);
+        }
+
+        private static void TriangulatePolygon(
+            IReadOnlyList<Vector2> outline,
+            List<int> triangles)
+        {
+            var remaining = new List<int>(outline.Count);
+            for (int index = 0; index < outline.Count; index++)
+            {
+                remaining.Add(index);
+            }
+            bool clockwise = SignedPolygonArea(outline) < 0f;
+            int safety = outline.Count * outline.Count;
+            while (remaining.Count > 3 && safety-- > 0)
+            {
+                bool clipped = false;
+                for (int index = 0; index < remaining.Count; index++)
+                {
+                    int previous = remaining[
+                        (index - 1 + remaining.Count) % remaining.Count];
+                    int current = remaining[index];
+                    int next = remaining[(index + 1) % remaining.Count];
+                    float corner = Cross2D(
+                        outline[current] - outline[previous],
+                        outline[next] - outline[current]);
+                    if (clockwise ? corner >= -0.0000001f : corner <= 0.0000001f)
+                    {
+                        continue;
+                    }
+
+                    bool containsPoint = false;
+                    for (int candidateIndex = 0;
+                         candidateIndex < remaining.Count;
+                         candidateIndex++)
+                    {
+                        int candidate = remaining[candidateIndex];
+                        if (candidate == previous ||
+                            candidate == current ||
+                            candidate == next)
+                        {
+                            continue;
+                        }
+                        if (PointInsideTriangle(
+                                outline[candidate],
+                                outline[previous],
+                                outline[current],
+                                outline[next]))
+                        {
+                            containsPoint = true;
+                            break;
+                        }
+                    }
+                    if (containsPoint)
+                    {
+                        continue;
+                    }
+
+                    triangles.Add(previous);
+                    triangles.Add(current);
+                    triangles.Add(next);
+                    remaining.RemoveAt(index);
+                    clipped = true;
+                    break;
+                }
+                if (!clipped)
+                {
+                    break;
+                }
+            }
+            if (remaining.Count == 3)
+            {
+                triangles.Add(remaining[0]);
+                triangles.Add(remaining[1]);
+                triangles.Add(remaining[2]);
+            }
+        }
+
+        private static float SignedPolygonArea(
+            IReadOnlyList<Vector2> outline)
+        {
+            float twiceArea = 0f;
+            for (int index = 0; index < outline.Count; index++)
+            {
+                Vector2 current = outline[index];
+                Vector2 next = outline[(index + 1) % outline.Count];
+                twiceArea += current.x * next.y - next.x * current.y;
+            }
+            return twiceArea * 0.5f;
+        }
+
+        private static float Cross2D(Vector2 left, Vector2 right)
+        {
+            return left.x * right.y - left.y * right.x;
+        }
+
+        private static bool PointInsideTriangle(
+            Vector2 point,
+            Vector2 a,
+            Vector2 b,
+            Vector2 c)
+        {
+            float first = Cross2D(b - a, point - a);
+            float second = Cross2D(c - b, point - b);
+            float third = Cross2D(a - c, point - c);
+            bool hasNegative = first < -0.0000001f ||
+                second < -0.0000001f ||
+                third < -0.0000001f;
+            bool hasPositive = first > 0.0000001f ||
+                second > 0.0000001f ||
+                third > 0.0000001f;
+            return !(hasNegative && hasPositive);
         }
 
         private static Mesh BuildRevolvedMesh(
@@ -2240,21 +6052,24 @@ namespace WorldBuilder.Gameplay.Weapons
         private static Mesh BuildRevolvedMesh(
             IReadOnlyList<Vector2> rings,
             int sides,
-            ProceduralShortSwordDefinition topSeatDefinition)
+            ProceduralShortSwordDefinition topSeatDefinition,
+            float depthScale = 1f)
         {
             var centers = new Vector2[rings.Count];
             return BuildRevolvedMesh(
                 rings,
                 centers,
                 sides,
-                topSeatDefinition);
+                topSeatDefinition,
+                depthScale);
         }
 
         private static Mesh BuildRevolvedMesh(
             IReadOnlyList<Vector2> rings,
             IReadOnlyList<Vector2> centers,
             int sides,
-            ProceduralShortSwordDefinition? topSeatDefinition = null)
+            ProceduralShortSwordDefinition? topSeatDefinition = null,
+            float depthScale = 1f)
         {
             var vertices = new List<Vector3>(rings.Count * sides + 2);
             var triangles = new List<int>((rings.Count - 1) * sides * 6 + sides * 6);
@@ -2274,7 +6089,7 @@ namespace WorldBuilder.Gameplay.Weapons
                         x,
                         y,
                         centers[ring].y +
-                            Mathf.Sin(angle) * rings[ring].y));
+                            Mathf.Sin(angle) * rings[ring].y * depthScale));
                 }
             }
             for (int ring = 0; ring < rings.Count - 1; ring++)
@@ -2334,11 +6149,21 @@ namespace WorldBuilder.Gameplay.Weapons
                 Vector3 b = vertices[triangles[index + 1]];
                 Vector3 c = vertices[triangles[index + 2]];
                 Vector3 cross = Vector3.Cross(b - a, c - a);
-                if (cross.sqrMagnitude <= 0.000000000001f)
+                float squaredMagnitude = cross.sqrMagnitude;
+                if (squaredMagnitude <= 0.000000000001f ||
+                    float.IsNaN(squaredMagnitude) ||
+                    float.IsInfinity(squaredMagnitude))
                 {
                     continue;
                 }
-                Vector3 normal = cross.normalized;
+                // Vector3.normalized returns Vector3.zero below Unity's
+                // 1e-5 magnitude cutoff. Several legitimate fine grip/cord
+                // faces are smaller than that but larger than our degeneracy
+                // threshold, so they previously reached URP Lit with a zero
+                // normal. GPU normalization of that value can yield NaN/Inf
+                // lighting and an intermittent HDR flash. Normalize the
+                // already-validated cross product explicitly instead.
+                Vector3 normal = cross / Mathf.Sqrt(squaredMagnitude);
                 int first = flatVertices.Count;
                 flatVertices.Add(a);
                 flatVertices.Add(b);

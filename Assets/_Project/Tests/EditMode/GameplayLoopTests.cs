@@ -628,6 +628,24 @@ namespace WorldBuilder.Tests.EditMode
                 Is.True);
         }
 
+        [Test]
+        public void RaidActorSwordSeedIsStableForTheWholeRaid()
+        {
+            int playerSeed = RaidPrototypeController.ResolveActorSwordSeed(
+                8142,
+                "player");
+
+            Assert.That(
+                RaidPrototypeController.ResolveActorSwordSeed(8142, "player"),
+                Is.EqualTo(playerSeed));
+            Assert.That(
+                RaidPrototypeController.ResolveActorSwordSeed(8143, "player"),
+                Is.Not.EqualTo(playerSeed));
+            Assert.That(
+                RaidPrototypeController.ResolveActorSwordSeed(8142, "raider-1"),
+                Is.Not.EqualTo(playerSeed));
+        }
+
         private static GameSession CreateRaidSandboxSession()
         {
             return new GameSession(

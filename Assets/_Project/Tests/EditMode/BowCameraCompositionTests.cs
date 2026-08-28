@@ -272,6 +272,133 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
+        public void BowLimbsBendSymmetricallyWithoutStretchingString()
+        {
+            Vector3 restingNock =
+                TwoSlotWeaponPresenter.CalculateArrowNockLocalPosition(0f);
+            Vector3 fullDrawNock =
+                TwoSlotWeaponPresenter.CalculateArrowNockLocalPosition(1f);
+            TwoSlotWeaponPresenter.CalculateBentBowControlPoints(
+                0f,
+                restingNock,
+                out Vector3 restingUpperPeak,
+                out Vector3 restingUpperOuter,
+                out Vector3 restingUpperTip,
+                out Vector3 restingLowerPeak,
+                out Vector3 restingLowerOuter,
+                out Vector3 restingLowerTip);
+            TwoSlotWeaponPresenter.CalculateBentBowControlPoints(
+                1f,
+                fullDrawNock,
+                out Vector3 drawnUpperPeak,
+                out Vector3 drawnUpperOuter,
+                out Vector3 drawnUpperTip,
+                out Vector3 drawnLowerPeak,
+                out Vector3 drawnLowerOuter,
+                out Vector3 drawnLowerTip);
+
+            Assert.That(
+                drawnUpperTip.z,
+                Is.EqualTo(drawnLowerTip.z).Within(0.002f),
+                "Both bow tips must bend backward by the same amount.");
+            Assert.That(
+                drawnUpperTip.z,
+                Is.LessThan(restingUpperTip.z - 0.15f));
+            Assert.That(
+                Mathf.Abs(drawnUpperTip.y),
+                Is.EqualTo(
+                    Mathf.Abs(drawnLowerTip.y))
+                    .Within(0.002f),
+                "Upper and lower limb tips must contract symmetrically around the handle.");
+            Assert.That(
+                Vector3.Distance(drawnUpperTip, fullDrawNock) +
+                Vector3.Distance(drawnLowerTip, fullDrawNock),
+                Is.EqualTo(
+                    Vector3.Distance(restingUpperTip, restingNock) +
+                    Vector3.Distance(restingLowerTip, restingNock))
+                    .Within(0.003f));
+            Assert.That(
+                drawnUpperPeak.z,
+                Is.EqualTo(drawnLowerPeak.z).Within(0.002f));
+            Assert.That(
+                drawnUpperOuter.z,
+                Is.EqualTo(drawnLowerOuter.z).Within(0.002f));
+            Assert.That(
+                drawnUpperPeak.y,
+                Is.EqualTo(-drawnLowerPeak.y).Within(0.002f));
+            Assert.That(
+                drawnUpperOuter.y,
+                Is.EqualTo(-drawnLowerOuter.y).Within(0.002f));
+
+            AssertBowLimbSegmentLengths(
+                new Vector3(0f, 0.13f, 0f),
+                restingUpperPeak,
+                restingUpperOuter,
+                restingUpperTip,
+                drawnUpperPeak,
+                drawnUpperOuter,
+                drawnUpperTip);
+            AssertBowLimbSegmentLengths(
+                new Vector3(0f, -0.13f, 0f),
+                restingLowerPeak,
+                restingLowerOuter,
+                restingLowerTip,
+                drawnLowerPeak,
+                drawnLowerOuter,
+                drawnLowerTip);
+        }
+
+        [Test]
+        public void ArrowTrackKeepsItsRestCoordinatesWhileDrawDepthChanges()
+        {
+            Vector3 corrected =
+                TwoSlotWeaponPresenter.CalculateArrowTrackNockLocalPosition(
+                    new Vector3(
+                        0.19f,
+                        -0.08f,
+                        -TwoSlotWeaponPresenter.BowBraceHeight -
+                        TwoSlotWeaponPresenter.BowMaximumDrawDistance));
+
+            Assert.That(
+                corrected.x,
+                Is.EqualTo(TwoSlotWeaponPresenter.BowArrowRightOffset)
+                    .Within(0.0001f));
+            Assert.That(
+                corrected.y,
+                Is.EqualTo(TwoSlotWeaponPresenter.BowArrowRestHeight)
+                    .Within(0.0001f));
+            Assert.That(
+                corrected.z,
+                Is.EqualTo(
+                    -TwoSlotWeaponPresenter.BowBraceHeight -
+                    TwoSlotWeaponPresenter.BowMaximumDrawDistance)
+                    .Within(0.0001f));
+        }
+
+        private static void AssertBowLimbSegmentLengths(
+            Vector3 anchor,
+            Vector3 restingPeak,
+            Vector3 restingOuter,
+            Vector3 restingTip,
+            Vector3 drawnPeak,
+            Vector3 drawnOuter,
+            Vector3 drawnTip)
+        {
+            Assert.That(
+                Vector3.Distance(anchor, drawnPeak),
+                Is.EqualTo(Vector3.Distance(anchor, restingPeak))
+                    .Within(0.002f));
+            Assert.That(
+                Vector3.Distance(drawnPeak, drawnOuter),
+                Is.EqualTo(Vector3.Distance(restingPeak, restingOuter))
+                    .Within(0.002f));
+            Assert.That(
+                Vector3.Distance(drawnOuter, drawnTip),
+                Is.EqualTo(Vector3.Distance(restingOuter, restingTip))
+                    .Within(0.002f));
+        }
+
+        [Test]
         public void StraightArrowFromBowIntersectsCrosshairAtTargetDepth()
         {
             Vector3 aimOrigin = new Vector3(4f, 2f, -3f);

@@ -36,6 +36,23 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 ThirdPersonMotor.IsSteepSlope(Vector3.up, 45f),
                 Is.False);
+            Assert.That(
+                ThirdPersonMotor.CalculateGroundedPresentation(
+                    true,
+                    -2f),
+                Is.True,
+                // Steep contact blocks uphill traversal; it is not airtime.
+                "Contact with an unwalkable slope must remain grounded for animation even though uphill control is rejected.");
+            Assert.That(
+                ThirdPersonMotor.CalculateGroundedPresentation(
+                    true,
+                    4f),
+                Is.False,
+                "A real upward jump must remain airborne even while the ground probe is still in range at takeoff.");
+            Assert.That(
+                ThirdPersonMotor.MinimumStableGroundProbeDistance,
+                Is.LessThan(ThirdPersonMotor.MinimumTraversalStepOffset),
+                "Ground tolerance must bridge terrain seams without treating a full climbable step as continuous floor.");
         }
 
         [Test]
@@ -249,6 +266,12 @@ namespace WorldBuilder.Tests.EditMode
                 Assert.That(
                     bow.ReloadRemaining,
                     Is.EqualTo(bow.EffectiveReloadDuration).Within(0.001f));
+                Assert.That(bow.PostShotPresentationActive, Is.True);
+                Assert.That(bow.PresentationAimLocked, Is.True);
+                Assert.That(
+                    bow.PresentedDrawNormalized,
+                    Is.EqualTo(1f).Within(0.001f),
+                    "The drawing hand should retain the released full-draw pose while the physical string resets.");
 
                 input.SetDiagnosticOverride(new PlayerIntent(
                     Vector2.zero,
@@ -281,52 +304,56 @@ namespace WorldBuilder.Tests.EditMode
         }
 
         [Test]
-        public void PlayerBowRecoveryPoseLastsForTheRenockWindow()
+        public void PlayerBowRecoveryPoseUsesHalfLengthHoldBeforeReturning()
         {
+            const float ReloadDuration = 0.65f;
+            const float ReturnDuration = 0.18f;
+            float poseDuration =
+                BowWeapon.PlayerPostShotHoldDuration +
+                ReturnDuration;
             float heldFollowThrough = BowWeapon.CalculateReadyWeight(
                 1f,
                 false,
-                0.18f,
-                0.18f,
-                0.65f,
-                0.47f,
+                ReturnDuration,
+                ReturnDuration,
+                poseDuration,
+                ReturnDuration,
                 true);
             float ordinaryReturnWeight =
                 BowWeapon.CalculateReadyWeight(
                     1f,
                     false,
-                    0.18f,
-                    0.18f,
-                    0.65f,
+                    ReturnDuration,
+                    ReturnDuration,
+                    ReloadDuration,
                     0f,
                     false);
 
             Assert.That(
+                BowWeapon.PlayerPostShotHoldDuration,
+                Is.EqualTo(0.47f * 0.5f).Within(0.001f));
+            Assert.That(
                 heldFollowThrough,
                 Is.EqualTo(1f).Within(0.001f),
-                "The released bow should stay raised through most of the reload.");
+                "The released bow should remain raised through the shortened hold.");
             Assert.That(
                 ordinaryReturnWeight,
                 Is.Zero,
                 "Cancelled draws and NPC behavior should retain the ordinary quick return.");
             Assert.That(
-                BowWeapon.CalculateReadyWeight(
-                    1f,
-                    false,
-                    0.65f,
-                    0.18f,
-                    0.65f,
-                    0f,
-                    true),
+                BowWeapon.CalculatePostShotPoseRemaining(
+                    ReloadDuration - poseDuration,
+                    ReloadDuration,
+                    poseDuration),
                 Is.Zero,
-                "The release pose should reach rest exactly when re-nocking completes.");
+                "The release pose should finish before re-nocking completes.");
             Assert.That(
                 BowWeapon.CalculatePostShotReadyWeight(
-                    0.09f,
-                    0.65f,
-                    0.18f),
+                    ReturnDuration * 0.5f,
+                    poseDuration,
+                    ReturnDuration),
                 Is.EqualTo(0.5f).Within(0.001f),
-                "The bow should complete a quick return during the final reload portion.");
+                "The bow should retain the same quick return after the shorter hold.");
         }
 
         private static void InvokeBowUpdate(BowWeapon bow)

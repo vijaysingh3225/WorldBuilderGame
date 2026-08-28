@@ -61,7 +61,7 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void DormantArenaEnemyAlertsWhenDamaged()
+        public void DamagedSwordsmanPursuesTheActualAttackerPosition()
         {
             player = CreateTarget(
                 "Player",
@@ -85,8 +85,10 @@ namespace WorldBuilder.Tests
             Assert.That(brain.HasVisualContact, Is.False);
             Assert.That(enemyHealth.Current, Is.EqualTo(90f));
             Assert.That(
-                brain.LastKnownPosition.z,
-                Is.EqualTo(-10f).Within(0.01f));
+                brain.LastKnownPosition,
+                Is.EqualTo(player.transform.position),
+                "A confirmed hit must preserve an across-river attacker as " +
+                "the pursuit destination so bridge routing can engage.");
         }
 
         [Test]
@@ -362,7 +364,10 @@ namespace WorldBuilder.Tests
             enemy = CreateEnemy(Vector3.zero);
             PlayerInputSource input =
                 enemy.AddComponent<PlayerInputSource>();
+            CharacterAimSource aimSource =
+                enemy.AddComponent<CharacterAimSource>();
             EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            InvokePrivate(brain, "ResolveReferences");
             brain.Configure(player.transform);
             brain.ConfigureCampGuardLoadout(
                 EnemyBrain.WeaponLoadout.SwordOnly);
@@ -373,6 +378,9 @@ namespace WorldBuilder.Tests
                 "lastKnownPosition",
                 player.transform.position);
             SetPrivateField(brain, "lostSightWaitTimer", 1.25f);
+            aimSource.SetOverride(
+                enemy.transform.position + Vector3.up,
+                Vector3.right);
 
             InvokePrivate(brain, "UpdateInvestigation");
 
@@ -389,8 +397,61 @@ namespace WorldBuilder.Tests
                 Is.True,
                 "A swordsman must sprint while pursuing the remembered position.");
             Assert.That(
+                aimSource.OverrideActive,
+                Is.False,
+                "Search-facing would make the motor downgrade this sprint to a walk.");
+            Assert.That(
+                ThirdPersonMotor.CalculateSprintAllowed(
+                    aimSource.OverrideActive,
+                    false,
+                    false,
+                    input.CurrentIntent.SprintHeld),
+                Is.True,
+                "The effective motor rule must accept sprint throughout remembered-position pursuit.");
+            Assert.That(
                 brain.CurrentState,
                 Is.EqualTo(EnemyBrain.EnemyState.Pursuing));
+        }
+
+        [Test]
+        public void SwordGuardSearchesOnlyAfterReachingLastSeenPosition()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, 20f));
+            enemy = CreateEnemy(player.transform.position);
+            PlayerInputSource input =
+                enemy.AddComponent<PlayerInputSource>();
+            CharacterAimSource aimSource =
+                enemy.AddComponent<CharacterAimSource>();
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            InvokePrivate(brain, "ResolveReferences");
+            brain.Configure(player.transform);
+            brain.ConfigureCampGuardLoadout(
+                EnemyBrain.WeaponLoadout.SwordOnly);
+            SetPrivateField(brain, "alerted", true);
+            SetPrivateField(brain, "hasVisualContact", false);
+            SetPrivateField(
+                brain,
+                "lastKnownPosition",
+                player.transform.position);
+
+            InvokePrivate(brain, "UpdateInvestigation");
+
+            Assert.That(input.CurrentIntent.Move, Is.EqualTo(Vector2.zero));
+            Assert.That(input.CurrentIntent.SprintHeld, Is.False);
+            Assert.That(
+                aimSource.OverrideActive,
+                Is.True,
+                "After arriving, the swordsman should stop and scan around the remembered location.");
+            Assert.That(
+                GetPrivateField<bool>(
+                    brain,
+                    "reachedLastKnownPosition"),
+                Is.True);
+            Assert.That(
+                GetPrivateField<float>(brain, "investigationTimer"),
+                Is.GreaterThan(3f));
         }
 
         [Test]
@@ -798,6 +859,172 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
+        public void CommittedRouteDetectsDestinationReturningToEntrySide()
+        {
+            Vector3 entry = new Vector3(0f, 0f, -6f);
+            Vector3 exit = new Vector3(0f, 0f, 6f);
+
+            Assert.That(
+                EnemyBrain.ShouldReverseCommittedBridgeRoute(
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, -10f)),
+                Is.True,
+                "A destination back on the entry side should invalidate an unentered route.");
+            Assert.That(
+                EnemyBrain.ShouldReverseCommittedBridgeRoute(
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, 10f)),
+                Is.False);
+            Assert.That(
+                EnemyBrain.ShouldReverseCommittedBridgeRoute(
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, -0.5f)),
+                Is.False,
+                "A small center-line movement must not make the route oscillate between both exits.");
+        }
+
+        [Test]
+        public void AuthoredTraversalCancellationRespectsEntryAndGoalScope()
+        {
+            Vector3 entry = new Vector3(0f, 0f, -6f);
+            Vector3 exit = new Vector3(0f, 0f, 6f);
+            Vector3 returnedDestination =
+                new Vector3(0f, 0f, -10f);
+
+            Assert.That(
+                EnemyBrain.ShouldCancelUnenteredAuthoredTraversal(
+                    entry,
+                    exit,
+                    returnedDestination,
+                    traversalEntered: false,
+                    destinationIsStrategic: true),
+                Is.True,
+                "A strategic goal returning to the entry side should cancel before corridor entry.");
+            Assert.That(
+                EnemyBrain.ShouldCancelUnenteredAuthoredTraversal(
+                    entry,
+                    exit,
+                    returnedDestination,
+                    traversalEntered: true,
+                    destinationIsStrategic: true),
+                Is.False,
+                "Once entered, the guard must finish the corridor instead of reversing in it.");
+            Assert.That(
+                EnemyBrain.ShouldCancelUnenteredAuthoredTraversal(
+                    entry,
+                    exit,
+                    returnedDestination,
+                    traversalEntered: false,
+                    destinationIsStrategic: false),
+                Is.False,
+                "Short-lived orbit and disengage probes must not cancel a strategic traversal.");
+            Assert.That(
+                EnemyBrain.ShouldCancelUnenteredAuthoredTraversal(
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, 10f),
+                    traversalEntered: false,
+                    destinationIsStrategic: true),
+                Is.False,
+                "A destination still beyond the exit should retain the commitment.");
+        }
+
+        [Test]
+        public void StrategicTraversalCandidateMustStartOnEnemySide()
+        {
+            Vector3 entry = new Vector3(0f, 0f, -6f);
+            Vector3 exit = new Vector3(0f, 0f, 6f);
+
+            Assert.That(
+                EnemyBrain.StrategicDestinationRequiresAuthoredTraversal(
+                    new Vector3(0f, 0f, -10f),
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, 10f)),
+                Is.True);
+            Assert.That(
+                EnemyBrain.StrategicDestinationRequiresAuthoredTraversal(
+                    new Vector3(0f, 0f, 5f),
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, 10f)),
+                Is.False,
+                "A re-resolved route whose entry is across the corridor would force a pointless cross-and-back.");
+            Assert.That(
+                EnemyBrain.StrategicDestinationRequiresAuthoredTraversal(
+                    new Vector3(0f, 0f, -10f),
+                    entry,
+                    exit,
+                    new Vector3(0f, 0f, -10f)),
+                Is.False,
+                "No crossing is required when the guard and strategic destination share the entry side.");
+        }
+
+        [Test]
+        public void LocalSteeringProbeCannotOpenAuthoredTraversal()
+        {
+            Assert.That(
+                EnemyBrain.CanOpenNewAuthoredTraversal(
+                    destinationIsStrategic: true,
+                    movementModeAllowsNewCommitment: true),
+                Is.True);
+            Assert.That(
+                EnemyBrain.CanOpenNewAuthoredTraversal(
+                    destinationIsStrategic: false,
+                    movementModeAllowsNewCommitment: true),
+                Is.False,
+                "Orbit and disengage probes may continue a route but must never create one.");
+            Assert.That(
+                EnemyBrain.CanOpenNewAuthoredTraversal(
+                    destinationIsStrategic: true,
+                    movementModeAllowsNewCommitment: false),
+                Is.False,
+                "Movement modes that forbid a traversal kind must retain that restriction for strategic goals.");
+        }
+
+        [Test]
+        public void CommittedBridgeRouteContinuesPastDeckExitOntoDryBank()
+        {
+            Vector3 entry = new Vector3(0f, 0f, -6f);
+            Vector3 exit = new Vector3(0f, 0f, 6f);
+            Vector3 clearance =
+                EnemyBrain.ResolveCommittedBridgeExitClearancePoint(
+                    entry,
+                    exit);
+
+            Assert.That(
+                clearance,
+                Is.EqualTo(
+                    exit +
+                    Vector3.forward *
+                    EnemyBrain.BridgeExitClearanceDistance));
+            Assert.That(
+                EnemyBrain.HasClearedCommittedBridgeRoute(
+                    exit - Vector3.forward * 0.65f,
+                    entry,
+                    exit),
+                Is.False,
+                "Steering must not release before the guard steps off the deck.");
+            Assert.That(
+                EnemyBrain.HasClearedCommittedBridgeRoute(
+                    exit,
+                    entry,
+                    exit),
+                Is.False,
+                "The exact bridge endpoint is still part of the deck/bank handoff.");
+            Assert.That(
+                EnemyBrain.HasClearedCommittedBridgeRoute(
+                    clearance,
+                    entry,
+                    exit),
+                Is.True,
+                "Normal steering may resume only after reaching the dry-bank clearance point.");
+        }
+
+        [Test]
         public void OccludedDrawingArcherAdvancesTowardLastSeenCoverEdge()
         {
             player = CreateTarget(
@@ -917,6 +1144,49 @@ namespace WorldBuilder.Tests
                 input.CurrentIntent.Move.y,
                 Is.LessThan(-0.5f),
                 "The sword guard should make space behind its block after the combo.");
+        }
+
+        [Test]
+        public void SwordGuardTurnsBeforeSwingingAtCloseTargetBehind()
+        {
+            player = CreateTarget(
+                "Player",
+                new Vector3(0f, 0f, -0.8f));
+            enemy = CreateEnemy(Vector3.zero);
+            PlayerInputSource input =
+                enemy.AddComponent<PlayerInputSource>();
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            SetPrivateField(brain, "input", input);
+            brain.Configure(player.transform);
+            brain.ConfigureCampGuardLoadout(
+                EnemyBrain.WeaponLoadout.SwordOnly);
+            ResolvePrivateMethod("EnterSwordEngagement")
+                .Invoke(brain, null);
+
+            ResolvePrivateMethod("UpdateMeleeClosing").Invoke(
+                brain,
+                new object[] { Vector3.back, 0.8f });
+
+            Assert.That(
+                GetPrivateField<int>(brain, "comboPulsesRemaining"),
+                Is.Zero,
+                "A close player behind the guard must not start a forward-facing combo.");
+            Assert.That(input.CurrentIntent.AttackPressed, Is.False);
+            Assert.That(input.CurrentIntent.SprintHeld, Is.True);
+            Assert.That(
+                input.CurrentIntent.Move.magnitude,
+                Is.GreaterThan(0.9f),
+                "Travel input must remain active so the motor can turn the swordsman around on the bridge deck.");
+
+            enemy.transform.rotation =
+                Quaternion.LookRotation(Vector3.back, Vector3.up);
+            ResolvePrivateMethod("UpdateMeleeClosing").Invoke(
+                brain,
+                new object[] { Vector3.back, 0.8f });
+            Assert.That(
+                GetPrivateField<int>(brain, "comboPulsesRemaining"),
+                Is.EqualTo(3),
+                "The combo may begin normally after the guard faces the player.");
         }
 
         [Test]
@@ -1198,6 +1468,59 @@ namespace WorldBuilder.Tests
                 Is.EqualTo(
                     (targetPoint -
                         bow.PresentedArrowTip).normalized));
+        }
+
+        [Test]
+        public void LookoutBehaviorExtendsForwardSightAndKeepsOutwardPauseFacing()
+        {
+            enemy = CreateEnemy(Vector3.zero);
+            EnemyBrain brain = enemy.GetComponent<EnemyBrain>();
+            Vector3 outward = new Vector3(0.25f, 0f, 1f).normalized;
+
+            brain.ConfigureCampGuardLoadout(
+                EnemyBrain.WeaponLoadout.BowOnly);
+            brain.ConfigureLookoutBehavior(
+                outward,
+                44f,
+                28f,
+                115f);
+
+            Assert.That(
+                GetPrivateField<float>(brain, "passiveSightRange"),
+                Is.EqualTo(44f));
+            Assert.That(
+                GetPrivateField<float>(brain, "forestSightRange"),
+                Is.EqualTo(28f));
+            Assert.That(
+                GetPrivateField<float>(brain, "passiveViewAngle"),
+                Is.EqualTo(115f));
+            Assert.That(
+                GetPrivateField<Vector3>(
+                    brain,
+                    "authoredPatrolLookDirection"),
+                Is.EqualTo(outward));
+
+            SetPrivateField(brain, "hasPatrolDestination", true);
+            SetPrivateField(
+                brain,
+                "patrolDestination",
+                brain.transform.position);
+            InvokePrivate(brain, "UpdatePatrol");
+            Assert.That(
+                GetPrivateField<Vector3>(brain, "patrolLookDirection"),
+                Is.EqualTo(outward),
+                "A lookout should face over the map while pausing instead of staring along the side-to-side travel line.");
+
+            brain.ConfigureCampGuardLoadout(
+                EnemyBrain.WeaponLoadout.BowOnly);
+            Assert.That(
+                GetPrivateField<float>(brain, "passiveSightRange"),
+                Is.EqualTo(32f));
+            Assert.That(
+                GetPrivateField<Vector3>(
+                    brain,
+                    "authoredPatrolLookDirection"),
+                Is.EqualTo(Vector3.zero));
         }
 
         [Test]

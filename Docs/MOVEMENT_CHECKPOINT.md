@@ -1,5 +1,12 @@
 # Faster planted walk + tucked run V12 candidate
 
+## 2026-08-13 slightly slower sprint cadence
+
+The standing locomotion blend tree now plays its sprint child at 1.18x instead
+of 1.25x. Player sprint velocity, jog and walk thresholds, and all other gait
+playback rates are unchanged; this is a presentation-only reduction intended to
+bring sprint footfalls closer to the character's ground travel.
+
 ## Stylized forest environment pack
 
 The complete creator-supplied forest exchange set is organized under

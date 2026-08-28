@@ -451,79 +451,24 @@ namespace WorldBuilder.Gameplay.WeaponGrid
                         new ArtifactStatModifier(ArtifactStat.Damage, 1f)
                     }),
                 new ArtifactDefinitionData(
-                    "artifact-power-shard",
-                    "Power Shard",
-                    new Color(0.96f, 0.64f, 0.18f),
+                    "winged-seal",
+                    "Winged Seal",
+                    new Color(0.72f, 0.78f, 0.84f),
+                    new[] { GridCoordinate.Root },
+                    new[]
+                    {
+                        new ArtifactStatModifier(
+                            ArtifactStat.MoveSpeed,
+                            0.25f)
+                    }),
+                new ArtifactDefinitionData(
+                    "obsidian-shard",
+                    "Obsidian Shard",
+                    new Color(0.24f, 0.17f, 0.30f),
                     new[] { GridCoordinate.Root },
                     new[]
                     {
                         new ArtifactStatModifier(ArtifactStat.Damage, 1f)
-                    }),
-                new ArtifactDefinitionData(
-                    "keen-shard",
-                    "Keen Shard",
-                    new Color(0.93f, 0.38f, 0.19f),
-                    new[] { GridCoordinate.Root },
-                    new[]
-                    {
-                        new ArtifactStatModifier(ArtifactStat.Damage, 1f)
-                    }),
-                new ArtifactDefinitionData(
-                    "iron-bond",
-                    "Iron Bond",
-                    new Color(0.42f, 0.62f, 0.76f),
-                    new[]
-                    {
-                        GridCoordinate.Root,
-                        new GridCoordinate(1, 0)
-                    },
-                    new[]
-                    {
-                        new ArtifactStatModifier(ArtifactStat.MaxHealth, 10f)
-                    }),
-                new ArtifactDefinitionData(
-                    "wind-step",
-                    "Wind Step",
-                    new Color(0.31f, 0.82f, 0.62f),
-                    new[]
-                    {
-                        GridCoordinate.Root,
-                        new GridCoordinate(1, 0),
-                        new GridCoordinate(0, 1)
-                    },
-                    new[]
-                    {
-                        new ArtifactStatModifier(ArtifactStat.MoveSpeed, 0.25f)
-                    }),
-                new ArtifactDefinitionData(
-                    "razor-line",
-                    "Razor Line",
-                    new Color(0.82f, 0.35f, 0.66f),
-                    new[]
-                    {
-                        new GridCoordinate(-1, 0),
-                        GridCoordinate.Root,
-                        new GridCoordinate(1, 0)
-                    },
-                    new[]
-                    {
-                        new ArtifactStatModifier(ArtifactStat.Damage, 2f)
-                    }),
-                new ArtifactDefinitionData(
-                    "wayfarer-knot",
-                    "Wayfarer Knot",
-                    new Color(0.88f, 0.72f, 0.24f),
-                    new[]
-                    {
-                        GridCoordinate.Root,
-                        new GridCoordinate(1, 0),
-                        new GridCoordinate(1, 1),
-                        new GridCoordinate(2, 1)
-                    },
-                    new[]
-                    {
-                        new ArtifactStatModifier(ArtifactStat.MaxHealth, 5f),
-                        new ArtifactStatModifier(ArtifactStat.MoveSpeed, 0.15f)
                     })
             };
         }

@@ -7,6 +7,7 @@ namespace WorldBuilder.Gameplay.Presentation
     public sealed class CombatLabHud : MonoBehaviour
     {
         [SerializeField] private Health playerHealth;
+        [SerializeField] private PlayerStamina playerStamina;
         [SerializeField] private Health enemyHealth;
         [SerializeField] private TwoSlotWeaponPresenter weaponSlots;
         [SerializeField] private BowWeapon bowWeapon;
@@ -16,6 +17,7 @@ namespace WorldBuilder.Gameplay.Presentation
         private GUIStyle titleStyle;
         private GUIStyle textStyle;
         private GUIStyle centeredStyle;
+        private GUIStyle compactBarStyle;
         private Texture2D whiteTexture;
         private Texture2D bowCrosshairTexture;
         private Texture2D bowCrosshairDotTexture;
@@ -23,6 +25,15 @@ namespace WorldBuilder.Gameplay.Presentation
         public void Configure(Health player, Health enemy)
         {
             playerHealth = player;
+            if (player != null)
+            {
+                playerStamina = player.GetComponent<PlayerStamina>();
+                if (playerStamina == null)
+                {
+                    playerStamina = player.gameObject
+                        .AddComponent<PlayerStamina>();
+                }
+            }
             enemyHealth = enemy;
             weaponSlots =
                 player != null
@@ -57,17 +68,33 @@ namespace WorldBuilder.Gameplay.Presentation
                     playerHealth.GetComponentInChildren<
                         ShortSwordAttackPresenter>(true);
             }
+            CalculatePlayerBarRects(
+                Screen.height,
+                300f,
+                out Rect healthRect,
+                out Rect staminaRect,
+                out Rect chargeRect);
             DrawHealthBar(
-                new Rect(24f, 40f, 260f, 18f),
+                healthRect,
                 playerHealth,
                 new Color(0.25f, 0.68f, 0.45f),
-                "PLAYER");
+                "HEALTH",
+                true);
+            DrawResourceBar(
+                staminaRect,
+                playerStamina != null
+                    ? playerStamina.Normalized
+                    : 1f,
+                new Color(0.12f, 0.10f, 0.045f, 0.95f),
+                new Color(0.78f, 0.70f, 0.30f, 0.96f),
+                "STAMINA");
             if (weaponSlots != null &&
                 weaponSlots.ActiveSlot ==
                     TwoSlotWeaponPresenter.SecondarySlot &&
-                bowWeapon != null)
+                bowWeapon != null &&
+                (bowWeapon.IsDrawing || bowWeapon.DrawNormalized > 0f))
             {
-                DrawBowCharge(new Rect(24f, 70f, 260f, 12f));
+                DrawBowCharge(chargeRect);
                 if (bowWeapon.IsDrawing)
                 {
                     DrawBowCrosshair();
@@ -76,7 +103,7 @@ namespace WorldBuilder.Gameplay.Presentation
             else if (shortSwordAttack != null &&
                      shortSwordAttack.IsHeavyCharging)
             {
-                DrawHeavyCharge(new Rect(24f, 70f, 260f, 12f));
+                DrawHeavyCharge(chargeRect);
             }
             enemyBrain ??=
                 enemyHealth != null
@@ -86,7 +113,7 @@ namespace WorldBuilder.Gameplay.Presentation
                 enemyBrain != null && enemyBrain.IsActivated
                     ? "AI COMBATANT"
                     : "TARGET DUMMY";
-            DrawHealthBar(new Rect(Screen.width - 344f, 24f, 320f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), enemyLabel);
+            DrawHealthBar(new Rect(Screen.width - 344f, 24f, 320f, 18f), enemyHealth, new Color(0.76f, 0.25f, 0.12f), enemyLabel, false);
 
             if (playerHealth != null && !playerHealth.IsAlive)
             {
@@ -98,11 +125,53 @@ namespace WorldBuilder.Gameplay.Presentation
             }
         }
 
-        private void DrawHealthBar(Rect rect, Health health, Color fill, string label)
+        private void OnDestroy()
+        {
+            DestroyGeneratedTexture(ref bowCrosshairTexture);
+            DestroyGeneratedTexture(ref bowCrosshairDotTexture);
+        }
+
+        public static void CalculatePlayerBarRects(
+            float screenHeight,
+            float width,
+            out Rect health,
+            out Rect stamina,
+            out Rect charge)
+        {
+            const float LeftMargin = 24f;
+            const float BottomMargin = 20f;
+            const float HealthHeight = 18f;
+            const float CompactHeight = 11f;
+            const float Gap = 5f;
+            health = new Rect(
+                LeftMargin,
+                screenHeight - BottomMargin - HealthHeight,
+                width,
+                HealthHeight);
+            stamina = new Rect(
+                LeftMargin,
+                health.y - Gap - CompactHeight,
+                width,
+                CompactHeight);
+            charge = new Rect(
+                LeftMargin,
+                stamina.y - Gap - CompactHeight,
+                width,
+                CompactHeight);
+        }
+
+        private void DrawHealthBar(
+            Rect rect,
+            Health health,
+            Color fill,
+            string label,
+            bool labelInside)
         {
             float normalized = health != null ? health.Normalized : 0f;
             Color previous = GUI.color;
-            GUI.color = new Color(0.04f, 0.05f, 0.06f, 0.88f);
+            GUI.color = labelInside
+                ? new Color(0.30f, 0.075f, 0.065f, 0.96f)
+                : new Color(0.04f, 0.05f, 0.06f, 0.88f);
             GUI.DrawTexture(rect, whiteTexture);
             GUI.color = fill;
             GUI.DrawTexture(new Rect(rect.x + 2f, rect.y + 2f, (rect.width - 4f) * normalized, rect.height - 4f), whiteTexture);
@@ -112,58 +181,70 @@ namespace WorldBuilder.Gameplay.Presentation
                   $"{Mathf.CeilToInt(health.Maximum)}"
                 : label;
             GUI.Label(
-                new Rect(
-                    rect.x,
-                    rect.y - 20f,
-                    rect.width,
-                    20f),
+                labelInside
+                    ? new Rect(
+                        rect.x + 7f,
+                        rect.y - 1f,
+                        rect.width - 14f,
+                        rect.height + 2f)
+                    : new Rect(
+                        rect.x,
+                        rect.y - 20f,
+                        rect.width,
+                        20f),
                 healthText,
-                textStyle);
+                labelInside ? compactBarStyle : textStyle);
+        }
+
+        private void DrawResourceBar(
+            Rect rect,
+            float normalized,
+            Color missing,
+            Color fill,
+            string label)
+        {
+            Color previous = GUI.color;
+            GUI.color = missing;
+            GUI.DrawTexture(rect, whiteTexture);
+            GUI.color = fill;
+            GUI.DrawTexture(
+                new Rect(
+                    rect.x + 1f,
+                    rect.y + 1f,
+                    (rect.width - 2f) * Mathf.Clamp01(normalized),
+                    rect.height - 2f),
+                whiteTexture);
+            GUI.color = previous;
+            GUI.Label(
+                new Rect(
+                    rect.x + 5f,
+                    rect.y - 1f,
+                    rect.width - 10f,
+                    rect.height + 2f),
+                label,
+                compactBarStyle);
         }
 
         private void DrawBowCharge(Rect rect)
         {
-            Color previous = GUI.color;
-            GUI.color = new Color(0.04f, 0.05f, 0.06f, 0.88f);
-            GUI.DrawTexture(rect, whiteTexture);
-            GUI.color = bowWeapon.CanFire
-                ? new Color(0.90f, 0.64f, 0.20f)
-                : new Color(0.42f, 0.43f, 0.45f);
-            GUI.DrawTexture(
-                new Rect(
-                    rect.x + 2f,
-                    rect.y + 2f,
-                    (rect.width - 4f) * bowWeapon.DrawNormalized,
-                    rect.height - 4f),
-                whiteTexture);
-            GUI.color = previous;
-            GUI.Label(
-                new Rect(rect.x, rect.y + 12f, rect.width, 20f),
-                bowWeapon.IsDrawing
-                    ? (bowWeapon.CanFire ? "RELEASE TO FIRE" : "SETTLING")
-                    : "HOLD RMB TO DRAW",
-                textStyle);
+            DrawResourceBar(
+                rect,
+                bowWeapon.DrawNormalized,
+                new Color(0.075f, 0.065f, 0.045f, 0.96f),
+                bowWeapon.CanFire
+                    ? new Color(0.90f, 0.64f, 0.20f)
+                    : new Color(0.42f, 0.43f, 0.45f),
+                bowWeapon.CanFire ? "BOW  READY" : "BOW  DRAW");
         }
 
         private void DrawHeavyCharge(Rect rect)
         {
-            Color previous = GUI.color;
-            GUI.color = new Color(0.04f, 0.05f, 0.06f, 0.88f);
-            GUI.DrawTexture(rect, whiteTexture);
-            GUI.color = new Color(0.76f, 0.30f, 0.18f);
-            GUI.DrawTexture(
-                new Rect(
-                    rect.x + 2f,
-                    rect.y + 2f,
-                    (rect.width - 4f) *
-                    shortSwordAttack.HeavyChargeNormalized,
-                    rect.height - 4f),
-                whiteTexture);
-            GUI.color = previous;
-            GUI.Label(
-                new Rect(rect.x, rect.y + 12f, rect.width, 20f),
-                "HEAVY STRIKE",
-                textStyle);
+            DrawResourceBar(
+                rect,
+                shortSwordAttack.HeavyChargeNormalized,
+                new Color(0.11f, 0.045f, 0.035f, 0.96f),
+                new Color(0.76f, 0.30f, 0.18f),
+                "HEAVY STRIKE");
         }
 
         private void DrawCenterMessage(string message)
@@ -248,6 +329,37 @@ namespace WorldBuilder.Gameplay.Presentation
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 24
             };
+            compactBarStyle = new GUIStyle(textStyle)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 9,
+                fontStyle = FontStyle.Bold,
+                clipping = TextClipping.Clip,
+                normal = { textColor = new Color(0.94f, 0.94f, 0.90f) }
+            };
+        }
+
+        private static void DestroyGeneratedTexture(
+            ref Texture2D texture)
+        {
+            if (texture == null)
+            {
+                return;
+            }
+
+            if ((texture.hideFlags & HideFlags.DontSave) != 0)
+            {
+                if (Application.isPlaying)
+                {
+                    Object.Destroy(texture);
+                }
+                else
+                {
+                    Object.DestroyImmediate(texture);
+                }
+            }
+
+            texture = null;
         }
 
         private static Texture2D CreateCrosshairTexture(int size)

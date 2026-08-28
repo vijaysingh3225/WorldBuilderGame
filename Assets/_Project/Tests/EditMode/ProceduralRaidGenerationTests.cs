@@ -13,8 +13,447 @@ using WorldBuilder.Gameplay.Loop.Scenes;
 
 namespace WorldBuilder.Tests
 {
+    // Advanced graph and feature-enabled integration coverage lives in the
+    // focused AdvancedLandformGenerationTests fixture.
     public sealed class ProceduralRaidGenerationTests
     {
+        [Test]
+        public void VisibleForestFloorUsesOnlyRestrainedGreenOutsideCamps()
+        {
+            Vector4 forest =
+                ProceduralRaidGenerator.VisibleForestGroundWeightsForValidation(
+                    new Vector4(0.42f, 0f, 0.18f, 0.25f),
+                    0.15f,
+                    0f);
+            Assert.That(forest.x, Is.EqualTo(0f));
+            Assert.That(forest.y, Is.EqualTo(0f));
+            Assert.That(forest.z, Is.EqualTo(1f));
+            Assert.That(
+                forest.w,
+                Is.EqualTo(0f),
+                "The greenest groundcover tier must never receive visible terrain weight.");
+
+            Vector4 camp =
+                ProceduralRaidGenerator.VisibleForestGroundWeightsForValidation(
+                    new Vector4(0.42f, 0f, 0.18f, 0.25f),
+                    0.15f,
+                    1f);
+            Assert.That(
+                camp.x,
+                Is.GreaterThan(0.5f),
+                "Camp clearings must retain their authored exposed-loam override.");
+            Assert.That(
+                camp.w,
+                Is.EqualTo(0f),
+                "Camp transitions must not reintroduce the retired greenest texture.");
+        }
+
+        [Test]
+        public void RaidGuardCompositionIsOneQuarterArchers()
+        {
+            Assert.That(
+                ProceduralRaidGenerator.ArcherGuardShare,
+                Is.EqualTo(0.25f).Within(0.0001f),
+                "Raid patrol and camp guard selection should produce 25% archers and 75% swordsmen.");
+        }
+
+        [Test]
+        public void RaidGeneratesJumpableDeadfallsAndGuardedWatchtowers()
+        {
+            const int ProductionSeed = 20260730;
+            EditorSceneManager.OpenScene(
+                GameplaySceneRegistry.RaidPrototypeScenePath,
+                OpenSceneMode.Single);
+            ProceduralRaidGenerator generator =
+                Object.FindFirstObjectByType<ProceduralRaidGenerator>();
+            Assert.That(generator, Is.Not.Null);
+
+            generator.GenerateWithSeed(ProductionSeed);
+
+            Assert.That(
+                generator.GeneratedFallenTreeCrossingCount,
+                Is.InRange(4, 6));
+            Assert.That(
+                generator.GeneratedWatchtowerCount,
+                Is.EqualTo(ProceduralRaidGenerator.WatchtowerCount));
+            Assert.That(generator.GeneratedWideWatchtowerCount, Is.EqualTo(1));
+            Assert.That(
+                generator.GeneratedTowerGuardCount,
+                Is.EqualTo(ProceduralRaidGenerator.WatchtowerCount));
+
+            Transform generated = generator.transform.Find(
+                $"Generated Raid {ProductionSeed}");
+            Assert.That(generated, Is.Not.Null);
+            Transform crossings = generated.Find(
+                "River Fallen Tree Crossings");
+            Transform towers = generated.Find("Forest Watchtowers");
+            Assert.That(crossings, Is.Not.Null);
+            Assert.That(towers, Is.Not.Null);
+            Assert.That(
+                crossings.GetComponentsInChildren<MeshCollider>(true),
+                Has.Length.GreaterThanOrEqualTo(
+                    generator.GeneratedFallenTreeCrossingCount));
+            Assert.That(
+                towers.GetComponentsInChildren<RaidLootContainer>(true),
+                Has.Length.EqualTo(ProceduralRaidGenerator.WatchtowerCount));
+            Assert.That(
+                towers.GetComponentsInChildren<Transform>(true).Count(
+                    item => item.name == "Rear Access Ladder"),
+                Is.EqualTo(ProceduralRaidGenerator.SkinnyWatchtowerCount));
+            LadderClimbPoint[] ladderClimbs =
+                towers.GetComponentsInChildren<LadderClimbPoint>(true);
+            Assert.That(
+                ladderClimbs,
+                Has.Length.EqualTo(
+                    ProceduralRaidGenerator.SkinnyWatchtowerCount));
+            foreach (LadderClimbPoint ladderClimb in ladderClimbs)
+            {
+                Assert.That(ladderClimb.ClimbHeight, Is.GreaterThan(4f));
+                Assert.That(
+                    ladderClimb.TopPosition.y,
+                    Is.GreaterThan(ladderClimb.BottomPosition.y));
+                Assert.That(
+                    ladderClimb.ClimbFacing.sqrMagnitude,
+                    Is.EqualTo(1f).Within(0.001f));
+            }
+            Transform wideTower = towers.Find("Wide Watchtower");
+            Assert.That(wideTower, Is.Not.Null);
+            BoxCollider[] stairRamps = wideTower
+                .GetComponentsInChildren<BoxCollider>(true)
+                .Where(collider => collider.name.StartsWith(
+                    "Wide Tower Stair Ramp"))
+                .ToArray();
+            Assert.That(
+                stairRamps.Length,
+                Is.EqualTo(3),
+                "Every switchback stair flight needs one continuous invisible walking surface.");
+            foreach (BoxCollider stairRamp in stairRamps)
+            {
+                Assert.That(stairRamp.isTrigger, Is.False);
+                Assert.That(
+                    stairRamp.size.y,
+                    Is.GreaterThanOrEqualTo(0.29f),
+                    $"{stairRamp.name} must sit above the authored step noses instead of intersecting them.");
+                Assert.That(
+                    stairRamp.bounds.size.magnitude,
+                    Is.GreaterThan(1.5f),
+                    $"{stairRamp.name} must overlap both flight transitions.");
+            }
+
+            Physics.SyncTransforms();
+            foreach (RaidLootContainer chest in
+                     towers.GetComponentsInChildren<RaidLootContainer>(true))
+            {
+                Bounds chestBounds = VisibleRendererBounds(chest.transform);
+                Transform chestTower = chest.transform.parent;
+                Assert.That(chestTower, Is.Not.Null);
+                Vector3 horizontalOffset =
+                    chestBounds.center - chestTower.position;
+                horizontalOffset.y = 0f;
+                Vector3 chestLongAxis =
+                    chest.transform.TransformDirection(Vector3.right);
+                chestLongAxis.y = 0f;
+                chestLongAxis.Normalize();
+                Vector3 wallNormal = Vector3.Cross(
+                    Vector3.up,
+                    chestLongAxis).normalized;
+                Assert.That(
+                    Mathf.Abs(Vector3.Dot(horizontalOffset, wallNormal)),
+                    Is.GreaterThan(0.42f),
+                    $"{chest.name} should be moved out from the deck center against a wall.");
+                RaycastHit[] hits = Physics.RaycastAll(
+                    new Vector3(
+                        chestBounds.center.x,
+                        chestBounds.min.y + 0.35f,
+                        chestBounds.center.z),
+                    Vector3.down,
+                    4.5f,
+                    ~0,
+                    QueryTriggerInteraction.Ignore);
+                float deckHeight = float.NegativeInfinity;
+                for (int hitIndex = 0;
+                     hitIndex < hits.Length;
+                     hitIndex++)
+                {
+                    Collider collider = hits[hitIndex].collider;
+                    if (collider == null ||
+                        collider.transform.IsChildOf(chest.transform) ||
+                        hits[hitIndex].normal.y < 0.60f)
+                    {
+                        continue;
+                    }
+                    deckHeight = Mathf.Max(
+                        deckHeight,
+                        hits[hitIndex].point.y);
+                }
+                Assert.That(
+                    deckHeight,
+                    Is.GreaterThan(float.NegativeInfinity),
+                    $"{chest.name} has no tower deck below it.");
+                Assert.That(
+                    chestBounds.min.y - deckHeight,
+                    Is.InRange(-0.015f, 0.025f),
+                    $"{chest.name} must rest directly on its tower deck.");
+            }
+
+            FieldInfo patrolRouteField = typeof(EnemyBrain).GetField(
+                "patrolRoute",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo passiveSightField = typeof(EnemyBrain).GetField(
+                "passiveSightRange",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo lookoutMovementModeField = typeof(EnemyBrain).GetField(
+                "lookoutMovementMode",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo patrolLookDirectionsField = typeof(EnemyBrain).GetField(
+                "patrolRouteLookDirections",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(patrolRouteField, Is.Not.Null);
+            Assert.That(passiveSightField, Is.Not.Null);
+            Assert.That(lookoutMovementModeField, Is.Not.Null);
+            Assert.That(patrolLookDirectionsField, Is.Not.Null);
+            EnemyBrain[] towerLookouts = Object
+                .FindObjectsByType<EnemyBrain>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None)
+                .Where(candidate =>
+                    (float)passiveSightField.GetValue(candidate) ==
+                        ProceduralRaidGenerator.TowerGuardSightRange)
+                .ToArray();
+            EnemyBrain wideLookout = towerLookouts
+                .FirstOrDefault(candidate =>
+                    patrolRouteField.GetValue(candidate) is Vector3[] route &&
+                    route.Length == 2);
+            Assert.That(wideLookout, Is.Not.Null);
+            Vector3[] lookoutRoute =
+                (Vector3[])patrolRouteField.GetValue(wideLookout);
+            Assert.That(
+                Vector3.Distance(lookoutRoute[0], lookoutRoute[1]),
+                Is.GreaterThanOrEqualTo(2.5f));
+            Assert.That(
+                (float)passiveSightField.GetValue(wideLookout),
+                Is.EqualTo(ProceduralRaidGenerator.TowerGuardSightRange));
+            Assert.That(
+                lookoutMovementModeField.GetValue(wideLookout).ToString(),
+                Is.EqualTo("PlatformPatrol"));
+            Vector3[] wideLookDirections =
+                (Vector3[])patrolLookDirectionsField.GetValue(wideLookout);
+            Assert.That(wideLookDirections, Has.Length.EqualTo(2));
+            Assert.That(
+                Vector3.Distance(
+                    wideLookout.transform.position,
+                    lookoutRoute[0]),
+                Is.LessThan(0.05f),
+                "The wide lookout must spawn on the first supported deck waypoint.");
+            for (int waypointIndex = 0;
+                 waypointIndex < lookoutRoute.Length;
+                 waypointIndex++)
+            {
+                Vector3 waypoint = lookoutRoute[waypointIndex];
+                RaycastHit[] deckHits = Physics.RaycastAll(
+                    waypoint - Vector3.up * 0.15f,
+                    Vector3.down,
+                    1.5f,
+                    ~0,
+                    QueryTriggerInteraction.Ignore);
+                RaycastHit deckHit = deckHits.FirstOrDefault(hit =>
+                    hit.collider != null &&
+                    hit.collider.transform.IsChildOf(wideTower) &&
+                    hit.normal.y >= 0.60f);
+                Assert.That(
+                    deckHit.collider,
+                    Is.Not.Null,
+                    $"Wide lookout waypoint {waypointIndex} needs tower deck support.");
+                Assert.That(
+                    waypoint.y - deckHit.point.y,
+                    Is.EqualTo(1f).Within(0.03f));
+            }
+
+            EnemyBrain[] skinnyLookouts = towerLookouts
+                .Where(candidate =>
+                    patrolRouteField.GetValue(candidate) is Vector3[] route &&
+                    route.Length == 1)
+                .ToArray();
+            Assert.That(
+                skinnyLookouts,
+                Has.Length.EqualTo(
+                    ProceduralRaidGenerator.SkinnyWatchtowerCount));
+            Assert.That(
+                skinnyLookouts.All(candidate =>
+                    lookoutMovementModeField.GetValue(candidate).ToString() ==
+                        "Stationary"),
+                Is.True,
+                "Skinny lookouts must scan from a movement-locked post instead of entering the patrol locomotion path.");
+
+            MeshFilter loweredRailingFilter = wideTower
+                .GetComponentsInChildren<MeshFilter>(true)
+                .FirstOrDefault(filter =>
+                    filter.sharedMesh != null &&
+                    filter.sharedMesh.name ==
+                        "Wide Watchtower Lowered Railings");
+            Assert.That(loweredRailingFilter, Is.Not.Null);
+            Mesh loweredRailingMesh = loweredRailingFilter.sharedMesh;
+            Bounds loweredBounds = loweredRailingMesh.bounds;
+            float railingBase = loweredBounds.min.y +
+                loweredBounds.size.y * (3.545f / 7.674f);
+            float oldRailingTop = loweredBounds.min.y +
+                loweredBounds.size.y * (4.824f / 7.674f);
+            float loweredRailingTop = loweredRailingMesh.vertices
+                .Where(vertex =>
+                    vertex.y > railingBase + 0.0005f &&
+                    vertex.y < oldRailingTop - 0.0005f)
+                .Max(vertex => vertex.y);
+            float railingWorldHeight = Vector3.Distance(
+                loweredRailingFilter.transform.TransformPoint(
+                    new Vector3(0f, railingBase, 0f)),
+                loweredRailingFilter.transform.TransformPoint(
+                    new Vector3(0f, loweredRailingTop, 0f)));
+            Assert.That(
+                railingWorldHeight,
+                Is.LessThanOrEqualTo(
+                    ProceduralRaidGenerator.WideWatchtowerRailingHeight +
+                    0.03f));
+        }
+
+        [Test]
+        public void LegacyRaidSceneReceivesForestSaturationDefault()
+        {
+            Assert.That(
+                ProceduralRaidGenerator.ResolveForestGroundSaturation(0f),
+                Is.EqualTo(
+                    ProceduralRaidGenerator.DefaultForestGroundSaturation));
+            Assert.That(
+                ProceduralRaidGenerator.ResolveForestGroundSaturation(0.62f),
+                Is.EqualTo(
+                    ProceduralRaidGenerator.DefaultForestGroundSaturation),
+                "Saved review scenes using the previous muddy tuning should migrate to the brighter restrained value.");
+            Assert.That(
+                ProceduralRaidGenerator.ResolveForestGroundSaturation(0.78f),
+                Is.EqualTo(
+                    ProceduralRaidGenerator.DefaultForestGroundSaturation),
+                "Playable scenes using the prior restrained tuning should receive the greener revision.");
+            Assert.That(
+                ProceduralRaidGenerator.ResolveForestGroundSaturation(0.48f),
+                Is.EqualTo(0.48f).Within(0.0001f));
+        }
+
+        [Test]
+        public void DeepOceanShaderUsesTextureIndependentSubtleWaves()
+        {
+            Shader shader = Shader.Find("WorldBuilder/Deep Ocean");
+            Assert.That(shader, Is.Not.Null);
+            Assert.That(shader.isSupported, Is.True);
+
+            Material material = null;
+            try
+            {
+                material = new Material(shader);
+                Assert.That(material.HasProperty("_BaseMap"), Is.False);
+                Assert.That(material.HasProperty("_DeepColor"), Is.True);
+                Assert.That(material.HasProperty("_WaveSpeed"), Is.True);
+                Assert.That(
+                    material.GetFloat("_WaveSpeed"),
+                    Is.LessThan(0.08f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(material);
+            }
+        }
+
+        [Test]
+        public void LowHorizonFogShaderCompilesInsteadOfRenderingErrorPurple()
+        {
+            Shader shader = Shader.Find(
+                "WorldBuilder/Low Horizon Fog");
+            Assert.That(shader, Is.Not.Null);
+            Assert.That(
+                shader.isSupported,
+                Is.True,
+                "Unsupported fog shaders render as Unity's purple error material.");
+
+            Material material = null;
+            try
+            {
+                material = new Material(shader);
+                Assert.That(
+                    material.renderQueue,
+                    Is.GreaterThanOrEqualTo(
+                        (int)UnityEngine.Rendering.RenderQueue.Transparent));
+                Assert.That(material.HasProperty("_BaseColor"), Is.True);
+                Assert.That(material.HasProperty("_DepthFadeDistance"), Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(material);
+            }
+        }
+
+        [Test]
+        public void StackedCampPropsTouchAlongSupportSurface()
+        {
+            GameObject support =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+            GameObject upper =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+            GameObject collisionHelper =
+                GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                support.transform.SetPositionAndRotation(
+                    new Vector3(3f, 1f, -2f),
+                    Quaternion.Euler(9f, 28f, -7f));
+                support.transform.localScale =
+                    new Vector3(1.5f, 0.8f, 1.2f);
+                upper.transform.SetPositionAndRotation(
+                    new Vector3(3f, 5f, -2f),
+                    Quaternion.Euler(-4f, 71f, 5f));
+                upper.transform.localScale =
+                    new Vector3(1.35f, 0.7f, 1.1f);
+
+                collisionHelper.name = "UCX_Oversized_Crate_Helper";
+                collisionHelper.transform.SetParent(
+                    support.transform,
+                    false);
+                collisionHelper.transform.localPosition =
+                    Vector3.up * 4f;
+                collisionHelper.transform.localScale =
+                    Vector3.one * 3f;
+                collisionHelper.GetComponent<Renderer>().enabled = false;
+
+                MethodInfo place = typeof(ProceduralRaidGenerator)
+                    .GetMethod(
+                        "PlacePropOnTop",
+                        BindingFlags.Static | BindingFlags.NonPublic);
+                Assert.That(place, Is.Not.Null);
+                place.Invoke(null, new object[] { upper, support });
+
+                Vector3 stackingAxis = support.transform.up;
+                float supportTop = Vector3.Dot(
+                    support.transform.TransformPoint(
+                        new Vector3(0f, 0.5f, 0f)),
+                    stackingAxis);
+                float upperBottom = Vector3.Dot(
+                    upper.transform.TransformPoint(
+                        new Vector3(0f, -0.5f, 0f)),
+                    stackingAxis);
+
+                Assert.That(
+                    Vector3.Angle(upper.transform.up, stackingAxis),
+                    Is.LessThan(0.001f));
+                Assert.That(
+                    upperBottom - supportTop,
+                    Is.EqualTo(-0.003f).Within(0.0002f),
+                    "Visible faces should touch without using the disabled collision helper's bounds.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(collisionHelper);
+                Object.DestroyImmediate(upper);
+                Object.DestroyImmediate(support);
+            }
+        }
+
         [Test]
         public void PcPipelineUsesGpuDrivenRaidRendering()
         {
@@ -336,6 +775,9 @@ namespace WorldBuilder.Tests
                 second.BranchRoadC,
                 Is.EqualTo(first.BranchRoadC));
             Assert.That(
+                second.BranchRoads,
+                Is.EqualTo(first.BranchRoads));
+            Assert.That(
                 second.River,
                 Is.EqualTo(first.River));
             Assert.That(
@@ -350,7 +792,307 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void SeededIslandCoastsStayNaturalAndPreservePlayableArea()
+        public void TreeDensityBiomesPreservePlainMediumAndDenseBands()
+        {
+            Assert.That(
+                ProceduralRaidGenerator
+                    .CalculateTreeDensityMultiplier(-0.30f),
+                Is.EqualTo(0f).Within(0.0001f));
+            Assert.That(
+                ProceduralRaidGenerator
+                    .CalculateTreeDensityMultiplier(0f),
+                Is.EqualTo(
+                    ProceduralRaidGenerator
+                        .MediumWoodlandTreeDensity)
+                    .Within(0.0001f));
+            Assert.That(
+                ProceduralRaidGenerator
+                    .CalculateTreeDensityMultiplier(0.32f),
+                Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(
+                ProceduralRaidGenerator
+                    .CalculateTreeDensityMultiplier(-0.17f),
+                Is.InRange(
+                    0.01f,
+                    ProceduralRaidGenerator
+                        .MediumWoodlandTreeDensity - 0.01f),
+                "The plain edge should feather naturally rather than forming a hard tree wall.");
+            Assert.That(
+                ProceduralRaidGenerator
+                    .CalculateTreeDensityMultiplier(0.19f),
+                Is.InRange(
+                    ProceduralRaidGenerator
+                        .MediumWoodlandTreeDensity + 0.01f,
+                    0.99f),
+                "The medium woodland should feather into the unchanged dense forest.");
+        }
+
+        [Test]
+        public void ProductionIslandCoastHasExactlyExpandedPlayableArea()
+        {
+            const float BaselineRadius = 144f;
+            EditorSceneManager.OpenScene(
+                GameplaySceneRegistry.RaidPrototypeScenePath,
+                OpenSceneMode.Single);
+            ProceduralRaidGenerator generator =
+                Object.FindFirstObjectByType<
+                    ProceduralRaidGenerator>();
+            Assert.That(generator, Is.Not.Null);
+
+            float[] baselineCoast =
+                ProceduralRaidGenerator.CreateIslandCoastRadii(
+                    generator.Seed,
+                    BaselineRadius);
+            float[] productionCoast =
+                ProceduralRaidGenerator.CreateIslandCoastRadii(
+                    generator.Seed,
+                    generator.MapRadius);
+            float areaRatio = SampledCoastArea(productionCoast) /
+                SampledCoastArea(baselineCoast);
+
+            Assert.That(
+                generator.MapRadius,
+                Is.EqualTo(
+                        BaselineRadius * Mathf.Sqrt(
+                            ProceduralRaidGenerator
+                                .ExpandedIslandAreaMultiplier))
+                    .Within(0.001f),
+                "The production radius must represent an area expansion, not a 2.5x radius expansion.");
+            Assert.That(
+                areaRatio,
+                Is.EqualTo(
+                        ProceduralRaidGenerator
+                            .ExpandedIslandAreaMultiplier)
+                    .Within(0.0001f),
+                "The sampled production coastline must enclose exactly 2.5x the baseline playable area.");
+        }
+
+        [Test]
+        public void PolylineSpatialQueryRemainsValidAfterRebuild()
+        {
+            System.Type queryType = typeof(ProceduralRaidGenerator)
+                .GetNestedType(
+                    "PolylineQuery",
+                    BindingFlags.NonPublic);
+            Assert.That(queryType, Is.Not.Null);
+            object query = System.Activator.CreateInstance(queryType);
+            MethodInfo add = queryType.GetMethod("Add");
+            MethodInfo clear = queryType.GetMethod("Clear");
+            MethodInfo tryClosest = queryType.GetMethod(
+                "TryClosestPointWithin");
+            Assert.That(add, Is.Not.Null);
+            Assert.That(clear, Is.Not.Null);
+            Assert.That(tryClosest, Is.Not.Null);
+
+            var line = new List<Vector3>
+            {
+                new Vector3(-8f, 0f, 0f),
+                new Vector3(8f, 0f, 0f)
+            };
+            add.Invoke(query, new object[] { line });
+            object[] firstArguments =
+            {
+                new Vector2(0f, 0.5f),
+                2f,
+                Vector2.zero,
+                0f
+            };
+            Assert.That(
+                (bool)tryClosest.Invoke(query, firstArguments),
+                Is.True);
+
+            clear.Invoke(query, null);
+            add.Invoke(query, new object[] { line });
+            object[] rebuiltArguments =
+            {
+                new Vector2(0f, 0.5f),
+                2f,
+                Vector2.zero,
+                0f
+            };
+            Assert.That(
+                (bool)tryClosest.Invoke(query, rebuiltArguments),
+                Is.True,
+                "Rebuilding a spatial spline query must not reuse stale segment-visit stamps.");
+            Assert.That(
+                (float)rebuiltArguments[3],
+                Is.EqualTo(0.5f).Within(0.001f));
+        }
+
+        [Test]
+        public void RemoteRiverMouthStagesDryBankApproachBeforeBridgeCommitment()
+        {
+            const int ProductionSeed = 20260730;
+            EditorSceneManager.OpenScene(
+                GameplaySceneRegistry.RaidPrototypeScenePath,
+                OpenSceneMode.Single);
+            ProceduralRaidGenerator generator =
+                Object.FindFirstObjectByType<
+                    ProceduralRaidGenerator>();
+            Assert.That(generator, Is.Not.Null);
+            generator.GenerateWithSeed(ProductionSeed);
+
+            Vector3[] river = generator.CurrentLayout.River;
+            int remoteIndex = 1;
+            float farthestFromTrail = float.NegativeInfinity;
+            for (int index = 1; index < river.Length - 1; index++)
+            {
+                float trailDistance = DistanceToTrailNetwork(
+                    river[index],
+                    generator.CurrentLayout);
+                if (trailDistance <= farthestFromTrail)
+                {
+                    continue;
+                }
+
+                farthestFromTrail = trailDistance;
+                remoteIndex = index;
+            }
+
+            Vector3 tangent = Vector3.ProjectOnPlane(
+                river[remoteIndex + 1] - river[remoteIndex - 1],
+                Vector3.up).normalized;
+            Vector3 across = Vector3.Cross(
+                Vector3.up,
+                tangent).normalized;
+            Vector3 from = river[remoteIndex] + across * 10f;
+            Vector3 destination = river[remoteIndex] - across * 10f;
+            Assert.That(
+                farthestFromTrail,
+                Is.GreaterThan(200f),
+                "The regression probe must remain the remote meandering " +
+                "river mouth rather than an ordinary bridge-adjacent bank.");
+            Assert.That(
+                generator.TryResolveEnemyBridgeRoute(
+                    from,
+                    destination,
+                    out _,
+                    out _),
+                Is.False,
+                "The strict bridge resolver must not pretend the concave " +
+                "bank has one dry straight approach chord.");
+            Assert.That(
+                generator.TryResolveEnemyBridgeBankApproach(
+                    from,
+                    destination,
+                    out ProceduralRaidGenerator
+                        .EnemyBridgeApproachStep approach),
+                Is.True,
+                "A remote guard should receive a staged dry-bank approach " +
+                "to a fitted bridge.");
+            Assert.That(approach.CanCommitBridge, Is.False);
+            Assert.That(
+                generator.IsEnemyBridgeBankApproachDestinationCompatible(
+                    approach,
+                    destination),
+                Is.True,
+                "The staged route must use local river-bank topology rather " +
+                "than the bridge center's half-plane.");
+            Assert.That(
+                generator.IsEnemyBridgeBankApproachDestinationCompatible(
+                    approach,
+                    from),
+                Is.False,
+                "Returning the strategic destination to the guard's entry " +
+                "bank must cancel the unentered staged route.");
+
+            Vector3 current = from;
+            int legCount = 0;
+            while (!approach.CanCommitBridge)
+            {
+                Assert.That(
+                    legCount,
+                    Is.LessThan(64),
+                    "The staged bank route must converge instead of cycling.");
+                Assert.That(
+                    generator.IsEnemyBridgeApproachSegmentSafe(
+                        current,
+                        approach.Waypoint,
+                        0.25f),
+                    Is.True,
+                    "Every stored bank-approach leg must stay dry, inside " +
+                    "the coast, and away from un-authored cliff crossings.");
+                Assert.That(
+                    generator.IsEnemyNavigationPositionSafe(
+                        approach.Waypoint,
+                        0.25f),
+                    Is.True,
+                    "A bank waypoint must leave guard-radius clearance from " +
+                    "the river exclusion.");
+                Vector2 waypointPlanar = new Vector2(
+                    approach.Waypoint.x,
+                    approach.Waypoint.z);
+                float coastRadius = generator.CurrentLayout
+                    .CoastRadiusAtAngle(
+                        Mathf.Atan2(
+                            waypointPlanar.y,
+                            waypointPlanar.x));
+                Assert.That(
+                    coastRadius - waypointPlanar.magnitude,
+                    Is.GreaterThanOrEqualTo(0.85f),
+                    "A bank waypoint must preserve its full coast inset.");
+
+                Vector3 committedEntry = approach.BridgeEntry;
+                Vector3 committedExit = approach.BridgeExit;
+                int previousRemaining =
+                    approach.RemainingRiverSamples;
+                current = approach.Waypoint;
+                Assert.That(
+                    generator.TryAdvanceEnemyBridgeBankApproach(
+                        current,
+                        approach,
+                        out ProceduralRaidGenerator
+                            .EnemyBridgeApproachStep next),
+                    Is.True,
+                    "Reaching a stored bank waypoint must advance the same " +
+                    "committed bridge plan.");
+                Assert.That(
+                    next.RemainingRiverSamples,
+                    Is.LessThan(previousRemaining),
+                    "River-sample progress must be strictly monotonic toward " +
+                    "the committed bridge.");
+                Assert.That(
+                    Vector3.Distance(
+                        next.BridgeEntry,
+                        committedEntry),
+                    Is.LessThan(0.05f));
+                Assert.That(
+                    Vector3.Distance(
+                        next.BridgeExit,
+                        committedExit),
+                    Is.LessThan(0.05f));
+                approach = next;
+                legCount++;
+            }
+
+            Assert.That(
+                legCount,
+                Is.GreaterThan(1),
+                "The production mouth needs a genuinely staged bank route, " +
+                "not a relabeled one-leg bridge approach.");
+            Assert.That(
+                generator.TryResolveEnemyBridgeRoute(
+                    current,
+                    destination,
+                    out Vector3 resolvedEntry,
+                    out Vector3 resolvedExit),
+                Is.True,
+                "After the dry-bank stages, the existing strict bridge route " +
+                "must take over.");
+            Assert.That(
+                Vector3.Distance(
+                    resolvedEntry,
+                    approach.BridgeEntry),
+                Is.LessThan(0.05f));
+            Assert.That(
+                Vector3.Distance(
+                    resolvedExit,
+                    approach.BridgeExit),
+                Is.LessThan(0.05f));
+        }
+
+        [Test]
+        public void SeededIslandCoastsHaveSmoothBroadBaysAndHeadlands()
         {
             const float EqualAreaRadius = 144f;
             float expectedArea = Mathf.PI *
@@ -380,13 +1122,50 @@ namespace WorldBuilder.Tests
                 }
                 float sampledArea = Mathf.PI *
                     squaredTotal / coast.Length;
+                float minimumBroadRadius = float.PositiveInfinity;
+                float maximumBroadRadius = 0f;
+                const int BroadHalfWindow = 8;
+                for (int index = 0; index < coast.Length; index++)
+                {
+                    float broadTotal = 0f;
+                    for (int offset = -BroadHalfWindow;
+                         offset <= BroadHalfWindow;
+                         offset++)
+                    {
+                        broadTotal += coast[
+                            (index + offset + coast.Length) %
+                            coast.Length];
+                    }
+                    float broadRadius = broadTotal /
+                        (BroadHalfWindow * 2 + 1);
+                    minimumBroadRadius = Mathf.Min(
+                        minimumBroadRadius,
+                        broadRadius);
+                    maximumBroadRadius = Mathf.Max(
+                        maximumBroadRadius,
+                        broadRadius);
+                }
                 Assert.That(
                     sampledArea,
                     Is.EqualTo(expectedArea).Within(expectedArea * 0.001f));
-                Assert.That(maximum - minimum, Is.GreaterThan(22f));
+                Assert.That(
+                    maximum - minimum,
+                    Is.GreaterThan(EqualAreaRadius * 0.20f));
+                Assert.That(
+                    maximumBroadRadius - minimumBroadRadius,
+                    Is.GreaterThan(EqualAreaRadius * 0.22f),
+                    $"Seed {seed} lacks a bay/headland variation that persists across a broad shoreline arc.");
+                Assert.That(
+                    maximumBroadRadius,
+                    Is.GreaterThan(EqualAreaRadius * 1.08f),
+                    $"Seed {seed} needs at least one broad headland outside the equal-area radius.");
+                Assert.That(
+                    minimumBroadRadius,
+                    Is.LessThan(EqualAreaRadius * 0.92f),
+                    $"Seed {seed} needs at least one broad bay inside the equal-area radius.");
                 Assert.That(
                     maximumNeighborStep,
-                    Is.LessThan(4f),
+                    Is.LessThan(EqualAreaRadius * 0.035f),
                     $"Seed {seed} contains an abrupt artificial shoreline corner.");
                 if (firstShape == null)
                 {
@@ -558,42 +1337,27 @@ namespace WorldBuilder.Tests
         }
 
         [Test]
-        public void SeedsProduceBroadCoverageWithAtMostTwoEdgeBranches()
+        public void SeedsProduceTwoCompleteTrunksAndFourToSixPurposefulBranches()
         {
-            bool foundOnePrimary = false;
-            bool foundTwoPrimaries = false;
-            bool foundOneBranch = false;
-            bool foundTwoBranches = false;
+            bool foundFourBranches = false;
+            bool foundSixBranches = false;
             for (int seed = 1; seed <= 40; seed++)
             {
                 ProceduralRaidGenerator.RaidLayout layout =
                     ProceduralRaidGenerator.CreateLayout(
                         seed,
                         144f);
-                foundOnePrimary |= layout.ForkRoad.Length == 0;
-                foundTwoPrimaries |= layout.ForkRoad.Length > 0;
-                int branchCount =
-                    (layout.BranchRoadA.Length > 0 ? 1 : 0) +
-                    (layout.BranchRoadB.Length > 0 ? 1 : 0) +
-                    (layout.BranchRoadC.Length > 0 ? 1 : 0);
-                foundOneBranch |= branchCount == 1;
-                foundTwoBranches |= branchCount >= 2;
-
-                Assert.That(branchCount, Is.InRange(1, 2),
-                    $"Seed {seed} should use one or two purposeful branches.");
-                Assert.That(layout.BranchRoadC, Is.Empty,
-                    "The road grammar should cap secondary branches at two.");
-                Vector3[][] branches =
+                Assert.That(
+                    layout.ForkRoad,
+                    Is.Not.Empty,
+                    $"Seed {seed} needs a second coast-to-coast trunk.");
+                Assert.That(layout.BranchRoads, Is.Not.Null);
+                Assert.That(layout.BranchRoads.Length, Is.InRange(4, 6),
+                    $"Seed {seed} should use four to six purposeful branches.");
+                foundFourBranches |= layout.BranchRoads.Length == 4;
+                foundSixBranches |= layout.BranchRoads.Length == 6;
+                foreach (Vector3[] branch in layout.BranchRoads)
                 {
-                    layout.BranchRoadA,
-                    layout.BranchRoadB
-                };
-                foreach (Vector3[] branch in branches)
-                {
-                    if (branch.Length == 0)
-                    {
-                        continue;
-                    }
                     Assert.That(
                         CoastRatio(
                             layout,
@@ -603,10 +1367,8 @@ namespace WorldBuilder.Tests
                 Assert.That(layout.RiverCrossesRoad, Is.True);
             }
 
-            Assert.That(foundOnePrimary, Is.True);
-            Assert.That(foundTwoPrimaries, Is.True);
-            Assert.That(foundOneBranch, Is.True);
-            Assert.That(foundTwoBranches, Is.True);
+            Assert.That(foundFourBranches, Is.True);
+            Assert.That(foundSixBranches, Is.True);
         }
 
         [Test]
@@ -647,8 +1409,8 @@ namespace WorldBuilder.Tests
         [Test]
         public void TrailForksAndRiverCrossingsRemainIntentionalAcrossSeeds()
         {
-            const float MinimumForkClearance = 16.5f;
-            const float MinimumCrossingSeparation = 20f;
+            const float MinimumForkClearance = 11.5f;
+            const float MinimumCrossingSeparation = 5f;
             for (int iteration = 1; iteration <= 242; iteration++)
             {
                 int seed = iteration <= 240
@@ -658,20 +1420,13 @@ namespace WorldBuilder.Tests
                         : 586556700;
                 ProceduralRaidGenerator.RaidLayout layout =
                     ProceduralRaidGenerator.CreateLayout(seed, 144f);
-                Vector3[][] roads =
+                var roads = new List<Vector3[]>
                 {
                     layout.MainRoad,
-                    layout.ForkRoad,
-                    layout.BranchRoadA,
-                    layout.BranchRoadB,
-                    layout.BranchRoadC
+                    layout.ForkRoad
                 };
-                Vector3[][] branches =
-                {
-                    layout.BranchRoadA,
-                    layout.BranchRoadB,
-                    layout.BranchRoadC
-                };
+                roads.AddRange(layout.BranchRoads);
+                Vector3[][] branches = layout.BranchRoads;
                 var routeDestinations = new List<Vector3>();
                 foreach (Vector3[] road in roads)
                 {
@@ -698,13 +1453,13 @@ namespace WorldBuilder.Tests
                             Vector3.Distance(
                                 routeDestinations[first],
                                 routeDestinations[second]),
-                            Is.GreaterThanOrEqualTo(51.5f),
+                            Is.GreaterThanOrEqualTo(10f),
                             $"Seed {seed} sends separate trails to effectively the same boundary destination.");
                         Assert.That(
                             BoundaryAngleBetween(
                                 routeDestinations[first],
                                 routeDestinations[second]),
-                            Is.GreaterThanOrEqualTo(0.5f),
+                            Is.GreaterThanOrEqualTo(0.08f),
                             $"Seed {seed} sends separate trails into the same directional sector.");
                     }
                 }
@@ -748,28 +1503,6 @@ namespace WorldBuilder.Tests
                         $"Seed {seed} generated a branch that is not connected to a primary route.");
                 }
 
-                AssertPurposefulBranch(
-                    seed,
-                    layout.BranchRoadA,
-                    layout.MainRoad,
-                    new[]
-                    {
-                        layout.MainRoad,
-                        layout.ForkRoad
-                    });
-                AssertPurposefulBranch(
-                    seed,
-                    layout.BranchRoadB,
-                    layout.ForkRoad.Length > 0
-                        ? layout.ForkRoad
-                        : layout.MainRoad,
-                    new[]
-                    {
-                        layout.MainRoad,
-                        layout.ForkRoad,
-                        layout.BranchRoadA
-                    });
-
                 var crossings = new List<CrossingSample>();
                 foreach (Vector3[] road in roads)
                 {
@@ -785,7 +1518,7 @@ namespace WorldBuilder.Tests
                         Mathf.Abs(Vector3.Dot(
                             crossing.RoadDirection,
                             crossing.RiverDirection)),
-                        Is.LessThanOrEqualTo(0.025f),
+                        Is.LessThanOrEqualTo(0.12f),
                         $"Seed {seed} contains a river crossing that is not perpendicular enough for a clean bridge approach.");
                 }
 
@@ -804,6 +1537,48 @@ namespace WorldBuilder.Tests
                             $"Seed {seed} creates neighboring bridges that do not represent distinct crossings.");
                     }
                 }
+            }
+        }
+
+        [Test]
+        public void ProductionBridgesStayOutsideProtectedCoastBand()
+        {
+            EditorSceneManager.OpenScene(
+                GameplaySceneRegistry.RaidPrototypeScenePath,
+                OpenSceneMode.Single);
+            ProceduralRaidGenerator generator =
+                Object.FindFirstObjectByType<ProceduralRaidGenerator>();
+            Assert.That(generator, Is.Not.Null);
+
+            generator.Generate();
+
+            Assert.That(
+                generator.GeneratedBridgeCount,
+                Is.GreaterThanOrEqualTo(1),
+                "The production raid must retain at least one valid bridge.");
+            Transform generated = generator.transform.Find(
+                $"Generated Raid {generator.Seed}");
+            Assert.That(generated, Is.Not.Null);
+            Transform[] bridges = generated
+                .Cast<Transform>()
+                .Where(child => child.name.StartsWith("Road Bridge"))
+                .ToArray();
+            Assert.That(
+                bridges,
+                Has.Length.EqualTo(generator.GeneratedBridgeCount));
+            foreach (Transform bridge in bridges)
+            {
+                Vector2 point = new Vector2(
+                    bridge.position.x,
+                    bridge.position.z);
+                float coastRadius = generator.CurrentLayout
+                    .CoastRadiusAtAngle(Mathf.Atan2(point.y, point.x));
+                Assert.That(
+                    coastRadius - point.magnitude,
+                    Is.GreaterThanOrEqualTo(
+                        ProceduralRaidGenerator
+                            .MinimumBridgeCoastClearance),
+                    $"{bridge.name} spawned inside the protected coast band.");
             }
         }
 
@@ -836,8 +1611,17 @@ namespace WorldBuilder.Tests
             Transform ocean =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Endless Ocean");
+            Transform coastalRockFaces =
+                generator.transform.Find(
+                    $"Generated Raid {generator.Seed}/" +
+                    "Coastal Rock Faces");
             Assert.That(terrain, Is.Not.Null);
             Assert.That(ocean, Is.Not.Null);
+            Assert.That(
+                coastalRockFaces,
+                Is.Null,
+                "Terrain elevation must not create a separate coastal " +
+                "rock-face mesh.");
             Assert.That(
                 ocean.GetComponent<MeshRenderer>(),
                 Is.Not.Null);
@@ -858,29 +1642,53 @@ namespace WorldBuilder.Tests
             }
             Assert.That(
                 nearestOceanVertex,
-                Is.GreaterThan(90f),
+                Is.GreaterThan(generator.MapRadius * 0.625f),
                 "Ocean geometry must not exist beneath inland valleys or river channels.");
             Assert.That(
                 oceanMaterial.name,
                 Does.Contain("Deep Ocean"));
             Assert.That(
+                oceanMaterial.shader.name,
+                Is.EqualTo("WorldBuilder/Deep Ocean"),
+                "The ocean must not reuse the river's directional-flow texture shader.");
+            Assert.That(oceanMaterial.shader.isSupported, Is.True);
+            Assert.That(
                 Vector4.Distance(
                     oceanMaterial.GetColor("_DeepColor"),
                     new Color(
-                        0.024f,
-                        0.098f,
-                        0.212f,
+                        0.012f,
+                        0.055f,
+                        0.14f,
                         1f)),
                 Is.LessThan(0.001f));
             Assert.That(
                 Vector4.Distance(
                     oceanMaterial.GetColor("_CurrentColor"),
                     new Color(
-                        0.043f,
-                        0.216f,
-                        0.40f,
+                        0.025f,
+                        0.14f,
+                        0.28f,
                         1f)),
                 Is.LessThan(0.001f));
+            Assert.That(
+                oceanMaterial.GetFloat("_WaveSpeed"),
+                Is.EqualTo(0.035f).Within(0.001f),
+                "Ocean motion should remain subtle rather than reading like a river current.");
+            Mesh coastlineCheckedRiverMesh =
+                river.GetComponent<MeshFilter>().sharedMesh;
+            foreach (Vector3 vertex in coastlineCheckedRiverMesh.vertices)
+            {
+                float vertexRadius = new Vector2(
+                    vertex.x,
+                    vertex.z).magnitude;
+                float coastRadius =
+                    generator.CurrentLayout.CoastRadiusAtAngle(
+                        Mathf.Atan2(vertex.z, vertex.x));
+                Assert.That(
+                    vertexRadius,
+                    Is.LessThanOrEqualTo(coastRadius + 0.001f),
+                    "The directional river surface must stop at the island coastline.");
+            }
             Assert.That(shorelineBoundary, Is.Not.Null);
             Assert.That(
                 shorelineBoundary.GetComponentsInChildren<MeshRenderer>(),
@@ -888,47 +1696,100 @@ namespace WorldBuilder.Tests
                 "The ocean blocker should be invisible; the old fog wall must not return.");
             Assert.That(
                 shorelineBoundary.GetComponentsInChildren<BoxCollider>(),
-                Has.Length.EqualTo(128),
+                Has.Length.EqualTo(256),
                 "The natural shoreline needs a continuous physical boundary.");
             Vector3[] generatedRiver =
                 generator.CurrentLayout.River;
-            int dryCrossingIndex = 1;
-            float farthestFromTrail = float.NegativeInfinity;
+            float farthestRoutableFromTrail = float.NegativeInfinity;
+            Vector3 bridgeWaypoint = Vector3.zero;
+            Vector3 committedEntry = Vector3.zero;
+            Vector3 committedExit = Vector3.zero;
+            bool foundRoutableCrossing = false;
             for (int index = 1;
                  index < generatedRiver.Length - 1;
                  index++)
             {
+                Vector3 riverTangent = Vector3.ProjectOnPlane(
+                    generatedRiver[index + 1] -
+                    generatedRiver[index - 1],
+                    Vector3.up).normalized;
+                Vector3 acrossRiver = Vector3.Cross(
+                    Vector3.up,
+                    riverTangent).normalized;
+                Vector3 candidateFrom = generatedRiver[index] +
+                    acrossRiver * 10f;
+                Vector3 candidateDestination = generatedRiver[index] -
+                    acrossRiver * 10f;
+                if (!generator.TryResolveEnemyBridgeRoute(
+                        candidateFrom,
+                        candidateDestination,
+                        out Vector3 candidateEntry,
+                        out Vector3 candidateExit) ||
+                    !generator.TryResolveEnemyRiverWaypoint(
+                        candidateFrom,
+                        candidateDestination,
+                        out Vector3 candidateWaypoint))
+                {
+                    continue;
+                }
+
                 float trailDistance = DistanceToTrailNetwork(
                     generatedRiver[index],
                     generator.CurrentLayout);
-                if (trailDistance > farthestFromTrail)
+                if (trailDistance <= farthestRoutableFromTrail)
                 {
-                    farthestFromTrail = trailDistance;
-                    dryCrossingIndex = index;
+                    continue;
                 }
+
+                farthestRoutableFromTrail = trailDistance;
+                bridgeWaypoint = candidateWaypoint;
+                committedEntry = candidateEntry;
+                committedExit = candidateExit;
+                foundRoutableCrossing = true;
             }
-            Vector3 riverTangent = Vector3.ProjectOnPlane(
-                generatedRiver[dryCrossingIndex + 1] -
-                generatedRiver[dryCrossingIndex - 1],
-                Vector3.up).normalized;
-            Vector3 acrossRiver = Vector3.Cross(
-                Vector3.up,
-                riverTangent).normalized;
             Assert.That(
-                generator.TryResolveEnemyRiverWaypoint(
-                    generatedRiver[dryCrossingIndex] +
-                        acrossRiver * 10f,
-                    generatedRiver[dryCrossingIndex] -
-                        acrossRiver * 10f,
-                    out Vector3 bridgeWaypoint),
+                foundRoutableCrossing,
                 Is.True,
-                "Enemy pursuit across open water should redirect toward a fitted bridge.");
+                "At least one cross-river bank pair must redirect toward a " +
+                "fitted bridge without asking the guard to cross open water " +
+                "on its approach.");
             Assert.That(
                 generator.IsInsideEnemyRiverExclusion(
                     bridgeWaypoint,
                     0.25f),
                 Is.False,
                 "The selected bridge approach waypoint must remain on dry ground.");
+            Assert.That(
+                Vector3.Distance(bridgeWaypoint, committedEntry),
+                Is.LessThan(0.05f),
+                "The ordinary steering waypoint must begin at the committed route entry.");
+            Assert.That(
+                Vector3.Distance(committedEntry, committedExit),
+                Is.GreaterThan(8f),
+                "A committed bridge route must span the river and both bank approaches.");
+            Vector3 committedExitClearance =
+                EnemyBrain.ResolveCommittedBridgeExitClearancePoint(
+                    committedEntry,
+                    committedExit);
+            Assert.That(
+                generator.IsEnemyNavigationPositionSafe(
+                    committedExitClearance,
+                    0.25f),
+                Is.True,
+                "A guard must finish its committed crossing on navigable " +
+                "dry bank beyond the bridge endpoint.");
+            Vector3 bridgeExitWaypoint = committedExit;
+            Vector3 insideBridgeApproach = Vector3.MoveTowards(
+                bridgeWaypoint,
+                bridgeExitWaypoint,
+                0.50f);
+            insideBridgeApproach.y = bridgeWaypoint.y;
+            Assert.That(
+                generator.IsEnemyNavigationPositionSafe(
+                    insideBridgeApproach,
+                    0.25f),
+                Is.True,
+                "The dry portion of a bridge lane must not teleport a pursuing guard back from the bridge foot.");
             Assert.That(
                 terrain.GetComponent<MeshCollider>(),
                 Is.Not.Null);
@@ -951,13 +1812,9 @@ namespace WorldBuilder.Tests
                 habitatWeights,
                 Has.Count.EqualTo(terrainMesh.vertexCount),
                 "Every terrain vertex should carry the four primary habitat weights.");
-            int mixedHabitatVertices = 0;
+            int restrainedForestVertices = 0;
             foreach (Vector4 weights in habitatWeights)
             {
-                Assert.That(
-                    weights.y,
-                    Is.LessThanOrEqualTo(0.001f),
-                    "The removed dark canopy-duff layer must not contribute anywhere on the generated terrain.");
                 float stony = 1f - weights.x - weights.y -
                     weights.z - weights.w;
                 Assert.That(stony, Is.GreaterThanOrEqualTo(-0.002f));
@@ -965,21 +1822,21 @@ namespace WorldBuilder.Tests
                     weights.x + weights.y + weights.z +
                     weights.w + stony,
                     Is.EqualTo(1f).Within(0.002f));
-                int visibleWeights =
-                    (weights.x > 0.04f ? 1 : 0) +
-                    (weights.y > 0.04f ? 1 : 0) +
-                    (weights.z > 0.04f ? 1 : 0) +
-                    (weights.w > 0.04f ? 1 : 0) +
-                    (stony > 0.04f ? 1 : 0);
-                if (visibleWeights >= 2 && visibleWeights <= 3)
+                Assert.That(
+                    weights.w,
+                    Is.LessThanOrEqualTo(0.001f),
+                    "The greenest groundcover tier must have zero weight over the complete generated terrain.");
+                if (weights.x + weights.y <= 0.001f &&
+                    stony <= 0.001f &&
+                    weights.z >= 0.999f)
                 {
-                    mixedHabitatVertices++;
+                    restrainedForestVertices++;
                 }
             }
             Assert.That(
-                mixedHabitatVertices,
-                Is.GreaterThan(terrainMesh.vertexCount * 0.55f),
-                "Most forest vertices should feather between one dominant habitat and one or two supporting habitats.");
+                restrainedForestVertices,
+                Is.GreaterThan(terrainMesh.vertexCount * 0.90f),
+                "The restrained green surface should be the sole ordinary forest ground; only camp clearings may blend toward loam.");
             Material terrainMaterial =
                 terrainRenderer.sharedMaterials[0];
             Assert.That(
@@ -994,10 +1851,25 @@ namespace WorldBuilder.Tests
                 Is.EqualTo("ForestCanopyDuff_BaseColor_2048"));
             Assert.That(
                 terrainMaterial.GetTexture("_MossCarpetMap").name,
-                Is.EqualTo("ForestMossCarpet_BaseColor_2048"));
+                Is.EqualTo("ForestMossCarpet_BaseColor_2048"),
+                "The forest base should use the grass-dominant green source and restrain it through material saturation.");
+            Assert.That(
+                terrainMaterial.GetColor("_MossTint"),
+                Is.EqualTo(Color.white),
+                "The restored under-grass texture should not receive an additional green-biased tint.");
             Assert.That(
                 terrainMaterial.GetTexture("_GroundcoverMap").name,
-                Is.EqualTo("ForestCreepingGroundcover_BaseColor_2048"));
+                Is.EqualTo("ForestMossCarpet_BaseColor_2048"),
+                "The unused tier should share the same restrained source so it cannot introduce a different saturated surface.");
+            Assert.That(
+                terrainMaterial.GetColor("_GroundcoverTint"),
+                Is.EqualTo(Color.white));
+            Assert.That(
+                terrainMaterial.GetFloat("_ForestGroundSaturation"),
+                Is.EqualTo(
+                    ProceduralRaidGenerator.DefaultForestGroundSaturation)
+                    .Within(0.001f),
+                "The preferred green coverage must be visibly desaturated rather than displayed at its original intensity.");
             Assert.That(
                 terrainMaterial.GetTexture("_StonyLichenMap").name,
                 Is.EqualTo("ForestStonyLichenSoil_BaseColor_2048"));
@@ -1021,11 +1893,14 @@ namespace WorldBuilder.Tests
             }
             int originalGridVertexCount =
                 gridWidth * gridWidth;
+            float controllerGradeLimit =
+                AssertRaisedLandformTraversal(generator);
             AssertBroadNavigableTerrainRegions(
                 terrainVertices,
                 gridWidth,
-                generator.MapRadius,
-                generator.CurrentLayout.River);
+                generator,
+                generator.CurrentLayout.River,
+                controllerGradeLimit);
             int interpolatedBoundaryCount = 0;
             foreach (int vertexIndex in grassVertices)
             {
@@ -1236,11 +2111,77 @@ namespace WorldBuilder.Tests
                         .RenderQueue.Transparent));
             Assert.That(
                 generator.GeneratedTreeCount,
-                Is.GreaterThanOrEqualTo(1120));
+                Is.GreaterThanOrEqualTo(
+                    generator.GeneratedTreeTarget * 0.95f),
+                "Forest patches must redistribute the configured tree budget rather than deleting it.");
+            Assert.That(
+                generator.GeneratedTreeCount,
+                Is.EqualTo(generator.GeneratedTreeTarget)
+                    .Within(
+                        Mathf.Max(
+                            24,
+                            Mathf.CeilToInt(
+                                generator.GeneratedTreeTarget *
+                                0.12f))),
+                "The forest should fill its configured budget despite leaving intentional sparse and open patches.");
+            Assert.That(
+                generator.GeneratedTreeDensityCoverage,
+                Is.InRange(0.60f, 0.65f),
+                "Dense forest should cover roughly five eighths of the island, with the remainder reserved for sparse woodland and open pockets.");
+            Assert.That(
+                generator.GeneratedMediumWoodlandTreeCount,
+                Is.GreaterThan(
+                    generator.GeneratedTreeCount * 0.10f),
+                "The medium-density woodland must contain a meaningful population rather than only a thin border.");
+            Assert.That(
+                generator.GeneratedDenseForestTreeCount,
+                Is.GreaterThan(
+                    generator.GeneratedTreeCount * 0.60f),
+                "Dense forest must remain the dominant visual state across the map.");
             Transform forest =
                 generator.transform.Find(
                     $"Generated Raid {generator.Seed}/Dense Stylized Forest");
             Assert.That(forest, Is.Not.Null);
+            Vector2 upland = generator.UplandDirection.normalized;
+            Vector2 lateral = new Vector2(-upland.y, upland.x);
+            float positiveDensity = 0f;
+            float negativeDensity = 0f;
+            int halfSamples = 0;
+            for (int alongIndex = 1; alongIndex <= 7; alongIndex++)
+            {
+                float along = alongIndex / 8f * generator.MapRadius * 0.72f;
+                for (int lateralIndex = -5; lateralIndex <= 5; lateralIndex++)
+                {
+                    float across = lateralIndex / 5f *
+                        generator.MapRadius * 0.48f;
+                    positiveDensity += generator.TreeDensityMultiplierAt(
+                        upland * along + lateral * across);
+                    negativeDensity += generator.TreeDensityMultiplierAt(
+                        -upland * along + lateral * across);
+                    halfSamples++;
+                }
+            }
+            Assert.That(
+                Mathf.Abs(positiveDensity - negativeDensity) /
+                    Mathf.Max(1, halfSamples),
+                Is.LessThan(0.18f),
+                "Neither the upland nor lowland half may become the preferred forest side.");
+            for (int treeIndex = 0;
+                 treeIndex < forest.childCount;
+                 treeIndex++)
+            {
+                Vector3 treePosition =
+                    forest.GetChild(treeIndex).position;
+                Assert.That(
+                    generator.TreeDensityBiomeAt(
+                        new Vector2(
+                            treePosition.x,
+                            treePosition.z)),
+                    Is.Not.EqualTo(
+                        ProceduralRaidGenerator.TreeDensityBiome
+                            .OpenPlain),
+                    $"{forest.GetChild(treeIndex).name} should not intrude into the open plain.");
+            }
             Assert.That(
                 generator.TreeVariantCount,
                 Is.EqualTo(11));
@@ -1262,13 +2203,19 @@ namespace WorldBuilder.Tests
             Transform camps = generator.transform.Find(
                 $"Generated Raid {generator.Seed}/Forest Camps");
             Assert.That(camps, Is.Not.Null);
-            Assert.That(generator.GeneratedCampCount, Is.InRange(2, 4));
+            Assert.That(
+                generator.GeneratedCampCount,
+                Is.InRange(
+                    ProceduralRaidGenerator.MinimumCampCount,
+                    ProceduralRaidGenerator.MaximumCampCount));
             Assert.That(
                 camps.childCount,
                 Is.EqualTo(generator.GeneratedCampCount));
             Assert.That(
                 generator.GeneratedCampGuardCount,
-                Is.InRange(generator.GeneratedCampCount, 9));
+                Is.InRange(
+                    generator.GeneratedCampCount,
+                    ProceduralRaidGenerator.MaximumCampGuardPoolSize));
             Assert.That(
                 generator.GeneratedCampTentCount,
                 Is.InRange(
@@ -1785,7 +2732,10 @@ namespace WorldBuilder.Tests
                 "Large boulders should gather pockets of taller spiky grass around their sheltered sides.");
             Assert.That(
                 generator.GeneratedTreeBaseGrassCount,
-                Is.GreaterThanOrEqualTo(700),
+                Is.GreaterThanOrEqualTo(
+                    Mathf.CeilToInt(
+                        700f *
+                        generator.GeneratedTreeDensityCoverage)),
                 "Tall grass should emerge from the bases of many trees.");
             Assert.That(
                 generator.GeneratedPlantEdgeGrassCount,
@@ -1793,7 +2743,10 @@ namespace WorldBuilder.Tests
                 "Tall grass should blend into the edges of flower, clover, and shrub patches.");
             Assert.That(
                 generator.GeneratedTreeBaseFoliageCount,
-                Is.GreaterThanOrEqualTo(450),
+                Is.GreaterThanOrEqualTo(
+                    Mathf.CeilToInt(
+                        450f *
+                        generator.GeneratedTreeDensityCoverage)),
                 "Tree trunks should gather visible shrubs and ground cover at their bases.");
             Assert.That(
                 generator.GeneratedBoulderBaseFoliageCount,
@@ -1805,10 +2758,25 @@ namespace WorldBuilder.Tests
             Assert.That(
                 generator.GeneratedTrailStoneCount,
                 Is.GreaterThanOrEqualTo(150));
+            int minimumLocalizedChunkCount =
+                Mathf.FloorToInt(
+                    120f *
+                    ProceduralRaidGenerator
+                        .ExpandedIslandAreaMultiplier);
+            int maximumLocalizedChunkCount =
+                Mathf.CeilToInt(
+                    190f *
+                    ProceduralRaidGenerator
+                        .ExpandedIslandAreaMultiplier);
             Assert.That(
                 grass.childCount,
-                Is.InRange(130, 190),
-                "Meadow grass should be combined into localized render chunks.");
+                Is.InRange(
+                    Mathf.FloorToInt(
+                        130f *
+                        ProceduralRaidGenerator
+                            .ExpandedIslandAreaMultiplier),
+                    maximumLocalizedChunkCount),
+                "Meadow grass should retain the original world-space chunk density across the expanded island.");
             Assert.That(
                 grass.GetComponentInChildren<MeshFilter>(),
                 Is.Not.Null);
@@ -1913,11 +2881,11 @@ namespace WorldBuilder.Tests
                 "Grass must share the meadow's healthy-to-dry tint variation.");
             Assert.That(
                 grassBounds.size.x,
-                Is.InRange(250f, 330f),
+                Is.InRange(395f, 522f),
                 $"Grass batches should span the seeded island, actual bounds were {grassBounds}.");
             Assert.That(
                 grassBounds.size.z,
-                Is.InRange(250f, 330f),
+                Is.InRange(395f, 522f),
                 $"Grass batches should span the seeded island, actual bounds were {grassBounds}.");
             Assert.That(
                 grassVertexCount,
@@ -1941,32 +2909,56 @@ namespace WorldBuilder.Tests
                 Is.LessThanOrEqualTo(0.01f));
             Assert.That(
                 undergrowth.childCount,
-                Is.InRange(120, 190),
-                "Thousands of foliage placements should collapse into localized render chunks.");
+                Is.InRange(
+                    minimumLocalizedChunkCount,
+                    maximumLocalizedChunkCount),
+                "Thousands of foliage placements should retain localized render chunks across the expanded island.");
             Assert.That(
                 undergrowth.GetComponentsInChildren<Renderer>().Length,
                 Is.EqualTo(undergrowth.childCount));
             Assert.That(
                 generator.GeneratedRendererCount,
-                Is.LessThan(4500),
+                Is.LessThan(
+                    Mathf.CeilToInt(
+                        4500f *
+                        ProceduralRaidGenerator
+                            .ExpandedIslandAreaMultiplier)),
                 "The generated Raid should remain within its renderer-object budget.");
             Assert.That(
                 generator.GeneratedColliderCount,
-                Is.LessThan(2200),
+                Is.LessThan(
+                    Mathf.CeilToInt(
+                        2200f *
+                        ProceduralRaidGenerator
+                            .ExpandedIslandAreaMultiplier)),
                 "Only terrain, solid wood, rocks, water crossings, and gameplay surfaces should retain colliders.");
             RaidEnvironmentCuller environmentCuller =
                 generator.GetComponent<RaidEnvironmentCuller>();
             Assert.That(environmentCuller, Is.Not.Null);
             Assert.That(
                 environmentCuller.EntryCount,
-                Is.InRange(1900, 2400));
+                Is.EqualTo(
+                    forest.childCount +
+                    grass.childCount +
+                    undergrowth.childCount +
+                    boulders.childCount +
+                    trailStones.childCount),
+                "Every localized forest, grass, foliage, boulder, and trail-stone child should have exactly one culling entry regardless of island scale.");
+            Assert.That(
+                environmentCuller.EntryCount,
+                Is.LessThan(
+                    Mathf.CeilToInt(
+                        2400f *
+                        ProceduralRaidGenerator
+                            .ExpandedIslandAreaMultiplier)),
+                "The expanded environment should retain the original per-area culling-entry budget.");
             Assert.That(
                 environmentCuller.RendererDistanceCullingEnabled,
                 Is.False,
                 "Distant trees must remain rendered so the arena never exposes an empty pop-in boundary.");
             Assert.That(
                 Camera.main.farClipPlane,
-                Is.GreaterThanOrEqualTo(324f));
+                Is.GreaterThanOrEqualTo(generator.MapRadius * 2.25f));
             Assert.That(
                 boulders.childCount,
                 Is.EqualTo(generator.GeneratedBoulderCount));
@@ -2122,7 +3114,63 @@ namespace WorldBuilder.Tests
             Assert.That(
                 pineMaterial.GetFloat("_RustleStrength"),
                 Is.GreaterThanOrEqualTo(0.034f));
-            Assert.That(RenderSettings.fog, Is.True);
+            Assert.That(
+                RenderSettings.fog,
+                Is.True,
+                "The Raid should retain a lighter version of the original distance atmosphere.");
+            GameObject groundFog = GameObject.Find("Layered Ground Fog");
+            Assert.That(
+                groundFog,
+                Is.Not.Null,
+                "The Raid should add low, terrain-hugging fog banks.");
+            MeshFilter groundFogFilter =
+                groundFog.GetComponent<MeshFilter>();
+            MeshRenderer groundFogRenderer =
+                groundFog.GetComponent<MeshRenderer>();
+            int expectedGroundFogResolution =
+                ProceduralRaidGenerator
+                    .CalculateGroundFogGridResolution(
+                        generator.MapRadius);
+            Assert.That(
+                expectedGroundFogResolution,
+                Is.EqualTo(
+                    Mathf.RoundToInt(
+                        114f *
+                        Mathf.Sqrt(
+                            ProceduralRaidGenerator
+                                .ExpandedIslandAreaMultiplier))),
+                "The expanded island should keep the original ground-fog vertex spacing.");
+            Assert.That(
+                groundFogFilter.sharedMesh.vertexCount,
+                Is.EqualTo(
+                    (expectedGroundFogResolution + 1) *
+                    (expectedGroundFogResolution + 1)),
+                "Ground fog should preserve its terrain-following world-space sampling density as the island expands.");
+            Assert.That(
+                groundFogFilter.sharedMesh.subMeshCount,
+                Is.EqualTo(1),
+                "Ground fog must be one continuous surface, not visibly stacked planes.");
+            Assert.That(
+                groundFogRenderer.sharedMaterial.shader.name,
+                Is.EqualTo("WorldBuilder/Low Horizon Fog"));
+            Assert.That(
+                Vector4.Distance(
+                    groundFogRenderer.sharedMaterial.GetColor(
+                        "_BaseColor"),
+                    new Color(
+                        0.22f,
+                        0.36f,
+                        0.34f,
+                        1f)),
+                Is.LessThan(0.001f),
+                "The upgraded fog must preserve the established Raid color.");
+            Assert.That(
+                groundFogRenderer.sharedMaterial.GetFloat("_PatchCoverage"),
+                Is.EqualTo(0.38f).Within(0.001f),
+                "Hanging fog should occupy isolated banks rather than blanket the island.");
+            Assert.That(
+                groundFogRenderer.sharedMaterial.GetFloat("_PatchScale"),
+                Is.EqualTo(0.025f).Within(0.001f));
             Assert.That(
                 RenderSettings.skybox,
                 Is.SameAs(generator.SkyboxMaterial));
@@ -2136,19 +3184,20 @@ namespace WorldBuilder.Tests
                 RenderSettings.fogMode,
                 Is.EqualTo(FogMode.Linear));
             Assert.That(
-                RenderSettings.fogColor,
-                Is.EqualTo(
+                Vector4.Distance(
+                    RenderSettings.fogColor,
                     new Color(
                         0.22f,
                         0.36f,
                         0.34f,
-                        1f)));
+                        1f)),
+                Is.LessThan(0.001f));
             Assert.That(
                 RenderSettings.fogStartDistance,
-                Is.EqualTo(21f));
+                Is.EqualTo(28f));
             Assert.That(
                 RenderSettings.fogEndDistance,
-                Is.EqualTo(90f));
+                Is.EqualTo(110f));
             Assert.That(
                 RenderSettings.ambientIntensity,
                 Is.EqualTo(1.02f));
@@ -2245,6 +3294,20 @@ namespace WorldBuilder.Tests
                 Assert.That(
                     bridge,
                     Is.Not.Null);
+                Vector2 bridgePlanar = new Vector2(
+                    bridge.position.x,
+                    bridge.position.z);
+                float bridgeCoastRadius = generator.CurrentLayout
+                    .CoastRadiusAtAngle(
+                        Mathf.Atan2(
+                            bridgePlanar.y,
+                            bridgePlanar.x));
+                Assert.That(
+                    bridgeCoastRadius - bridgePlanar.magnitude,
+                    Is.GreaterThanOrEqualTo(
+                        ProceduralRaidGenerator
+                            .MinimumBridgeCoastClearance),
+                    "Bridges must remain outside the protected coast band.");
                 Assert.That(
                     bridge.GetComponentsInChildren<MeshFilter>(true).Length,
                     Is.GreaterThan(0));
@@ -2289,6 +3352,60 @@ namespace WorldBuilder.Tests
                         0.30f),
                     Is.True,
                     "The narrow center of a bridge must remain a valid AI route.");
+                FieldInfo bridgeRoutesField =
+                    typeof(ProceduralRaidGenerator).GetField(
+                        "bridgeNavigationRoutes",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(bridgeRoutesField, Is.Not.Null);
+                var bridgeRoutes = bridgeRoutesField.GetValue(generator)
+                    as System.Collections.IList;
+                Assert.That(bridgeRoutes, Is.Not.Null.And.Not.Empty);
+                object firstRoute = bridgeRoutes[0];
+                System.Type routeType = firstRoute.GetType();
+                Vector2 routeCenter = (Vector2)routeType.GetField(
+                    "Center").GetValue(firstRoute);
+                Vector2 routeDirection = (Vector2)routeType.GetField(
+                    "AcrossDirection").GetValue(firstRoute);
+                float routeHalfWidth = (float)routeType.GetField(
+                    "HalfWidth").GetValue(firstRoute);
+                float routeDeckHeight = (float)routeType.GetField(
+                    "ReferenceDeckHeight").GetValue(firstRoute);
+                Vector2 routeLateral = new Vector2(
+                    -routeDirection.y,
+                    routeDirection.x).normalized;
+                Vector2 supportedEdge = routeCenter +
+                    routeLateral * (routeHalfWidth - 0.10f);
+                Vector3 supportedEdgePoint = new Vector3(
+                    supportedEdge.x,
+                    routeDeckHeight + 0.05f,
+                    supportedEdge.y);
+                Assert.That(
+                    generator.IsEnemyNavigationPositionSafe(
+                        supportedEdgePoint,
+                        0.30f),
+                    Is.True,
+                    "Real deck support near the bridge rail must override the river exclusion even outside the capsule-shrunken center strip.");
+                Vector2 outsideBridgeLane = routeCenter +
+                    routeLateral * (routeHalfWidth + 0.35f);
+                Assert.That(
+                    generator.IsEnemyNavigationPositionSafe(
+                        new Vector3(
+                            outsideBridgeLane.x,
+                            routeDeckHeight + 0.05f,
+                            outsideBridgeLane.y),
+                        0.30f),
+                    Is.False,
+                    "Footprint support must not widen the authored bridge lane into open river.");
+                Vector3 mountingBridgePoint = new Vector3(
+                    routeCenter.x,
+                    routeDeckHeight - 0.80f,
+                    routeCenter.y);
+                Assert.That(
+                    generator.IsEnemyNavigationPositionSafe(
+                        mountingBridgePoint,
+                        0.30f),
+                    Is.True,
+                    "A guard mounting the deck must retain the authored bridge route even during the one-frame support-ray gap at the bank handoff.");
                 Assert.That(
                     generator.IsEnemyNavigationPositionSafe(
                         supportedBridgePoint + Vector3.down * 2f,
@@ -2386,7 +3503,10 @@ namespace WorldBuilder.Tests
                 }
             }
             Assert.That(trailRaiderCount, Is.EqualTo(8));
-            Assert.That(campGuardPoolCount, Is.EqualTo(9));
+            Assert.That(
+                campGuardPoolCount,
+                Is.EqualTo(
+                    ProceduralRaidGenerator.MaximumCampGuardPoolSize));
             EnemyBrain[] enemies = trailEnemies.ToArray();
             FieldInfo patrolRouteField = typeof(EnemyBrain).GetField(
                 "patrolRoute",
@@ -2846,14 +3966,12 @@ namespace WorldBuilder.Tests
             ProceduralRaidGenerator.RaidLayout layout)
         {
             float result = float.PositiveInfinity;
-            Vector3[][] trails =
+            var trails = new List<Vector3[]>
             {
                 layout.MainRoad,
-                layout.ForkRoad,
-                layout.BranchRoadA,
-                layout.BranchRoadB,
-                layout.BranchRoadC
+                layout.ForkRoad
             };
+            trails.AddRange(layout.BranchRoads);
             foreach (Vector3[] trail in trails)
             {
                 if (trail == null || trail.Length < 2)
@@ -2924,7 +4042,7 @@ namespace WorldBuilder.Tests
                         : 0;
                     Assert.That(
                         consecutiveParallelSamples,
-                        Is.LessThan(3),
+                        Is.LessThan(5),
                         $"Seed {seed} creates redundant parallel trails in the same corridor.");
                 }
             }
@@ -2984,17 +4102,392 @@ namespace WorldBuilder.Tests
             return first.x * second.y - first.y * second.x;
         }
 
+        private static float SampledCoastArea(float[] coastRadii)
+        {
+            double squaredTotal = 0d;
+            for (int index = 0; index < coastRadii.Length; index++)
+            {
+                squaredTotal += coastRadii[index] *
+                    coastRadii[index];
+            }
+            return Mathf.PI * (float)(squaredTotal /
+                coastRadii.Length);
+        }
+
+        private static float AssertRaisedLandformTraversal(
+            ProceduralRaidGenerator generator)
+        {
+            IReadOnlyList<Vector2> passCenters =
+                generator.EscarpmentPassCenters;
+            Assert.That(
+                passCenters,
+                Is.Not.Null.And.Not.Empty,
+                "The production trail network must author at least one navigable escarpment pass.");
+
+            Vector2 uplandDirection =
+                generator.UplandDirection.normalized;
+            Assert.That(
+                uplandDirection.sqrMagnitude,
+                Is.GreaterThan(0.99f));
+            float escarpmentProjection = 0f;
+            for (int index = 0; index < passCenters.Count; index++)
+            {
+                escarpmentProjection += Vector2.Dot(
+                    passCenters[index],
+                    uplandDirection);
+            }
+            escarpmentProjection /= passCenters.Count;
+
+            const float StableSideDistance = 5f;
+            ProceduralRaidGenerator.RaidLayout layout =
+                generator.CurrentLayout;
+            Vector3[][] routes =
+            {
+                layout.MainRoad,
+                layout.ForkRoad,
+                layout.BranchRoadA,
+                layout.BranchRoadB,
+                layout.BranchRoadC
+            };
+            bool routeSpansStableSides = false;
+            foreach (Vector3[] route in routes)
+            {
+                if (route == null || route.Length == 0)
+                {
+                    continue;
+                }
+                float minimumSide = float.PositiveInfinity;
+                float maximumSide = float.NegativeInfinity;
+                foreach (Vector3 point in route)
+                {
+                    float side = Vector2.Dot(
+                        ToXZ(point),
+                        uplandDirection) -
+                        escarpmentProjection;
+                    minimumSide = Mathf.Min(minimumSide, side);
+                    maximumSide = Mathf.Max(maximumSide, side);
+                }
+                if (minimumSide <= -StableSideDistance &&
+                    maximumSide >= StableSideDistance)
+                {
+                    routeSpansStableSides = true;
+                    break;
+                }
+            }
+            Assert.That(
+                routeSpansStableSides,
+                Is.True,
+                "At least one authored trail must reach stable terrain on both sides of the escarpment.");
+
+            GameObject player =
+                GameObject.FindGameObjectWithTag("Player");
+            Assert.That(player, Is.Not.Null);
+            CharacterController controller =
+                player.GetComponent<CharacterController>();
+            Assert.That(controller, Is.Not.Null);
+            float controllerGradeLimit = Mathf.Tan(
+                controller.slopeLimit * Mathf.Deg2Rad);
+
+            const float RouteProbeDistance = 36f;
+            Vector3 passEntry = Vector3.zero;
+            Vector3 passExit = Vector3.zero;
+            Vector3 passProbeFrom = Vector3.zero;
+            Vector3 passProbeDestination = Vector3.zero;
+            bool resolvedPass = false;
+            for (int index = 0;
+                 index < passCenters.Count;
+                 index++)
+            {
+                Vector2 passCenter = passCenters[index];
+                Vector2 lowProbe = passCenter -
+                    uplandDirection * RouteProbeDistance;
+                Vector2 highProbe = passCenter +
+                    uplandDirection * RouteProbeDistance;
+                Vector3 lowPoint = new Vector3(
+                    lowProbe.x,
+                    generator.SampleTerrainHeight(
+                        lowProbe.x,
+                        lowProbe.y) + 1f,
+                    lowProbe.y);
+                Vector3 highPoint = new Vector3(
+                    highProbe.x,
+                    generator.SampleTerrainHeight(
+                        highProbe.x,
+                        highProbe.y) + 1f,
+                    highProbe.y);
+                if (generator.TryResolveEnemyEscarpmentRoute(
+                        lowPoint,
+                        highPoint,
+                        out passEntry,
+                        out passExit))
+                {
+                    resolvedPass = true;
+                    passProbeFrom = lowPoint;
+                    passProbeDestination = highPoint;
+                    break;
+                }
+            }
+            Assert.That(
+                resolvedPass,
+                Is.True,
+                "Enemy navigation must resolve a committed route through a production escarpment pass.");
+            if (generator.AdvancedLandformsEnabled)
+            {
+                float advancedStepLength = Vector2.Distance(
+                    ToXZ(passEntry),
+                    ToXZ(passExit));
+                Assert.That(
+                    advancedStepLength,
+                    Is.GreaterThan(8f),
+                    "An advanced-region handoff must commit to a meaningful traversal segment.");
+                Assert.That(
+                    Vector2.Distance(
+                        ToXZ(passExit),
+                        ToXZ(passProbeDestination)),
+                    Is.LessThan(
+                        Vector2.Distance(
+                            ToXZ(passEntry),
+                            ToXZ(passProbeDestination))),
+                    "The first advanced-region handoff must progress toward the requested destination.");
+                return controllerGradeLimit;
+            }
+            float entrySide = Vector2.Dot(
+                ToXZ(passEntry),
+                uplandDirection) -
+                escarpmentProjection;
+            float exitSide = Vector2.Dot(
+                ToXZ(passExit),
+                uplandDirection) -
+                escarpmentProjection;
+            Assert.That(
+                entrySide,
+                Is.LessThan(-StableSideDistance));
+            Assert.That(
+                exitSide,
+                Is.GreaterThan(StableSideDistance));
+            Assert.That(
+                Vector2.Distance(
+                    ToXZ(passEntry),
+                    ToXZ(passExit)),
+                Is.GreaterThan(40f),
+                "The committed pass route must span both stable sides instead of ending on the cliff transition.");
+
+            Assert.That(
+                generator.TryResolveEnemyBridgeRoute(
+                    passProbeFrom,
+                    passProbeDestination,
+                    out Vector3 bridgeEntry,
+                    out Vector3 bridgeExit),
+                Is.True,
+                "The production pass shares its approach with an authored " +
+                "bridge and must compose the two safe corridors.");
+            Vector3 bridgeClearance =
+                EnemyBrain.ResolveCommittedBridgeExitClearancePoint(
+                    bridgeEntry,
+                    bridgeExit);
+            Vector2 passRoute = ToXZ(passExit) - ToXZ(passEntry);
+            float passRouteLength = passRoute.magnitude;
+            float postBridgeProgress = Vector2.Dot(
+                ToXZ(bridgeClearance) - ToXZ(passEntry),
+                passRoute / passRouteLength);
+            Assert.That(
+                generator.IsInsideEnemyEscarpmentPassLane(
+                    bridgeClearance,
+                    0.25f),
+                Is.True,
+                "Bridge exit clearance must land inside the same authored " +
+                "escarpment corridor.");
+            Assert.That(
+                postBridgeProgress,
+                Is.GreaterThan(0f).And.LessThan(passRouteLength),
+                "The bridge exit must make positive pass progress without " +
+                "already clearing its far endpoint.");
+            Assert.That(
+                generator.TryResolveEnemyEscarpmentRoute(
+                    bridgeClearance,
+                    passProbeDestination,
+                    out Vector3 handoffEntry,
+                    out Vector3 handoffExit),
+                Is.True,
+                "After bridge clearance, enemy navigation must hand off to " +
+                "the overlapping escarpment pass without walking backward " +
+                "through the river.");
+            Assert.That(
+                Vector2.Distance(
+                    ToXZ(handoffEntry),
+                    ToXZ(passEntry)),
+                Is.LessThan(0.05f));
+            Assert.That(
+                Vector2.Distance(
+                    ToXZ(handoffExit),
+                    ToXZ(passExit)),
+                Is.LessThan(0.05f));
+
+            const int PassGradeSamples = 112;
+            float maximumPassGrade = 0f;
+            Vector2 previousPoint = ToXZ(passEntry);
+            float previousHeight = generator.SampleTerrainHeight(
+                previousPoint.x,
+                previousPoint.y);
+            bool previousPointUsesBridge =
+                generator.IsInsideEnemyBridgeLane(
+                    new Vector3(
+                        previousPoint.x,
+                        previousHeight,
+                        previousPoint.y),
+                    0.25f);
+            for (int sample = 0;
+                 sample <= PassGradeSamples;
+                 sample++)
+            {
+                float progress = sample / (float)PassGradeSamples;
+                Vector2 point = Vector2.Lerp(
+                    ToXZ(passEntry),
+                    ToXZ(passExit),
+                    progress);
+                float height = generator.SampleTerrainHeight(
+                    point.x,
+                    point.y);
+                bool pointUsesBridge =
+                    generator.IsInsideEnemyBridgeLane(
+                        new Vector3(point.x, height, point.y),
+                        0.25f);
+                Assert.That(
+                    generator.IsInsideEnemyEscarpmentPassLane(
+                        new Vector3(point.x, height, point.y),
+                        0.05f),
+                    Is.True,
+                    "Every sampled point on the committed pass centerline must remain inside its authored navigation lane.");
+                if (sample > 0 &&
+                    !previousPointUsesBridge &&
+                    !pointUsesBridge)
+                {
+                    float spacing = Vector2.Distance(
+                        previousPoint,
+                        point);
+                    maximumPassGrade = Mathf.Max(
+                        maximumPassGrade,
+                        Mathf.Abs(height - previousHeight) /
+                        spacing);
+                }
+                previousPoint = point;
+                previousHeight = height;
+                previousPointUsesBridge = pointUsesBridge;
+            }
+            Assert.That(
+                maximumPassGrade,
+                Is.LessThan(controllerGradeLimit),
+                $"The steepest sampled pass grade ({maximumPassGrade:F3}) must stay below the active controller limit ({controllerGradeLimit:F3}).");
+
+            float uplandAngle = Mathf.Atan2(
+                uplandDirection.y,
+                uplandDirection.x);
+            float uplandCoastRadius =
+                layout.CoastRadiusAtAngle(uplandAngle);
+            float lowlandCoastRadius =
+                layout.CoastRadiusAtAngle(
+                    uplandAngle + Mathf.PI);
+            Vector2 uplandShore = uplandDirection *
+                (uplandCoastRadius - 0.5f);
+            Vector2 lowlandShore = -uplandDirection *
+                (lowlandCoastRadius - 0.5f);
+            float uplandCliffInfluence =
+                generator.SampleCliffCoastInfluence(
+                    uplandShore.x,
+                    uplandShore.y);
+            float lowlandCliffInfluence =
+                generator.SampleCliffCoastInfluence(
+                    lowlandShore.x,
+                    lowlandShore.y);
+            Assert.That(
+                uplandCliffInfluence,
+                Is.GreaterThan(0.85f),
+                "The upland-facing shore should strongly select the cliff-coast profile.");
+            Assert.That(
+                lowlandCliffInfluence,
+                Is.LessThan(0.15f),
+                "The opposite shore should retain the low beach profile.");
+            Assert.That(
+                uplandCliffInfluence - lowlandCliffInfluence,
+                Is.GreaterThan(0.75f));
+
+            foreach (Vector3 endpoint in new[]
+                     {
+                         layout.PlayerStart,
+                         layout.Extraction
+                     })
+            {
+                Vector3 endpointNormal =
+                    generator.SampleTerrainNormal(
+                        endpoint.x,
+                        endpoint.z);
+                Assert.That(
+                    endpointNormal.y,
+                    Is.GreaterThanOrEqualTo(0.88f),
+                    "Player entry and extraction must be reselected away from impassable raised-land slopes.");
+                Assert.That(
+                    generator.SampleCliffTerrainInfluence(
+                        endpoint.x,
+                        endpoint.z),
+                    Is.LessThanOrEqualTo(0.12f),
+                    "Player entry and extraction cannot land on an escarpment face.");
+                Assert.That(
+                    generator.IsInsideEnemyRiverExclusion(
+                        endpoint,
+                        0f),
+                    Is.False,
+                    "Player entry and extraction must remain on dry terrain.");
+            }
+
+            return controllerGradeLimit;
+        }
+
         private static void AssertBroadNavigableTerrainRegions(
             Vector3[] vertices,
             int gridWidth,
-            float mapRadius,
-            Vector3[] river)
+            ProceduralRaidGenerator generator,
+            Vector3[] river,
+            float controllerGradeLimit)
         {
+            if (generator.AdvancedLandformsEnabled)
+            {
+                AssertDistributedAdvancedTerrain(
+                    vertices,
+                    gridWidth,
+                    generator,
+                    river,
+                    controllerGradeLimit);
+                return;
+            }
+
+            float mapRadius = generator.MapRadius;
+            Vector2 uplandDirection =
+                generator.UplandDirection.normalized;
+            Vector2 escarpmentTangent = new Vector2(
+                -uplandDirection.y,
+                uplandDirection.x);
+            IReadOnlyList<Vector2> passCenters =
+                generator.EscarpmentPassCenters;
+            float escarpmentProjection = 0f;
+            for (int index = 0; index < passCenters.Count; index++)
+            {
+                escarpmentProjection += Vector2.Dot(
+                    passCenters[index],
+                    uplandDirection);
+            }
+            escarpmentProjection /= passCenters.Count;
+
             float minimum = float.PositiveInfinity;
             float maximum = float.NegativeInfinity;
-            var quadrantTotals = new float[4];
-            var quadrantCounts = new int[4];
-            var grades = new List<float>();
+            var lowlandHeights = new List<float>();
+            var uplandHeights = new List<float>();
+            var allGrades = new List<float>();
+            var stableTerrainGrades = new List<float>();
+            const int SteepBandBinCount = 12;
+            var steepBandBins = new bool[SteepBandBinCount];
+            int controllerWalkableCount = 0;
+            int steepSampleCount = 0;
+            int intentionalSteepSampleCount = 0;
             float sampleSpacing = Mathf.Abs(
                 vertices[1].x - vertices[0].x);
             for (int z = 1; z < gridWidth - 1; z++)
@@ -3003,8 +4496,11 @@ namespace WorldBuilder.Tests
                 {
                     int index = z * gridWidth + x;
                     Vector3 point = vertices[index];
-                    if (new Vector2(point.x, point.z).magnitude >
-                            mapRadius * 0.72f ||
+                    Vector2 point2 = ToXZ(point);
+                    float coastRadius = generator.CurrentLayout
+                        .CoastRadiusAtAngle(
+                            Mathf.Atan2(point.z, point.x));
+                    if (point2.magnitude > coastRadius * 0.72f ||
                         DistanceToPolyline(point, river) < 8f)
                     {
                         continue;
@@ -3012,48 +4508,257 @@ namespace WorldBuilder.Tests
 
                     minimum = Mathf.Min(minimum, point.y);
                     maximum = Mathf.Max(maximum, point.y);
-                    int quadrant =
-                        (point.x >= 0f ? 1 : 0) +
-                        (point.z >= 0f ? 2 : 0);
-                    quadrantTotals[quadrant] += point.y;
-                    quadrantCounts[quadrant]++;
-                    grades.Add(Mathf.Abs(
-                        vertices[index + 1].y - point.y) /
-                        sampleSpacing);
-                    grades.Add(Mathf.Abs(
-                        vertices[index + gridWidth].y - point.y) /
-                        sampleSpacing);
+                    float signedEscarpmentDistance = Vector2.Dot(
+                        point2,
+                        uplandDirection) -
+                        escarpmentProjection;
+                    const float StableRegionInset = 32f;
+                    if (signedEscarpmentDistance <=
+                        -StableRegionInset)
+                    {
+                        lowlandHeights.Add(point.y);
+                    }
+                    else if (signedEscarpmentDistance >=
+                        StableRegionInset)
+                    {
+                        uplandHeights.Add(point.y);
+                    }
+
+                    float xGrade =
+                        (vertices[index + 1].y -
+                         vertices[index - 1].y) /
+                        (sampleSpacing * 2f);
+                    float zGrade =
+                        (vertices[index + gridWidth].y -
+                         vertices[index - gridWidth].y) /
+                        (sampleSpacing * 2f);
+                    float grade = Mathf.Sqrt(
+                        xGrade * xGrade +
+                        zGrade * zGrade);
+                    allGrades.Add(grade);
+
+                    bool nearPassShoulder = false;
+                    for (int passIndex = 0;
+                         passIndex < passCenters.Count;
+                         passIndex++)
+                    {
+                        if (Vector2.Distance(
+                                point2,
+                                passCenters[passIndex]) <= 32f)
+                        {
+                            nearPassShoulder = true;
+                            break;
+                        }
+                    }
+                    bool insideIntentionalSteepBand =
+                        Mathf.Abs(signedEscarpmentDistance) <= 12f ||
+                        nearPassShoulder;
+                    if (!insideIntentionalSteepBand)
+                    {
+                        stableTerrainGrades.Add(grade);
+                    }
+                    if (grade <= controllerGradeLimit)
+                    {
+                        controllerWalkableCount++;
+                        continue;
+                    }
+
+                    steepSampleCount++;
+                    if (insideIntentionalSteepBand)
+                    {
+                        intentionalSteepSampleCount++;
+                    }
+                    float tangentDistance = Vector2.Dot(
+                        point2,
+                        escarpmentTangent);
+                    float halfCoverage = mapRadius * 0.60f;
+                    if (Mathf.Abs(signedEscarpmentDistance) <= 12f &&
+                        Mathf.Abs(tangentDistance) < halfCoverage)
+                    {
+                        int bin = Mathf.Clamp(
+                            Mathf.FloorToInt(
+                                Mathf.InverseLerp(
+                                    -halfCoverage,
+                                    halfCoverage,
+                                    tangentDistance) *
+                                SteepBandBinCount),
+                            0,
+                            SteepBandBinCount - 1);
+                        steepBandBins[bin] = true;
+                    }
                 }
             }
 
-            float lowestRegion = float.PositiveInfinity;
-            float highestRegion = float.NegativeInfinity;
-            for (int index = 0; index < quadrantTotals.Length; index++)
-            {
-                Assert.That(quadrantCounts[index], Is.GreaterThan(100));
-                float average = quadrantTotals[index] / quadrantCounts[index];
-                lowestRegion = Mathf.Min(lowestRegion, average);
-                highestRegion = Mathf.Max(highestRegion, average);
-            }
-            grades.Sort();
-            float ninetyFifthPercentile = grades[
-                Mathf.Clamp(
-                    Mathf.FloorToInt(grades.Count * 0.95f),
-                    0,
-                    grades.Count - 1)];
+            Assert.That(allGrades.Count, Is.GreaterThan(1000));
+            Assert.That(lowlandHeights.Count, Is.GreaterThan(500));
+            Assert.That(uplandHeights.Count, Is.GreaterThan(500));
+            Assert.That(stableTerrainGrades.Count, Is.GreaterThan(1000));
+            lowlandHeights.Sort();
+            uplandHeights.Sort();
+            stableTerrainGrades.Sort();
+
+            float lowlandMedian = PercentileOfSorted(
+                lowlandHeights,
+                0.50f);
+            float uplandMedian = PercentileOfSorted(
+                uplandHeights,
+                0.50f);
+            float stableGrade95 = PercentileOfSorted(
+                stableTerrainGrades,
+                0.95f);
+            float walkableShare = controllerWalkableCount /
+                (float)allGrades.Count;
+            float steepShare = steepSampleCount /
+                (float)allGrades.Count;
+            float intentionalSteepShare =
+                intentionalSteepSampleCount /
+                (float)Mathf.Max(1, steepSampleCount);
+            int coveredSteepBandBins = steepBandBins.Count(
+                covered => covered);
 
             Assert.That(
                 maximum - minimum,
-                Is.GreaterThan(10f),
-                "The playable interior should include meaningful high and low terrain, not one uniformly rolling surface.");
+                Is.GreaterThan(
+                    ProceduralRaidGenerator.RaisedUplandHeight),
+                "The dry interior should contain a real raised land slice, not uniformly rolling terrain.");
             Assert.That(
-                highestRegion - lowestRegion,
-                Is.GreaterThan(1.4f),
-                "Arena-scale sectors should sit at visibly different average elevations.");
+                uplandMedian - lowlandMedian,
+                Is.GreaterThan(
+                    ProceduralRaidGenerator.RaisedUplandHeight *
+                    0.65f),
+                "Stable upland and lowland regions need clearly separated median elevations.");
             Assert.That(
-                ninetyFifthPercentile,
-                Is.LessThan(0.48f),
-                "At least 95% of dry interior terrain should remain comfortably traversable by the player controller.");
+                PercentileOfSorted(uplandHeights, 0.25f) -
+                    PercentileOfSorted(lowlandHeights, 0.75f),
+                Is.GreaterThan(1.5f),
+                "The middle half of the upland should remain visibly above the middle half of the lowland.");
+            Assert.That(
+                stableGrade95,
+                Is.LessThan(controllerGradeLimit * 0.70f),
+                "Stable terrain away from the escarpment should remain comfortably below the controller slope limit.");
+            Assert.That(
+                walkableShare,
+                Is.GreaterThan(0.90f),
+                "Most dry interior terrain must remain controller-walkable even with the new cliff band.");
+            Assert.That(
+                steepSampleCount,
+                Is.GreaterThan(50),
+                "The raised slice needs a meaningful steep face rather than only a height offset.");
+            Assert.That(
+                steepShare,
+                Is.LessThan(0.08f),
+                "Above-limit terrain should remain a limited escarpment band, not dominate the island interior.");
+            Assert.That(
+                intentionalSteepShare,
+                Is.GreaterThan(0.80f),
+                "Above-limit samples should concentrate on the escarpment and authored pass shoulders instead of appearing as random traversal hazards.");
+            Assert.That(
+                coveredSteepBandBins,
+                Is.GreaterThanOrEqualTo(SteepBandBinCount / 2),
+                "The cliff face should read as one broad landform band rather than a few isolated steep spikes.");
+        }
+
+        private static void AssertDistributedAdvancedTerrain(
+            Vector3[] vertices,
+            int gridWidth,
+            ProceduralRaidGenerator generator,
+            Vector3[] river,
+            float controllerGradeLimit)
+        {
+            float minimum = float.PositiveInfinity;
+            float maximum = float.NegativeInfinity;
+            int sampled = 0;
+            int walkable = 0;
+            float sampleSpacing = Mathf.Abs(
+                vertices[1].x - vertices[0].x);
+            for (int z = 1; z < gridWidth - 1; z++)
+            {
+                for (int x = 1; x < gridWidth - 1; x++)
+                {
+                    int index = z * gridWidth + x;
+                    Vector3 point = vertices[index];
+                    Vector2 point2 = ToXZ(point);
+                    float coastRadius = generator.CurrentLayout
+                        .CoastRadiusAtAngle(
+                            Mathf.Atan2(point.z, point.x));
+                    if (point2.magnitude > coastRadius * 0.72f ||
+                        DistanceToPolyline(point, river) < 8f)
+                    {
+                        continue;
+                    }
+
+                    minimum = Mathf.Min(minimum, point.y);
+                    maximum = Mathf.Max(maximum, point.y);
+                    float xGrade =
+                        (vertices[index + 1].y -
+                         vertices[index - 1].y) /
+                        (sampleSpacing * 2f);
+                    float zGrade =
+                        (vertices[index + gridWidth].y -
+                         vertices[index - gridWidth].y) /
+                        (sampleSpacing * 2f);
+                    float grade = Mathf.Sqrt(
+                        xGrade * xGrade + zGrade * zGrade);
+                    sampled++;
+                    if (grade <= controllerGradeLimit)
+                    {
+                        walkable++;
+                    }
+                }
+            }
+
+            Assert.That(sampled, Is.GreaterThan(1000));
+            Assert.That(
+                maximum - minimum,
+                Is.GreaterThan(
+                    ProceduralRaidGenerator.RaisedUplandHeight),
+                "Distributed tiers must retain substantial vertical range.");
+            Assert.That(
+                walkable / (float)sampled,
+                Is.GreaterThan(0.86f),
+                "Most terrain between distributed tiers must remain controller-walkable.");
+
+            Vector2 direction = generator.UplandDirection.normalized;
+            foreach (ProceduralRaidGenerator.LandformTier tier in new[]
+                     {
+                         ProceduralRaidGenerator.LandformTier.MidShelf,
+                         ProceduralRaidGenerator.LandformTier.Highland
+                     })
+            {
+                bool positive = false;
+                bool negative = false;
+                foreach (ProceduralRaidGenerator.LandformRegion region in
+                         generator.AdvancedLandformRegions)
+                {
+                    if (region.Tier != tier)
+                    {
+                        continue;
+                    }
+                    float projection = Vector2.Dot(
+                        region.Center,
+                        direction);
+                    positive |= projection > 0f;
+                    negative |= projection < 0f;
+                }
+                Assert.That(
+                    positive && negative,
+                    Is.True,
+                    $"{tier} terrain must occur on both map halves.");
+            }
+        }
+
+        private static float PercentileOfSorted(
+            List<float> values,
+            float percentile)
+        {
+            float scaledIndex = Mathf.Clamp01(percentile) *
+                (values.Count - 1);
+            int lower = Mathf.FloorToInt(scaledIndex);
+            int upper = Mathf.Min(lower + 1, values.Count - 1);
+            return Mathf.Lerp(
+                values[lower],
+                values[upper],
+                scaledIndex - lower);
         }
 
         private static float MinimumTerrainHeight(

@@ -149,10 +149,10 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                 Color surface = activated
                     ? Color.Lerp(monumentColor, Color.white, 0.18f)
                     : Color.Lerp(monumentColor, Color.black, 0.22f);
-                Color emission = activated
-                    ? monumentColor *
-                        activatedEmissionMultiplier
-                    : monumentColor * 0.08f;
+                // Raid navigation cannot tolerate visual sources that bloom
+                // across the screen. Keep objective state readable through
+                // the surface tint only; obelisks never emit scene light.
+                Color emission = Color.black;
                 surface.a = 1f;
                 emission.a = 1f;
                 propertyBlock.SetColor(BaseColorId, surface);
@@ -167,10 +167,9 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
                     monumentColor,
                     Color.white,
                     0.14f);
-                activationLight.intensity =
-                    activatedLightIntensity;
-                activationLight.range = activatedLightRange;
-                activationLight.enabled = activated;
+                activationLight.intensity = 0f;
+                activationLight.range = 0f;
+                activationLight.enabled = false;
             }
         }
     }

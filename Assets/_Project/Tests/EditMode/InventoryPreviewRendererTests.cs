@@ -60,6 +60,10 @@ namespace WorldBuilder.Tests.EditMode
             Assert.That(
                 InventoryPreviewRenderer.SecondaryThumbnailRoll,
                 Is.EqualTo(-90f));
+            Assert.That(
+                InventoryPreviewRenderer.LootBowFootprintRoll,
+                Is.Zero,
+                "The 2x3 pack bow must render upright; its equipped-card pose is separate.");
             Quaternion rotation =
                 InventoryPreviewRenderer.SecondaryThumbnailRotation;
             Vector3 limbAxis = rotation * Vector3.up;
@@ -134,6 +138,112 @@ namespace WorldBuilder.Tests.EditMode
                 AssertSingleSamplePreview(preview.PrimaryThumbnail);
                 AssertSingleSamplePreview(preview.SecondaryThumbnail);
                 AssertSingleSamplePreview(preview.WeaponTexture);
+            }
+            finally
+            {
+                Object.DestroyImmediate(previewObject);
+                Object.DestroyImmediate(source);
+            }
+        }
+
+        [Test]
+        public void PreviewRenderRestoresTheActiveRenderTarget()
+        {
+            GameObject source = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            GameObject previewObject = new GameObject(
+                "inventory-preview-target-restore-test");
+            var target = new RenderTexture(32, 96, 24);
+            var sentinel = new RenderTexture(8, 8, 0);
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                target.Create();
+                sentinel.Create();
+                InventoryPreviewRenderer preview =
+                    previewObject.AddComponent<InventoryPreviewRenderer>();
+                preview.Configure(source.transform);
+                FieldInfo proxyField =
+                    typeof(InventoryPreviewRenderer).GetField(
+                        "characterProxy",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                MethodInfo renderMethod =
+                    typeof(InventoryPreviewRenderer).GetMethod(
+                        "RenderProxy",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(proxyField, Is.Not.Null);
+                Assert.That(renderMethod, Is.Not.Null);
+
+                RenderTexture.active = sentinel;
+                renderMethod.Invoke(
+                    preview,
+                    new object[]
+                    {
+                        proxyField.GetValue(preview),
+                        target,
+                        0f,
+                        1.05f,
+                        0f,
+                        false
+                    });
+
+                Assert.That(
+                    RenderTexture.active,
+                    Is.SameAs(sentinel),
+                    "A weapon preview must not redirect the remaining inventory GUI into its texture.");
+                Assert.That(
+                    ((GameObject)proxyField.GetValue(preview)).activeSelf,
+                    Is.False,
+                    "A rendered proxy must be hidden immediately so it cannot leak into the next queued weapon preview.");
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                target.Release();
+                sentinel.Release();
+                Object.DestroyImmediate(target);
+                Object.DestroyImmediate(sentinel);
+                Object.DestroyImmediate(previewObject);
+                Object.DestroyImmediate(source);
+            }
+        }
+
+        [Test]
+        public void PreviewProxyPreservesProceduralMaterialColors()
+        {
+            GameObject source = GameObject.CreatePrimitive(
+                PrimitiveType.Cube);
+            GameObject previewObject = new GameObject(
+                "inventory-preview-color-test");
+            Color generatedColor = new Color(0.17f, 0.63f, 0.29f, 1f);
+            int baseColorId = Shader.PropertyToID("_BaseColor");
+            try
+            {
+                Renderer sourceRenderer = source.GetComponent<Renderer>();
+                var sourceProperties = new MaterialPropertyBlock();
+                sourceProperties.SetColor(baseColorId, generatedColor);
+                sourceRenderer.SetPropertyBlock(sourceProperties);
+
+                InventoryPreviewRenderer preview =
+                    previewObject.AddComponent<InventoryPreviewRenderer>();
+                preview.Configure(source.transform);
+                FieldInfo proxyField =
+                    typeof(InventoryPreviewRenderer).GetField(
+                        "characterProxy",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+
+                Assert.That(proxyField, Is.Not.Null);
+                var proxy = (GameObject)proxyField.GetValue(preview);
+                Renderer proxyRenderer =
+                    proxy.GetComponentInChildren<Renderer>(true);
+                var proxyProperties = new MaterialPropertyBlock();
+                proxyRenderer.GetPropertyBlock(proxyProperties);
+
+                Assert.That(
+                    proxyProperties.GetColor(baseColorId),
+                    Is.EqualTo(generatedColor),
+                    "Generator colors live in a property block and must not " +
+                    "be replaced by the preview material's white default.");
             }
             finally
             {

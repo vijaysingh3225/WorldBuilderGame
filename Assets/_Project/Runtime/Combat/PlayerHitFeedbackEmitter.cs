@@ -210,6 +210,12 @@ namespace WorldBuilder.Gameplay.Combat
 #endif
         }
 
+        private void OnDestroy()
+        {
+            ReplaceAlignedClip(ref alignedEnemyHitClip, null);
+            ReplaceAlignedClip(ref alignedHeadshotClip, null);
+        }
+
         private static void EnsureLoaded(
             AudioClip clip)
         {

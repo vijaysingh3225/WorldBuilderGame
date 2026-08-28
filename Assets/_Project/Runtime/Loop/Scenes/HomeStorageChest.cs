@@ -155,6 +155,8 @@ namespace WorldBuilder.Gameplay.Loop.Scenes
 
             Ray ray = camera.ScreenPointToRay(
                 LootInteractionPresentation.CalculateAimPoint(
+                    camera,
+                    sharedPlayer,
                     Screen.width,
                     Screen.height));
             int hitCount = Physics.RaycastNonAlloc(

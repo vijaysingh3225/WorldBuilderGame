@@ -14,6 +14,50 @@ namespace WorldBuilder.Tests.EditMode
     public sealed class WeaponGridHardeningTests
     {
         [Test]
+        public void WeaponGridWheelZoomsBothDirectionsAndClamps()
+        {
+            Assert.That(
+                WeaponGridSandboxToolkit.CalculateZoom(1f, -1f),
+                Is.GreaterThan(1f));
+            Assert.That(
+                WeaponGridSandboxToolkit.CalculateZoom(1f, 1f),
+                Is.LessThan(1f));
+            Assert.That(
+                WeaponGridSandboxToolkit.CalculateZoom(1f, 10000f),
+                Is.EqualTo(0.55f));
+            Assert.That(
+                WeaponGridSandboxToolkit.CalculateZoom(1f, -10000f),
+                Is.EqualTo(1.85f));
+        }
+
+        [Test]
+        public void WeaponGridViewResetsWheneverItReopens()
+        {
+            GameObject systems = new GameObject("weapon-grid-view-reset-test");
+            float initialTimeScale = Time.timeScale;
+            try
+            {
+                WeaponGridSandboxToolkit toolkit =
+                    systems.AddComponent<WeaponGridSandboxToolkit>();
+                toolkit.SetToggleWithTab(false);
+                toolkit.Open();
+                SetPrivateField(toolkit, "boardZoom", 1.72f);
+                toolkit.Close();
+                Assert.That(toolkit.BoardZoom, Is.EqualTo(1f));
+
+                SetPrivateField(toolkit, "boardZoom", 0.61f);
+                toolkit.Open();
+                Assert.That(toolkit.BoardZoom, Is.EqualTo(1f));
+                toolkit.Close();
+            }
+            finally
+            {
+                Time.timeScale = initialTimeScale;
+                UnityEngine.Object.DestroyImmediate(systems);
+            }
+        }
+
+        [Test]
         public void InventoryCloseRecapturesCursorAfterEscapeFrame()
         {
             GameObject systems = new GameObject(
@@ -114,6 +158,16 @@ namespace WorldBuilder.Tests.EditMode
                 Assert.That(toolkit.IsOpen, Is.False);
 
                 InvokePrivate(inventory, "OpenWeaponGrid", 1);
+                StorageEntry nestedEntry = StorageEntry.Create(
+                    ItemDefinitionIds.LootShortSword);
+                SetPrivateField(
+                    inventory,
+                    "inspectedLootWeapon",
+                    nestedEntry);
+                SetPrivateField(
+                    inventory,
+                    "weaponContextEntry",
+                    nestedEntry);
                 InvokePrivate(inventory, "Close");
 
                 Assert.That(inventory.IsOpen, Is.False);
@@ -121,6 +175,27 @@ namespace WorldBuilder.Tests.EditMode
                     toolkit.IsOpen,
                     Is.False,
                     "Closing the inventory stack must also close its child grid.");
+                Assert.That(
+                    GetPrivateField<StorageEntry>(
+                        inventory,
+                        "inspectedLootWeapon"),
+                    Is.Null,
+                    "Closing the inventory must discard its nested inspector view.");
+                Assert.That(
+                    GetPrivateField<StorageEntry>(
+                        inventory,
+                        "weaponContextEntry"),
+                    Is.Null,
+                    "Closing the inventory must discard transient item menus.");
+
+                inventory.OpenInventory();
+                Assert.That(
+                    GetPrivateField<StorageEntry>(
+                        inventory,
+                        "inspectedLootWeapon"),
+                    Is.Null,
+                    "Reopening must always begin at the base inventory view, without restoring a nested tab.");
+                InvokePrivate(inventory, "Close");
             }
             finally
             {

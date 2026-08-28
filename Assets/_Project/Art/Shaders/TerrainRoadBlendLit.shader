@@ -11,11 +11,19 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
         _HabitatTiling("Habitat Tiling", Float) = 6.5
         _HabitatBrightness("Habitat Brightness", Range(0.5, 2.5)) = 1.55
         _HabitatBlendContrast("Habitat Blend Contrast", Range(1, 3)) = 1.35
+        _ForestGroundSaturation("Forest Ground Saturation", Range(0, 1)) = 0.86
         _LoamTint("Mossy Loam Tint", Color) = (1.08, 1.02, 0.86, 1)
         _DuffTint("Canopy Duff Tint", Color) = (1.04, 0.79, 0.58, 1)
         _MossTint("Moss Carpet Tint", Color) = (0.72, 1.34, 0.72, 1)
         _GroundcoverTint("Creeping Groundcover Tint", Color) = (0.72, 1.42, 0.68, 1)
         _StonyTint("Stony Lichen Tint", Color) = (1.24, 1.18, 1.02, 1)
+        _CliffTint("Cliff Rock Tint", Color) = (0.76, 0.78, 0.72, 1)
+        _CliffProjectionScale("Cliff Projection Scale", Range(0.25, 2)) = 1
+        _CliffSlopeStart("Cliff Slope Start", Range(0, 1)) = 0.28
+        _CliffSlopeFull("Cliff Slope Full", Range(0, 1)) = 0.58
+        _CliffStrataScale("Cliff Strata Scale", Range(0.05, 1)) = 0.24
+        _CliffStrataStrength("Cliff Strata Strength", Range(0, 0.35)) = 0.13
+        [HideInInspector] _Cull("Cull", Float) = 2
         [HideInInspector] _HabitatDebugMode("Habitat Debug Mode", Float) = 0
         [MainColor] _GroundColor("Ground Color", Color) = (1, 1, 1, 1)
         _RoadColor("Road Color", Color) = (1, 1, 1, 1)
@@ -33,7 +41,7 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
         {
             Name "ForwardLit"
             Tags { "LightMode" = "UniversalForward" }
-            Cull Back
+            Cull [_Cull]
             ZWrite On
 
             HLSLPROGRAM
@@ -68,9 +76,16 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
                 half4 _MossTint;
                 half4 _GroundcoverTint;
                 half4 _StonyTint;
+                half4 _CliffTint;
                 float _HabitatTiling;
                 float _HabitatBrightness;
                 float _HabitatBlendContrast;
+                float _ForestGroundSaturation;
+                float _CliffProjectionScale;
+                float _CliffSlopeStart;
+                float _CliffSlopeFull;
+                float _CliffStrataScale;
+                float _CliffStrataStrength;
                 float _HabitatDebugMode;
             CBUFFER_END
 
@@ -121,6 +136,7 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
 
             half4 Frag(Varyings input) : SV_Target
             {
+                half3 normalWS = normalize(input.normalWS);
                 half4 weights = saturate(input.habitatWeights);
                 half stonyWeight = saturate(
                     1.0h - weights.x - weights.y -
@@ -157,6 +173,20 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
                     _GroundcoverMap,
                     sampler_GroundcoverMap,
                     input.habitatUv) * _GroundColor * _GroundcoverTint;
+                half mossLuminance = dot(
+                    moss.rgb,
+                    half3(0.299h, 0.587h, 0.114h));
+                half groundcoverLuminance = dot(
+                    groundcover.rgb,
+                    half3(0.299h, 0.587h, 0.114h));
+                moss.rgb = lerp(
+                    mossLuminance.xxx,
+                    moss.rgb,
+                    _ForestGroundSaturation);
+                groundcover.rgb = lerp(
+                    groundcoverLuminance.xxx,
+                    groundcover.rgb,
+                    _ForestGroundSaturation);
                 half4 stony = SAMPLE_TEXTURE2D(
                     _StonyLichenMap,
                     sampler_StonyLichenMap,
@@ -178,6 +208,54 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
                 int debugMode = (int)round(_HabitatDebugMode);
                 if (debugMode == 0)
                 {
+                    // Terrain UVs are projected across XZ, so they collapse
+                    // into streaks on near-vertical escarpments. Blend the
+                    // existing stony habitat texture from the two world-space
+                    // side axes only where the surface is genuinely steep.
+                    // Ordinary terrain remains on its existing habitat blend.
+                    half2 cliffAxisWeights = pow(
+                        max(abs(normalWS.xz), half2(0.0001h, 0.0001h)),
+                        4.0h);
+                    cliffAxisWeights /= max(
+                        0.0001h,
+                        cliffAxisWeights.x + cliffAxisWeights.y);
+                    float cliffUvScale =
+                        (_HabitatTiling / 12.0) * _CliffProjectionScale;
+                    half4 cliffFromX = SAMPLE_TEXTURE2D(
+                        _StonyLichenMap,
+                        sampler_StonyLichenMap,
+                        input.positionWS.zy * cliffUvScale);
+                    half4 cliffFromZ = SAMPLE_TEXTURE2D(
+                        _StonyLichenMap,
+                        sampler_StonyLichenMap,
+                        input.positionWS.xy * cliffUvScale);
+                    half4 cliffSource =
+                        cliffFromX * cliffAxisWeights.x +
+                        cliffFromZ * cliffAxisWeights.y;
+                    half cliffLuminance = dot(
+                        cliffSource.rgb,
+                        half3(0.299h, 0.587h, 0.114h));
+                    // Broad world-height bands suggest sedimentary strata.
+                    // Two incommensurate waves keep the bands from reading as
+                    // perfectly uniform stripes while retaining cheap,
+                    // deterministic shading and the existing texture set.
+                    half strata =
+                        sin(input.positionWS.y * _CliffStrataScale +
+                            input.positionWS.x * 0.035) * 0.62h +
+                        sin(input.positionWS.y * _CliffStrataScale * 2.31 +
+                            input.positionWS.z * 0.047) * 0.38h;
+                    cliffLuminance *=
+                        1.0h + strata * _CliffStrataStrength;
+                    half4 cliffStony = half4(
+                        cliffLuminance.xxx * _CliffTint.rgb,
+                        cliffSource.a * _CliffTint.a);
+                    half surfaceSteepness =
+                        1.0h - saturate(abs(normalWS.y));
+                    half cliffBlend = smoothstep(
+                        _CliffSlopeStart,
+                        max(_CliffSlopeStart + 0.0001, _CliffSlopeFull),
+                        surfaceSteepness);
+                    ground = lerp(ground, cliffStony, cliffBlend);
                     ground.rgb *= _HabitatBrightness;
                 }
                 else if (debugMode == 1)
@@ -232,7 +310,6 @@ Shader "WorldBuilder/Terrain Road Blend Lit"
                 half4 surface =
                     lerp(ground, road, roadBlend);
 
-                half3 normalWS = normalize(input.normalWS);
                 float4 shadowCoord =
                     TransformWorldToShadowCoord(input.positionWS);
                 Light mainLight = GetMainLight(shadowCoord);
